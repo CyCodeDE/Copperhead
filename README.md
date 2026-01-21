@@ -46,4 +46,5 @@ This profile is optimized for solver speed compared to the default release or de
 
 ## License
 
-Copperhead is licensed under [MIT](https://github.com/CyCode/Copperhead/blob/main/LICENSE)
+Copperhead is licensed under [MIT](https://github.com/CyCodeDE/Copperhead/blob/main/LICENSE)
+
