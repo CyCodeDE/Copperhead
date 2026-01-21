@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>>) {
     let mut realtime_mode = false;
-    let sample_rate = 48000.0;
+    let sample_rate = 192000.0;
     let mut circuit: Option<Circuit<f64>> = None;
     state.write().running = false;
     let dt = 1.0 / sample_rate;
