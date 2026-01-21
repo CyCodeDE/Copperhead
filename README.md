@@ -21,6 +21,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
     *   Capacitors
     *   Voltage Sources (AC and DC)
 *   **GUI:** Immediate mode interface built with `egui`.
+*   **Oscilloscope:** Allows measuring voltages between nodes and currents on components and scaling correctly.
 
 ### Planned Features
 *   **Realtime Solver:** A JIT-compiled solver to test amps and pedals live with instrument input.
@@ -47,4 +48,5 @@ This profile is optimized for solver speed compared to the default release or de
 ## License
 
 Copperhead is licensed under [MIT](https://github.com/CyCodeDE/Copperhead/blob/main/LICENSE)
+
 
