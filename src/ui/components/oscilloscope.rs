@@ -457,7 +457,7 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
                 let label = if i == 0 {
                     "GND".to_string()
                 } else {
-                    format!("{:.2}V", v)
+                    format_si(&[(v, "V")], 0.1, 2)
                 };
                 painter.text(
                     pos2(ctx.rect.left() + 2.0, y - 2.0),
@@ -485,7 +485,7 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
                 painter.text(
                     pos2(ctx.rect.right() - 8.0, y - 2.0),
                     Align2::RIGHT_BOTTOM,
-                    format!("{:.2}A", val),
+                    format_si(&[(val, "A")], 0.1, 2),
                     font.clone(),
                     Color32::from_rgb(200, 100, 100),
                 );
