@@ -7,6 +7,7 @@ pub mod capacitor;
 pub mod inductor;
 pub mod resistor;
 pub mod voltage_source;
+pub mod diode;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
 #[derive(Clone, Debug)]
@@ -37,6 +38,22 @@ pub enum ComponentDescriptor {
         b: usize,
         inductance: f64,
     },
+    Diode {
+        a: usize,
+        b: usize,
+        /// Saturation current (Is)
+        saturation_current: f64,
+        /// Emission coefficient (N)
+        emission_coefficient: f64,
+        /// Series resistance (Rs)
+        series_resistance: f64,
+        /// Zero-bias junction capacitance (Cjo)
+        cjo: f64,
+        /// Grading coefficient (M)
+        m: f64,
+        /// Transit time (tt)
+        transit_time: f64,
+    }
 }
 
 impl ComponentDescriptor {
@@ -88,6 +105,24 @@ impl ComponentDescriptor {
                     num_traits::cast(inductance)
                         .expect("Failed to cast inductance to circuit scalar type"),
                     dt,
+                ))
+            }
+            ComponentDescriptor::Diode { a, b, saturation_current, emission_coefficient, series_resistance, cjo, m, transit_time } => {
+                Box::new(diode::Diode::new(
+                    NodeId(a),
+                    NodeId(b),
+                    num_traits::cast(saturation_current)
+                        .expect("Failed to cast saturation current to circuit scalar type"),
+                    num_traits::cast(emission_coefficient)
+                        .expect("Failed to cast emission coefficient to circuit scalar type"),
+                    num_traits::cast(series_resistance)
+                        .expect("Failed to cast series resistance to circuit scalar type"),
+                    num_traits::cast(cjo)
+                        .expect("Failed to cast zero-bias junction capacitance to circuit scalar type"),
+                    num_traits::cast(m)
+                        .expect("Failed to cast grading coefficient to circuit scalar type"),
+                    num_traits::cast(transit_time)
+                        .expect("Failed to cast transit time to circuit scalar type"),
                 ))
             }
         }

@@ -13,7 +13,7 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>
     let dt = 1.0 / sample_rate;
 
     // Batch size: Push data to UI roughly at 60fps
-    let steps_per_batch = 1600; // 96000 / 60 ≈ 1600
+    let steps_per_batch = 3200; // 96000 / 60 ≈ 1600
 
     let mut current_step: usize = 0;
     let mut max_steps: usize = usize::MAX;

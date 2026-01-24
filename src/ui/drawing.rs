@@ -7,7 +7,7 @@ use egui::{FontSelection, Painter, RichText, Style};
 use crate::util::format_si;
 
 pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2) {
-    let min_visible = (rect.min.to_vec2() - pan) / zoom;
+    /*let min_visible = (rect.min.to_vec2() - pan) / zoom;
     let max_visible = (rect.max.to_vec2() - pan) / zoom;
     let (min_col, max_col) = (min_visible.x.floor() as i32, max_visible.x.ceil() as i32);
     let (min_row, max_row) = (min_visible.y.floor() as i32, max_visible.y.ceil() as i32);
@@ -37,6 +37,38 @@ pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2) {
             [Pos2::new(rect.left(), sy), Pos2::new(rect.right(), sy)],
             Stroke::new(1.0, color),
         );
+    }*/
+
+    let min_visible = (rect.min.to_vec2() - pan) / zoom;
+    let max_visible = (rect.max.to_vec2() - pan) / zoom;
+    let (min_col, max_col) = (min_visible.x.floor() as i32, max_visible.x.ceil() as i32);
+    let (min_row, max_row) = (min_visible.y.floor() as i32, max_visible.y.ceil() as i32);
+
+    let draw_minor = zoom > 10.0;
+
+    let dot_color = Color32::from_rgb(44, 45, 56);
+    let dot_radius = 1.25;
+
+    for x in min_col..=max_col {
+        if !draw_minor && x % 10 != 0 {
+            continue;
+        }
+
+        let sx = x as f32 * zoom + pan.x;
+
+        for y in min_row..=max_row {
+            if !draw_minor && y % 10 != 0 {
+                continue;
+            }
+
+            let sy = y as f32 * zoom + pan.y;
+
+            painter.circle_filled(
+                Pos2::new(sx, sy),
+                dot_radius,
+                dot_color
+            );
+        }
     }
 }
 
@@ -52,7 +84,7 @@ pub fn draw_component<F>(
     F: Fn(GridPos) -> Pos2,
 {
     let center = transform(comp.pos);
-    let rotation = comp.rotation % 4; // Ensure 0-3 range
+    let rotation = comp.rotation % 4;
 
     // Draw the specific symbol
     match comp.component {
@@ -73,6 +105,9 @@ pub fn draw_component<F>(
         }
         ComponentBuildData::Inductor { .. } => {
             draw_inductor(painter, center, rotation, zoom, stroke_color);
+        }
+        ComponentBuildData::Diode { .. } => {
+            draw_diode(painter, center, rotation, zoom, fill_color, stroke_color);
         }
         // Fallback for unimplemented components
         _ => {
@@ -425,6 +460,62 @@ fn draw_generic_box(
     );
 }
 
+fn draw_diode(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let stroke = Stroke::new(2.0, stroke_color);
+
+    // Dimensions
+    // The symbol body fits roughly between x = -0.5 and x = 0.5
+    let half_len = 0.5; // Distance from center to the edge of the symbol body
+    let half_h = 0.5;   // Half height of the triangle/bar
+
+    // 1. Draw Wires (Leads)
+    // Left (Anode) Lead: (-1.0, 0) -> (-0.5, 0)
+    let lead_anode_start = rotate_vec(Vec2::new(-1.0, 0.0) * zoom, rotation);
+    let lead_anode_end = rotate_vec(Vec2::new(-half_len, 0.0) * zoom, rotation);
+    painter.line_segment([center + lead_anode_start, center + lead_anode_end], stroke);
+
+    // Right (Cathode) Lead: (0.5, 0) -> (1.0, 0)
+    let lead_cathode_start = rotate_vec(Vec2::new(half_len, 0.0) * zoom, rotation);
+    let lead_cathode_end = rotate_vec(Vec2::new(1.0, 0.0) * zoom, rotation);
+    painter.line_segment([center + lead_cathode_start, center + lead_cathode_end], stroke);
+
+    // 2. Draw Triangle (Anode Body)
+    // Points relative to center (before rotation)
+    // - Base is at x = -0.5
+    // - Tip is at x = 0.5
+    let triangle_points_local = [
+        Vec2::new(-half_len, -half_h), // Top Left
+        Vec2::new(-half_len, half_h),  // Bottom Left
+        Vec2::new(half_len, 0.0),      // Tip (Right)
+    ];
+
+    let triangle_points_screen: Vec<Pos2> = triangle_points_local
+        .iter()
+        .map(|&p| center + rotate_vec(p * zoom, rotation))
+        .collect();
+
+    // Use convex_polygon to allow for filling (standard DIN is often hollow, but fill_color is supported)
+    painter.add(Shape::convex_polygon(
+        triangle_points_screen,
+        fill_color,
+        stroke,
+    ));
+
+    // 3. Draw Cathode Bar (Vertical line at the tip)
+    // Line from (0.5, -0.4) to (0.5, 0.4)
+    let bar_top = center + rotate_vec(Vec2::new(half_len, -half_h) * zoom, rotation);
+    let bar_bot = center + rotate_vec(Vec2::new(half_len, half_h) * zoom, rotation);
+
+    painter.line_segment([bar_top, bar_bot], stroke);
+}
+
 // Helper to check if a line segment (p1, p2) intersects a Rectangle
 pub fn check_line_rect_intersection(p1: Pos2, p2: Pos2, rect: Rect) -> bool {
     // 1. Trivial accept: Start or End is inside
@@ -500,7 +591,8 @@ pub fn draw_component_labels(
     let (offset_label, offset_value) = match &component.component {
         ComponentBuildData::Resistor { .. }
         | ComponentBuildData::Inductor { .. }
-        | ComponentBuildData::Capacitor { .. } => {
+        | ComponentBuildData::Capacitor { .. }
+        | ComponentBuildData::Diode { .. } => {
             // Place label above for horizontal, right for vertical
             let label_pos = match rotation {
                 0 | 2 => Vec2::new(0.0, -1.07 * zoom),        // Above
@@ -591,10 +683,10 @@ pub fn draw_component_labels(
         _ => vec![(0.0, "")],
     };
 
-    let value = format_si(
-        mapping.as_slice(),
-        0.1, 2
-    );
+    let value = match &component.component {
+        ComponentBuildData::Diode { model } => model.format_name(),
+        _ => format_si(mapping.as_slice(), 0.1, 2),
+    };
 
     if !value.is_empty() {
         let formatted_value = value;

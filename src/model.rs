@@ -71,6 +71,19 @@ pub struct SimulationContext<T> {
 
 /// The interface a component must implement.
 pub trait Component<T: CircuitScalar>: Send + Sync {
+    /// Returns true if the component allows the matrix A to be pre-solved
+    /// (e.g. Resistors, Capacitors, Inductors with fixed sample rate)
+    /// Returns false for non-linear components (Diodes, Tubes, Transistors, etc.)
+    fn is_linear(&self) -> bool {
+        true
+    }
+
+    /// Returns the raw parameters if available (used for codegen)
+    /// For example, a Resistor would return its resistance value here
+    fn get_parameters(&self) -> Option<Vec<T>> {
+        None
+    }
+
     /// Returns the nodes this component is connected to
     fn ports(&self) -> Vec<NodeId>;
 
@@ -101,7 +114,9 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         prev_node_voltages: &ColRef<T>,
         rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
-    );
+    ) {
+        // Default: Do nothing
+    }
 
     /// Non-Linear iteration (Newton-Raphson)
     /// Called multiple times per sample
@@ -113,18 +128,25 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         _current_node_voltages: &ColRef<T>,
         _matrix: &mut MatMut<T>,
         _rhs: &mut ColMut<T>,
-    ) -> bool {
-        false
+        _ctx: &SimulationContext<T>,
+    ) {
+
     }
 
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
     /// Used to update internal state (e.g. capacitor charge)
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>);
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {;
+        // Default: Do nothing
+    }
 
     /// Calculates the current flowing through the component.
     /// Usually returns current flowing from Port 0 -> Port 1.
-    fn calculate_current(&self, solution: &ColRef<T>) -> T {
+    fn calculate_current(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> T {
         T::zero()
+    }
+
+    fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
+        false
     }
 }

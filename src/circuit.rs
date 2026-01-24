@@ -81,9 +81,6 @@ impl<T: CircuitScalar> Circuit<T> {
             step: self.step_count,
         };
 
-        // Create the "Base" Linear System.
-        // These are components that don't change during the Newton-Raphson loop
-        // (Resistors, Sources, and the history part of Capacitors/Inductors).
         let mut base_matrix = Mat::<T>::zeros(size, size);
         let mut base_rhs = Col::<T>::zeros(size);
 
@@ -103,12 +100,14 @@ impl<T: CircuitScalar> Circuit<T> {
         }
 
         // Newton-Raphson Iteration Loop
-        let max_iterations = 50;
+        let max_iterations = 100;
         // Tolerance: 1 microvolt / 1 picoamp
         let tolerance = T::from(1e-6).unwrap();
 
         let mut converged = false;
         let mut damping_factor = T::from(1.0).unwrap();
+
+        let is_nonlinear_circuit = self.components.iter().any(|c| !c.is_linear());
 
         // try to converge, if not, reduce damping factor
         for _attempt in 0..3 {
@@ -116,31 +115,28 @@ impl<T: CircuitScalar> Circuit<T> {
                 let mut iter_matrix = base_matrix.clone();
                 let mut iter_rhs = base_rhs.clone();
 
-                // Stamp Non-Linear components
-                let mut is_nonlinear_circuit = false;
-
                 for comp in &self.components {
-                    if comp.stamp_nonlinear(
+                    comp.stamp_nonlinear(
                         &self.current_solution.as_ref(),
                         &mut iter_matrix.as_mut(),
                         &mut iter_rhs.as_mut(),
-                    ) {
-                        is_nonlinear_circuit = true;
-                    }
+                        &ctx,
+                    );
                 }
 
                 let lu = iter_matrix.partial_piv_lu();
                 let next_solution = lu.solve(&iter_rhs);
 
-                // If the circuit has NO non-linear components, we don't need to loop. The result is exact immediately.
+
                 if !is_nonlinear_circuit {
+                    // Linear circuit optimization
                     self.current_solution = next_solution;
                     converged = true;
                     break;
                 }
 
-                // Check for Convergence
-                // We check the maximum voltage change across all nodes.
+                // Global Voltage Convergence
+                let mut global_voltage_converged = true;
                 let mut max_error = T::zero();
                 for i in 0..size {
                     let diff = (next_solution[i] - self.current_solution[i]).abs();
@@ -149,12 +145,27 @@ impl<T: CircuitScalar> Circuit<T> {
                     }
                 }
 
-                // Update the current solution for the next iteration
+                if max_error > tolerance {
+                    global_voltage_converged = false;
+                }
+
+                // Component Physics Convergence
+                let mut devices_converged = true;
+                for comp in &self.components {
+                    if !comp.is_linear() {
+                        if !comp.is_converged(&next_solution.as_ref()) {
+                            devices_converged = false;
+                        }
+                    }
+                }
+
+                // Update solution for next iteration
                 self.current_solution = &self.current_solution
                     + &(&(&next_solution - &self.current_solution)
-                        * damping_factor.to_f64().unwrap());
+                    * damping_factor.to_f64().unwrap());
 
-                if max_error < tolerance {
+                // Only stop if BOTH agree
+                if global_voltage_converged && devices_converged {
                     converged = true;
                     break;
                 }
@@ -176,7 +187,7 @@ impl<T: CircuitScalar> Circuit<T> {
 
         // Post-Solve update
         for comp in &mut self.components {
-            comp.update_state(&self.current_solution.as_ref())
+            comp.update_state(&self.current_solution.as_ref(), &ctx);
         }
 
         // Data Collection
@@ -193,7 +204,7 @@ impl<T: CircuitScalar> Circuit<T> {
         let mut currents = Vec::with_capacity(self.components.len());
         for comp in &self.components {
             currents.push(
-                comp.calculate_current(&self.current_solution.as_ref())
+                comp.calculate_current(&self.current_solution.as_ref(), &ctx)
                     .to_f64()
                     .unwrap(),
             );
@@ -236,10 +247,14 @@ impl<T: CircuitScalar> Circuit<T> {
         }
     }
 
-    /// Read the current flowing through a specific component
-    pub fn get_component_current(&self, component_idx: usize) -> T {
+    /// Read the current flowing through a specific component from the last solution
+    pub fn get_component_current(&self, component_idx: usize, dt: T) -> T {
         if component_idx < self.components.len() {
-            self.components[component_idx].calculate_current(&self.current_solution.as_ref())
+            self.components[component_idx].calculate_current(&self.current_solution.as_ref(), &SimulationContext {
+                dt,
+                time: self.time,
+                step: self.step_count,
+            })
         } else {
             T::zero()
         }

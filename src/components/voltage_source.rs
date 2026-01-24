@@ -71,9 +71,10 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         rhs[src_idx] = val;
     }
 
-    fn update_state(&mut self, _current_node_voltages: &ColRef<T>) {
+    fn update_state(&mut self, _current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
+        // No internal state to update
     }
-    fn calculate_current(&self, solution: &ColRef<T>) -> T {
+    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
         // The current for voltage sources is explicitly calculated by the solver
         // and stored in the auxiliary row index we were assigned
         if let Some(idx) = self.matrix_idx {

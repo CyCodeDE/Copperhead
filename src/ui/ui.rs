@@ -15,6 +15,7 @@ use egui_plot::{Line, Plot, PlotPoints};
 use faer::prelude::default;
 use log::{debug, info};
 use std::time::Duration;
+use crate::components::diode::DiodeModel;
 
 impl Tool {
     fn get_name(&self) -> &str {
@@ -175,14 +176,19 @@ impl eframe::App for CircuitApp {
                 self.selected_tool =
                     Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: 1e-6 }); // 1 uF
             }
-            if ui.button("Inductor (I)").clicked()
-                || (ui.input(|i| i.key_pressed(Key::I)) && ui.input(|i| i.modifiers.is_none()))
+            if ui.button("Inductor (L)").clicked()
+                || (ui.input(|i| i.key_pressed(Key::L)) && ui.input(|i| i.modifiers.is_none()))
             {
                 self.selected_tool =
                     Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: 1e-3 }); // 1 mH
             }
-            if ui.button("DC Source (D)").clicked()
+            if ui.button("Diode (D)").clicked()
                 || (ui.input(|i| i.key_pressed(Key::D)) && ui.input(|i| i.modifiers.is_none()))
+            {
+                self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Diode { model: DiodeModel::D1N4148 });
+            }
+            if ui.button("DC Source (Y)").clicked()
+                || (ui.input(|i| i.key_pressed(Key::Y)) && ui.input(|i| i.modifiers.is_none()))
             {
                 self.selected_tool =
                     Tool::PlaceComponent(ComponentBuildData::DCSource { voltage: 5.0 }); // 5V default

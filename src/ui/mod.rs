@@ -6,6 +6,7 @@ pub mod ui;
 use crate::components::ComponentDescriptor;
 use crate::model::{CircuitScalar, GridPos, NodeId};
 use std::collections::HashMap;
+use crate::components::diode::DiodeModel;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ComponentBuildData {
@@ -14,6 +15,7 @@ pub enum ComponentBuildData {
     DCSource { voltage: f64 },
     ASource { amplitude: f64, frequency: f64 },
     Inductor { inductance: f64 },
+    Diode { model: DiodeModel },
     Ground,
 }
 
@@ -24,8 +26,8 @@ impl ComponentBuildData {
             Self::Capacitor { .. } => "C",
             Self::Inductor { .. } => "L",
             Self::DCSource { .. } | Self::ASource { .. } => "V",
+            Self::Diode { .. } => "D",
             Self::Ground => "",
-            // Add Diodes (D), Transistors (Q), Transformers (T), Tubes (V) here later
         }
     }
 }
@@ -54,6 +56,7 @@ impl VisualComponent {
             ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom)
             ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
             ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
+            ComponentBuildData::Diode { .. } => vec![(-1, 0), (1, 0)], // 2 Pins (Anode, Cathode)
         };
 
         local_pins

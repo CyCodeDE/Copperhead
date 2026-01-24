@@ -39,6 +39,11 @@ impl<T: CircuitScalar> Resistor<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for Resistor<T> {
+    fn get_parameters(&self) -> Option<Vec<T>> {
+        // Resistance
+        Some(vec![T::one() / self.conductance])
+    }
+
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }
@@ -75,11 +80,11 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         // No dynamic behavior
     }
 
-    fn update_state(&mut self, _current: &faer::ColRef<T>) {
+    fn update_state(&mut self, _current: &faer::ColRef<T>, _ctx: &SimulationContext<T>) {
         // No state
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>) -> T {
+    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
         let v_a = self.get_voltage(self.node_a, solution);
         let v_b = self.get_voltage(self.node_b, solution);
         (v_a - v_b) * self.conductance

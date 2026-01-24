@@ -107,7 +107,7 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         }
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
         let v_new = self.get_voltage_diff(current_node_voltages);
 
         // Calculate current using the discretized Trapezoidal equation
@@ -119,9 +119,7 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         self.prev_current = i_new;
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>) -> T {
-        // We need to return the instantaneous current i[n] based on the just-solved voltage.
-
+    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
         let v_new = self.get_voltage_diff(solution);
         let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
 

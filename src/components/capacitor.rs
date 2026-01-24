@@ -98,14 +98,14 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         }
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
         let v_new = self.get_voltage_diff(current_node_voltages);
 
         let two = T::from(2.0).unwrap();
         self.eq_current = -self.eq_current - (two * self.conductance * v_new);
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>) -> T {
+    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
         // i(t) = G * v(t) + I_eq(t)
         let v = self.get_voltage_diff(solution);
         (v * self.conductance) + self.eq_current

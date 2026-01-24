@@ -5,10 +5,11 @@ use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::{ComponentBuildData, Netlist, Schematic, SimCommand, SimState, VisualWire};
 use crossbeam::channel::{Sender, unbounded};
-use egui::{Pos2, Vec2};
+use egui::{Color32, Pos2, Vec2, Visuals};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use faer::prelude::default;
 
 #[derive(Clone)]
 pub enum Tool {
@@ -51,6 +52,15 @@ impl CircuitApp {
         let state_clone = state.clone();
         std::thread::spawn(move || {
             run_simulation_loop(rx, state_clone);
+        });
+
+        cc.egui_ctx.style_mut(|style| {
+            style.visuals = Visuals {
+                dark_mode: true,
+                window_fill: Color32::from_hex("#05050D").unwrap(),
+                panel_fill: Color32::from_hex("#05050D").unwrap(),
+                ..default()
+            }
         });
 
         Self {
@@ -220,6 +230,27 @@ impl CircuitApp {
                 }
                 ComponentBuildData::Inductor { inductance } => {
                     ComponentDescriptor::Inductor { a, b, inductance }
+                }
+                ComponentBuildData::Diode { model } => {
+                    let (
+                        saturation_current,
+                        emission_coefficient,
+                        series_resistance,
+                        cjo,
+                        m,
+                        transit_time,
+                    ) = model.parameters();
+
+                    ComponentDescriptor::Diode {
+                        a,
+                        b,
+                        saturation_current,
+                        emission_coefficient,
+                        series_resistance,
+                        cjo,
+                        m,
+                        transit_time,
+                    }
                 }
                 _ => continue,
             };
