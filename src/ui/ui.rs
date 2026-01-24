@@ -513,12 +513,12 @@ impl eframe::App for CircuitApp {
                         if let Some(start_pos) = ctx.data(|d| d.get_temp::<Pos2>(erase_id)) {
                             let selection_rect = Rect::from_two_pos(start_pos, mouse_pos);
 
-                            // VISUALS: Draw the selection box
+                            // Draw the selection box
                             let painter = ctx.layer_painter(response.layer_id);
                             painter.rect(
                                 selection_rect,
                                 5.0,
-                                Color32::from_rgba_unmultiplied(155, 20, 20, 5), // Red transparent fill
+                                Color32::from_rgba_unmultiplied(155, 20, 20, 5),
                                 Stroke::new(1.0, Color32::WHITE),
                                 StrokeKind::Inside
                             );
@@ -589,7 +589,6 @@ impl eframe::App for CircuitApp {
                     .max_height(600.)
                     .resizable(true)
                     .show(ctx, |ui| {
-                        // 1. Draw Header FIRST to consume space naturally
                         ui.horizontal(|ui| {
                             ui.heading("Oscilloscope");
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
