@@ -127,7 +127,6 @@ impl<T: CircuitScalar> Circuit<T> {
                 let lu = iter_matrix.partial_piv_lu();
                 let next_solution = lu.solve(&iter_rhs);
 
-
                 if !is_nonlinear_circuit {
                     // Linear circuit optimization
                     self.current_solution = next_solution;
@@ -162,7 +161,7 @@ impl<T: CircuitScalar> Circuit<T> {
                 // Update solution for next iteration
                 self.current_solution = &self.current_solution
                     + &(&(&next_solution - &self.current_solution)
-                    * damping_factor.to_f64().unwrap());
+                        * damping_factor.to_f64().unwrap());
 
                 // Only stop if BOTH agree
                 if global_voltage_converged && devices_converged {
@@ -250,11 +249,14 @@ impl<T: CircuitScalar> Circuit<T> {
     /// Read the current flowing through a specific component from the last solution
     pub fn get_component_current(&self, component_idx: usize, dt: T) -> T {
         if component_idx < self.components.len() {
-            self.components[component_idx].calculate_current(&self.current_solution.as_ref(), &SimulationContext {
-                dt,
-                time: self.time,
-                step: self.step_count,
-            })
+            self.components[component_idx].calculate_current(
+                &self.current_solution.as_ref(),
+                &SimulationContext {
+                    dt,
+                    time: self.time,
+                    step: self.step_count,
+                },
+            )
         } else {
             T::zero()
         }

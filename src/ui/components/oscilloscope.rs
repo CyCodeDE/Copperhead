@@ -1,10 +1,10 @@
 use crate::ui::SimStepData;
+use crate::util::format_si;
 use egui::epaint::PathShape;
 use egui::{
     Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
     StrokeKind, Ui, Vec2, pos2, vec2,
 };
-use crate::util::format_si;
 
 #[derive(Debug, Clone)]
 pub struct ScopeState {
@@ -223,9 +223,7 @@ fn handle_input(
             let dt = pixel_delta as f64 / ctx.time_scale;
             state.time_range.0 += dt;
             state.time_range.1 += dt;
-        }
-
-        else if scroll_delta.y != 0.0 {
+        } else if scroll_delta.y != 0.0 {
             let zoom_factor = if scroll_delta.y > 0.0 { 0.90 } else { 1.10 };
             let hover_pos = response.hover_pos().unwrap_or(response.rect.center());
 
@@ -686,7 +684,10 @@ fn draw_cursor(
         );
 
         let mut lines = Vec::new();
-        lines.push((format!("T: {}", format_si(&[(step.time, "s")], 0.1, 2)), Color32::WHITE));
+        lines.push((
+            format!("T: {}", format_si(&[(step.time, "s")], 0.1, 2)),
+            Color32::WHITE,
+        ));
 
         if let Some(vi) = v_idx {
             let val = step.voltages.get(vi).copied().unwrap_or(0.0);

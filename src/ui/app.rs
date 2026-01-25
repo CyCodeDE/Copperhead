@@ -4,12 +4,71 @@ use crate::model::{CircuitScalar, GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::{ComponentBuildData, Netlist, Schematic, SimCommand, SimState, VisualWire};
-use crossbeam::channel::{Sender, unbounded};
-use egui::{Color32, Pos2, Vec2, Visuals};
-use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use crossbeam::channel::{Sender, unbounded, Receiver};
+use egui::style::{WidgetVisuals, Widgets};
+use egui::{Color32, CornerRadius, Pos2, Stroke, Vec2, Visuals};
 use faer::prelude::default;
+use parking_lot::RwLock;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+pub struct UndoStack<T> {
+    undo_queue: VecDeque<T>,
+    redo_queue: VecDeque<T>,
+    max_history: usize,
+}
+
+#[derive(Clone)]
+pub struct ProjectState {
+    pub schematic: Schematic,
+    pub simulation_time: f64,
+}
+
+impl<T: Clone> UndoStack<T> {
+    pub fn new(max_history: usize) -> Self {
+        Self {
+            undo_queue: VecDeque::new(),
+            redo_queue: VecDeque::new(),
+            max_history,
+        }
+    }
+
+    /// Saves the state before making a change
+    pub fn push(&mut self, state: T) {
+        self.undo_queue.push_back(state);
+        if self.undo_queue.len() > self.max_history {
+            self.undo_queue.pop_front();
+        }
+
+        self.redo_queue.clear();
+    }
+
+    /// Returns the state to restore, or None if empty
+    pub fn undo(&mut self, current_state: T) -> Option<T> {
+        if let Some(prev_state) = self.undo_queue.pop_back() {
+            self.redo_queue.push_back(current_state);
+            Some(prev_state)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the state to restore, or None if empty
+    pub fn redo(&mut self, current_state: T) -> Option<T> {
+        if let Some(next_state) = self.redo_queue.pop_back() {
+            self.undo_queue.push_back(current_state);
+            Some(next_state)
+        } else {
+            None
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.undo_queue.clear();
+        self.redo_queue.clear();
+    }
+}
 
 #[derive(Clone)]
 pub enum Tool {
@@ -20,7 +79,9 @@ pub enum Tool {
 }
 
 pub struct CircuitApp {
-    pub schematic: Schematic,
+    pub state: ProjectState,
+    //pub schematic: Schematic,
+    pub undo_stack: UndoStack<ProjectState>,
     pub selected_tool: Tool,
     pub pan: Vec2,
     pub zoom: f32,
@@ -29,13 +90,26 @@ pub struct CircuitApp {
     pub editing_component_id: Option<usize>,
     pub plotting_node_voltage: Option<NodeId>,
     pub plotting_component_current: Option<usize>,
-    pub simulation_time: f64, // in seconds, for how long to simulate
+    //pub simulation_time: f64, // in seconds, for how long to simulate
     pub scope_state: ScopeState,
     pub realtime_mode: bool,
     pub tx_command: Sender<SimCommand>,
     pub shared_state: Arc<RwLock<SimState>>,
 
+    pub temp_state_snapshot: Option<ProjectState>,
     pub active_netlist: Option<Netlist>,
+
+    pub file_receiver: Receiver<Option<PathBuf>>,
+    pub file_sender: Sender<Option<PathBuf>>,
+    pub file_dialog_state: FileDialogState,
+    pub current_file: Option<PathBuf>
+}
+
+#[derive(PartialEq)]
+pub enum FileDialogState {
+    Save,
+    Load,
+    Closed,
 }
 
 impl CircuitApp {
@@ -57,14 +131,32 @@ impl CircuitApp {
         cc.egui_ctx.style_mut(|style| {
             style.visuals = Visuals {
                 dark_mode: true,
-                window_fill: Color32::from_hex("#05050D").unwrap(),
-                panel_fill: Color32::from_hex("#05050D").unwrap(),
+                window_fill: Color32::from_hex("#10111a").unwrap(),
+                panel_fill: Color32::from_hex("#10111a").unwrap(),
+                widgets: Widgets {
+                    noninteractive: WidgetVisuals {
+                        bg_stroke: Stroke::NONE,
+                        corner_radius: CornerRadius::ZERO,
+                        bg_fill: Color32::from_hex("#10111a").unwrap(),
+                        expansion: 0.0,
+                        fg_stroke: Stroke::new(1.0, Color32::from_hex("#BEBEBE").unwrap()),
+                        weak_bg_fill: Color32::from_hex("#10111a").unwrap(),
+                    },
+                    ..default()
+                },
                 ..default()
             }
         });
 
+        let (file_sender, file_receiver) = unbounded();
         Self {
-            schematic: Schematic::default(),
+            state: ProjectState {
+                schematic: Schematic::default(),
+                simulation_time: 1.0,
+            },
+            temp_state_snapshot: None,
+            //schematic: Schematic::default(),
+            undo_stack: UndoStack::new(50),
             selected_tool: Tool::Select,
             pan: Vec2::ZERO,
             zoom: 30.0, // pixels per grid unit
@@ -74,11 +166,34 @@ impl CircuitApp {
             plotting_component_current: None,
             scope_state: ScopeState::default(),
             realtime_mode: false,
-            simulation_time: -1.0,
+            //simulation_time: -1.0,
             tx_command: tx,
             shared_state: state,
             active_netlist: None,
+
+            file_receiver,
+            file_sender,
+            file_dialog_state: FileDialogState::Closed,
+            current_file: None,
         }
+    }
+
+    pub fn save_to_path(&self, path: PathBuf) {
+        let serialized = serde_json::to_string(&self.state.schematic).unwrap();
+        let real_time = self.realtime_mode;
+        let sim_time = self.state.simulation_time;
+        let save_data = (serialized, real_time, sim_time);
+        std::fs::write(path, serde_json::to_string(&save_data).unwrap()).unwrap();
+    }
+
+    pub fn load_from_path(&mut self, path: PathBuf) {
+        let data = std::fs::read_to_string(path).unwrap();
+        let (serialized, real_time, sim_time): (String, bool, f64) =
+            serde_json::from_str(&data).unwrap();
+        let schematic: Schematic = serde_json::from_str(&serialized).unwrap();
+        self.state.schematic = schematic;
+        self.realtime_mode = real_time;
+        self.state.simulation_time = sim_time;
     }
 
     /// Converts a Grid Position (logical) to Screen Position (pixels)
@@ -124,7 +239,7 @@ impl CircuitApp {
             }
         }
 
-        for comp in &self.schematic.components {
+        for comp in &self.state.schematic.components {
             for pin_pos in comp.get_pin_locations() {
                 point_map.entry(pin_pos).or_insert_with(|| {
                     let i = next_point_id;
@@ -145,7 +260,7 @@ impl CircuitApp {
         // Identify Grounded Roots
         let mut grounded_roots = HashSet::new();
 
-        for comp in &self.schematic.components {
+        for comp in &self.state.schematic.components {
             if let ComponentBuildData::Ground = comp.component {
                 if let Some(pin_pos) = comp.get_pin_locations().first() {
                     if let Some(&pt_id) = point_map.get(pin_pos) {
@@ -169,11 +284,9 @@ impl CircuitApp {
             } else {
                 // If this net is connected to a Ground component, it is Node 0
                 let new_id = if grounded_roots.contains(&root) {
-                    println!("WE GOT ZERO");
                     NodeId(0)
                 } else {
                     let id = NodeId(next_node_id);
-                    println!("ID ASSIGNED: {}", id.0);
                     next_node_id += 1;
                     id
                 };
@@ -188,7 +301,7 @@ impl CircuitApp {
         let mut sim_comp_index = 0;
 
         // Generate instruction
-        for comp in &self.schematic.components {
+        for comp in &self.state.schematic.components {
             // Skip the Ground component in instructions, it's not a circuit element,
             // it's just a constraint we applied above.
             if let ComponentBuildData::Ground = comp.component {
@@ -276,20 +389,20 @@ impl CircuitApp {
     }
 
     fn get_normalized_wires(&self) -> Vec<VisualWire> {
-        let mut final_wires = self.schematic.wires.clone();
+        let mut final_wires = self.state.schematic.wires.clone();
 
-        // 1Collect all "interesting" points that must create nodes.
+        // Collect all "interesting" points that must create nodes.
         // These are component pins and endpoints of all wires.
         let mut points_of_interest: HashSet<GridPos> = HashSet::new();
 
-        for comp in &self.schematic.components {
+        for comp in &self.state.schematic.components {
             for pin in comp.get_pin_locations() {
                 points_of_interest.insert(pin);
             }
         }
 
         // We also need wire endpoints to split other wires
-        for wire in &self.schematic.wires {
+        for wire in &self.state.schematic.wires {
             points_of_interest.insert(wire.start);
             points_of_interest.insert(wire.end);
         }

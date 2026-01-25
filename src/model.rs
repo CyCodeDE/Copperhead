@@ -1,6 +1,7 @@
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
 use faer::{Col, ColMut, ColRef, MatMut};
+use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
 
 /// The numerical trait.
@@ -20,7 +21,7 @@ impl CircuitScalar for f64 {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GridPos {
     pub x: isize,
     pub y: isize,
@@ -130,13 +131,12 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         _rhs: &mut ColMut<T>,
         _ctx: &SimulationContext<T>,
     ) {
-
     }
 
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
     /// Used to update internal state (e.g. capacitor charge)
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {;
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
         // Default: Do nothing
     }
 

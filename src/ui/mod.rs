@@ -4,11 +4,12 @@ mod drawing;
 pub mod ui;
 
 use crate::components::ComponentDescriptor;
-use crate::model::{CircuitScalar, GridPos, NodeId};
-use std::collections::HashMap;
 use crate::components::diode::DiodeModel;
+use crate::model::{CircuitScalar, GridPos, NodeId};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
     Resistor { resistance: f64 },
     Capacitor { capacitance: f64 },
@@ -33,7 +34,7 @@ impl ComponentBuildData {
 }
 
 /// Represents a component on the grid
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VisualComponent {
     pub id: usize, // UID to map to the solver
     pub name: String,
@@ -80,7 +81,7 @@ impl VisualComponent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VisualWire {
     pub start: GridPos,
     pub end: GridPos,
@@ -106,6 +107,7 @@ impl VisualWire {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Schematic {
     pub components: Vec<VisualComponent>,
     pub wires: Vec<VisualWire>,

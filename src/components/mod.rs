@@ -4,10 +4,10 @@ use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
 use crate::signals::{ConstantSignal, SineSignal};
 
 pub mod capacitor;
+pub mod diode;
 pub mod inductor;
 pub mod resistor;
 pub mod voltage_source;
-pub mod diode;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
 #[derive(Clone, Debug)]
@@ -53,20 +53,17 @@ pub enum ComponentDescriptor {
         m: f64,
         /// Transit time (tt)
         transit_time: f64,
-    }
+    },
 }
 
 impl ComponentDescriptor {
     pub fn build<T: CircuitScalar>(self, dt: T) -> Box<dyn Component<T>> {
         match self {
-            ComponentDescriptor::Resistor { a, b, ohms } => {
-                Box::new(Resistor::new(
-                    NodeId(a),
-                    NodeId(b),
-                    num_traits::cast(ohms)
-                        .expect("Failed to cast resistance to circuit scalar type"),
-                ))
-            }
+            ComponentDescriptor::Resistor { a, b, ohms } => Box::new(Resistor::new(
+                NodeId(a),
+                NodeId(b),
+                num_traits::cast(ohms).expect("Failed to cast resistance to circuit scalar type"),
+            )),
             ComponentDescriptor::DCSource { pos, neg, volts } => {
                 let signal = Box::new(ConstantSignal {
                     voltage: num_traits::cast(volts)
@@ -107,24 +104,31 @@ impl ComponentDescriptor {
                     dt,
                 ))
             }
-            ComponentDescriptor::Diode { a, b, saturation_current, emission_coefficient, series_resistance, cjo, m, transit_time } => {
-                Box::new(diode::Diode::new(
-                    NodeId(a),
-                    NodeId(b),
-                    num_traits::cast(saturation_current)
-                        .expect("Failed to cast saturation current to circuit scalar type"),
-                    num_traits::cast(emission_coefficient)
-                        .expect("Failed to cast emission coefficient to circuit scalar type"),
-                    num_traits::cast(series_resistance)
-                        .expect("Failed to cast series resistance to circuit scalar type"),
-                    num_traits::cast(cjo)
-                        .expect("Failed to cast zero-bias junction capacitance to circuit scalar type"),
-                    num_traits::cast(m)
-                        .expect("Failed to cast grading coefficient to circuit scalar type"),
-                    num_traits::cast(transit_time)
-                        .expect("Failed to cast transit time to circuit scalar type"),
-                ))
-            }
+            ComponentDescriptor::Diode {
+                a,
+                b,
+                saturation_current,
+                emission_coefficient,
+                series_resistance,
+                cjo,
+                m,
+                transit_time,
+            } => Box::new(diode::Diode::new(
+                NodeId(a),
+                NodeId(b),
+                num_traits::cast(saturation_current)
+                    .expect("Failed to cast saturation current to circuit scalar type"),
+                num_traits::cast(emission_coefficient)
+                    .expect("Failed to cast emission coefficient to circuit scalar type"),
+                num_traits::cast(series_resistance)
+                    .expect("Failed to cast series resistance to circuit scalar type"),
+                num_traits::cast(cjo)
+                    .expect("Failed to cast zero-bias junction capacitance to circuit scalar type"),
+                num_traits::cast(m)
+                    .expect("Failed to cast grading coefficient to circuit scalar type"),
+                num_traits::cast(transit_time)
+                    .expect("Failed to cast transit time to circuit scalar type"),
+            )),
         }
     }
 }

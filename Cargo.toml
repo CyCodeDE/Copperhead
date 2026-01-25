@@ -15,6 +15,9 @@ eframe = "0.33.3"
 num-traits = "0.2.19"
 log = "0.4.29"
 portable-atomic = "1.13.0"
+rfd = "0.17.2"
+serde_json = "1.0.149"
+dirs = "6.0.0"
 
 [profile.release-performance]
 inherits = "release"

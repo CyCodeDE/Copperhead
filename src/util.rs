@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// Formats values with SI prefixes.
 ///
 /// - `threshold`: Values below this (but > 0) will use lower prefixes.
@@ -47,12 +49,12 @@ pub fn format_si(values: &[(f64, &str)], threshold: f64, precision: usize) -> St
             -2 => "µ", // micro
             -1 => "m", // milli
             0 => "",   // base
-            1 => "k", // kilo
-            2 => "M", // Mega
-            3 => "G", // Giga
-            4 => "T", // Tera
-            5 => "P", // Peta
-            _ => "?", // Out of range (or handle with "e" notation)
+            1 => "k",  // kilo
+            2 => "M",  // Mega
+            3 => "G",  // Giga
+            4 => "T",  // Tera
+            5 => "P",  // Peta
+            _ => "?",  // Out of range (or handle with "e" notation)
         };
 
         let final_str = if prefix == "?" {
@@ -72,4 +74,17 @@ pub fn format_si(values: &[(f64, &str)], threshold: f64, precision: usize) -> St
     }
 
     result.join(", ")
+}
+
+/// Returns the default path for the application (usually in home or the documents folder)
+pub fn get_default_path() -> PathBuf {
+    dirs::document_dir()
+        .expect("Could not find the documents directory")
+        .join("Copperhead")
+}
+
+pub fn get_config_path() -> PathBuf {
+    dirs::config_dir()
+        .expect("Could not find the config directory")
+        .join("copperhead")
 }

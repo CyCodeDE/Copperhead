@@ -1,6 +1,7 @@
-use std::sync::Mutex;
 use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
+use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 
 /// Internal state used only during the Newton-Raphson iteration loop.
 /// Grouping these reduces lock contention overhead.
@@ -12,7 +13,7 @@ struct IterationState<T> {
 }
 
 /// Different types of diodes can be modeled by adjusting parameters.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DiodeModel {
     // 1N4148
     D1N4148,
@@ -23,11 +24,11 @@ impl DiodeModel {
         match self {
             DiodeModel::D1N4148 => {
                 let is = T::from(2.52e-9).unwrap(); // Saturation Current | typical 2.52nA
-                let n = T::from(1.752).unwrap();   // Emission Coefficient | typical 1.752
-                let rs = T::from(0.568).unwrap();    // Series Resistance | typical 0.568 Ohms
-                let cjo = T::from(4e-12).unwrap();  // Zero-bias junction capacitance | typical 4pF
-                let m = T::from(0.4).unwrap();      // Grading coefficient | typical 0.4
-                let tt = T::from(20e-9).unwrap();    // Transit time | typical 20ns
+                let n = T::from(1.752).unwrap(); // Emission Coefficient | typical 1.752
+                let rs = T::from(0.568).unwrap(); // Series Resistance | typical 0.568 Ohms
+                let cjo = T::from(4e-12).unwrap(); // Zero-bias junction capacitance | typical 4pF
+                let m = T::from(0.4).unwrap(); // Grading coefficient | typical 0.4
+                let tt = T::from(20e-9).unwrap(); // Transit time | typical 20ns
                 (is, n, rs, cjo, m, tt)
             }
         }
@@ -71,16 +72,7 @@ pub struct Diode<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> Diode<T> {
-    pub fn new(
-        node_a: NodeId,
-        node_b: NodeId,
-        is: T,
-        n: T,
-        rs: T,
-        cjo: T,
-        m: T,
-        tt: T,
-    ) -> Self {
+    pub fn new(node_a: NodeId, node_b: NodeId, is: T, n: T, rs: T, cjo: T, m: T, tt: T) -> Self {
         let vt = T::from(0.02585).unwrap();
 
         // Pre-calculate V_crit for pnjlim
@@ -251,8 +243,12 @@ impl<T: CircuitScalar> Diode<T> {
 
     /// Stamp G into Matrix A
     fn stamp_conductance(matrix: &mut MatMut<T>, idx_a: Option<usize>, idx_b: Option<usize>, g: T) {
-        if let Some(i) = idx_a { matrix[(i, i)] = matrix[(i, i)] + g; }
-        if let Some(j) = idx_b { matrix[(j, j)] = matrix[(j, j)] + g; }
+        if let Some(i) = idx_a {
+            matrix[(i, i)] = matrix[(i, i)] + g;
+        }
+        if let Some(j) = idx_b {
+            matrix[(j, j)] = matrix[(j, j)] + g;
+        }
 
         if let (Some(i), Some(j)) = (idx_a, idx_b) {
             matrix[(i, j)] = matrix[(i, j)] - g;
@@ -261,19 +257,36 @@ impl<T: CircuitScalar> Diode<T> {
     }
 
     /// Stamp Current J into RHS Vector b (J flows A -> B)
-    fn stamp_current_source(rhs: &mut ColMut<T>, idx_a: Option<usize>, idx_b: Option<usize>, val: T) {
-        if let Some(i) = idx_a { rhs[i] = rhs[i] - val; }
-        if let Some(j) = idx_b { rhs[j] = rhs[j] + val; }
+    fn stamp_current_source(
+        rhs: &mut ColMut<T>,
+        idx_a: Option<usize>,
+        idx_b: Option<usize>,
+        val: T,
+    ) {
+        if let Some(i) = idx_a {
+            rhs[i] = rhs[i] - val;
+        }
+        if let Some(j) = idx_b {
+            rhs[j] = rhs[j] + val;
+        }
     }
 }
 
 impl<T: CircuitScalar> Component<T> for Diode<T> {
-    fn is_linear(&self) -> bool { false }
+    fn is_linear(&self) -> bool {
+        false
+    }
 
-    fn ports(&self) -> Vec<NodeId> { vec![self.node_a, self.node_b] }
+    fn ports(&self) -> Vec<NodeId> {
+        vec![self.node_a, self.node_b]
+    }
 
     fn auxiliary_row_count(&self) -> usize {
-        if self.series_resistance > T::epsilon() { 1 } else { 0 }
+        if self.series_resistance > T::epsilon() {
+            1
+        } else {
+            0
+        }
     }
 
     fn set_auxiliary_index(&mut self, start_idx: usize) {

@@ -1,44 +1,12 @@
 use crate::model::GridPos;
 use crate::ui::{ComponentBuildData, VisualComponent};
+use crate::util::format_si;
 use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use egui::{FontSelection, Painter, RichText, Style};
-use crate::util::format_si;
 
 pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2) {
-    /*let min_visible = (rect.min.to_vec2() - pan) / zoom;
-    let max_visible = (rect.max.to_vec2() - pan) / zoom;
-    let (min_col, max_col) = (min_visible.x.floor() as i32, max_visible.x.ceil() as i32);
-    let (min_row, max_row) = (min_visible.y.floor() as i32, max_visible.y.ceil() as i32);
-
-    let draw_minor = zoom > 10.0;
-
-    // Vertical
-    for x in min_col..=max_col {
-        if !draw_minor && x % 10 != 0 {
-            continue;
-        }
-        let color = Color32::from_rgb(35, 35, 35);
-        let sx = x as f32 * zoom + pan.x;
-        painter.line_segment(
-            [Pos2::new(sx, rect.top()), Pos2::new(sx, rect.bottom())],
-            Stroke::new(1.0, color),
-        );
-    }
-    // Horizontal
-    for y in min_row..=max_row {
-        if !draw_minor && y % 10 != 0 {
-            continue;
-        }
-        let color = Color32::from_rgb(35, 35, 35);
-        let sy = y as f32 * zoom + pan.y;
-        painter.line_segment(
-            [Pos2::new(rect.left(), sy), Pos2::new(rect.right(), sy)],
-            Stroke::new(1.0, color),
-        );
-    }*/
-
     let min_visible = (rect.min.to_vec2() - pan) / zoom;
     let max_visible = (rect.max.to_vec2() - pan) / zoom;
     let (min_col, max_col) = (min_visible.x.floor() as i32, max_visible.x.ceil() as i32);
@@ -63,11 +31,7 @@ pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2) {
 
             let sy = y as f32 * zoom + pan.y;
 
-            painter.circle_filled(
-                Pos2::new(sx, sy),
-                dot_radius,
-                dot_color
-            );
+            painter.circle_filled(Pos2::new(sx, sy), dot_radius, dot_color);
         }
     }
 }
@@ -473,7 +437,7 @@ fn draw_diode(
     // Dimensions
     // The symbol body fits roughly between x = -0.5 and x = 0.5
     let half_len = 0.5; // Distance from center to the edge of the symbol body
-    let half_h = 0.5;   // Half height of the triangle/bar
+    let half_h = 0.5; // Half height of the triangle/bar
 
     // 1. Draw Wires (Leads)
     // Left (Anode) Lead: (-1.0, 0) -> (-0.5, 0)
@@ -484,7 +448,10 @@ fn draw_diode(
     // Right (Cathode) Lead: (0.5, 0) -> (1.0, 0)
     let lead_cathode_start = rotate_vec(Vec2::new(half_len, 0.0) * zoom, rotation);
     let lead_cathode_end = rotate_vec(Vec2::new(1.0, 0.0) * zoom, rotation);
-    painter.line_segment([center + lead_cathode_start, center + lead_cathode_end], stroke);
+    painter.line_segment(
+        [center + lead_cathode_start, center + lead_cathode_end],
+        stroke,
+    );
 
     // 2. Draw Triangle (Anode Body)
     // Points relative to center (before rotation)
