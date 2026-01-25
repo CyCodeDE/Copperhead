@@ -291,7 +291,7 @@ impl eframe::App for CircuitApp {
                 };
 
                 ui.heading("Tools");
-                ui.label("Controls: MB to Pan, Scroll to Zoom, 'R' to Rotate, 'Esc' to Cancel");
+                ui.add(Label::new("Controls:\nMB to Pan\nScroll to Zoom\n'CTRL+R' to Rotate\n'Esc and RMB' to Cancel").selectable(false));
                 ui.separator();
 
                 if ui.button("Select (Esc)").clicked() {
