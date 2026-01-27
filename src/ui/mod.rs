@@ -8,6 +8,7 @@ use crate::components::diode::DiodeModel;
 use crate::model::{CircuitScalar, GridPos, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use egui::Color32;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
@@ -259,4 +260,13 @@ impl Default for SimState {
             current_sample: 0,
         }
     }
+}
+
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    Color32::from_rgb(
+        (a.r() as f32 + (b.r() as f32 - a.r() as f32) * t) as u8,
+        (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t) as u8,
+        (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t) as u8,
+    )
 }

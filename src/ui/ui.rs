@@ -1,12 +1,13 @@
+use std::ops::Add;
 use std::thread;
 use crate::components::diode::DiodeModel;
 use crate::model::GridPos;
-use crate::ui::app::{CircuitApp, FileDialogState, Tool};
+use crate::ui::app::{CircuitApp, FileDialogState, StateUpdate, Tool};
 use crate::ui::components::oscilloscope::draw_oscilloscope;
 use crate::ui::drawing::{
     check_line_rect_intersection, draw_component, draw_component_labels, draw_grid,
 };
-use crate::ui::{ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire};
+use crate::ui::{lerp_color, ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire};
 use crate::util::get_default_path;
 use egui::text::LayoutJob;
 use egui::{Align, Align2, Button, CentralPanel, Checkbox, Color32, CornerRadius, CursorIcon, Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextFormat, TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText};
@@ -28,11 +29,22 @@ impl Tool {
 
 impl eframe::App for CircuitApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let running = if let Some(state) = self.shared_state.try_read() {
-            state.running
-        } else {
-            false
-        };
+        while let Ok(msg) = self.state_receiver.try_recv() {
+            match msg {
+                StateUpdate::UpdateRunning(is_running) => {
+                    self.sim_state.running = is_running;
+                }
+                StateUpdate::SendHistory(new_data, current_sample) => {
+                    self.sim_state.history.extend(new_data);
+                    self.sim_state.current_sample = current_sample;
+                }
+                StateUpdate::ClearHistory => {
+                    self.sim_state.history.clear();
+                }
+            }
+        }
+
+        let running = self.sim_state.running;
 
         if let Ok(result) = self.file_receiver.try_recv() {
             if let Some(path) = result {
@@ -86,7 +98,7 @@ impl eframe::App for CircuitApp {
             .frame(
                 Frame::new()
                     .inner_margin(8.)
-                    .fill(Color32::from_hex("#1a1a1f").unwrap()),
+                    .fill(self.theme.panel_color),
             )
             .show(ctx, |ui| {
                 ui.columns(3, |columns| {
@@ -214,10 +226,10 @@ impl eframe::App for CircuitApp {
                         }
 
                         // Simulation Time Input
-                        ui.add(Label::new(label_text).selectable(false));
+                        ui.add_enabled(!self.realtime_mode && !running, Label::new(label_text).selectable(false));
 
                         let response = ui.add_enabled(
-                            !self.realtime_mode,
+                            !self.realtime_mode && !running,
                             egui::DragValue::new(&mut self.state.simulation_time)
                                 .speed(1)
                                 .clamp_range(0.001..=1000.0)
@@ -270,7 +282,7 @@ impl eframe::App for CircuitApp {
             .frame(
                 Frame::new()
                     .inner_margin(8.)
-                    .fill(Color32::from_hex("#1a1a1f").unwrap()),
+                    .fill(self.theme.panel_color),
             )
             .resizable(false)
             .show(ctx, |ui| {
@@ -281,13 +293,11 @@ impl eframe::App for CircuitApp {
                     )
                     .clicked()
                 {
-                    if let Some(state) = self.shared_state.try_read() {
                         // TODO: handle this better
                         // Command should be queued and processed by the sim thread when it is safe to do so instead of completely dropping it
                         self.tx_command
                             .send(SimCommand::SetRealtime(self.realtime_mode))
                             .unwrap();
-                    }
                 };
 
                 ui.heading("Tools");
@@ -307,43 +317,43 @@ impl eframe::App for CircuitApp {
                 // TODO: make a grid with icons for each component type instead of label buttons
 
                 // Component Buttons
-                if ui.button("Draw Wire (W)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceWire(_)), Button::new("Draw Wire (W)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::W)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool = Tool::PlaceWire(None);
                 }
-                if ui.button("Resistor (R)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Resistor { resistance: _ })), Button::new("Resistor (R)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::R)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::Resistor { resistance: 1000.0 }); // 1k Ohm
                 }
-                if ui.button("Capacitor (C)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: _ })), Button::new("Capacitor (C)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::C)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: 1e-6 }); // 1 uF
                 }
-                if ui.button("Inductor (I)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: _ })), Button::new("Inductor (I)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::I)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: 1e-3 }); // 1 mH
                 }
-                if ui.button("Diode (D)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Diode { model: _ })), Button::new("Diode (D)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::D)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Diode {
                         model: DiodeModel::D1N4148,
                     });
                 }
-                if ui.button("DC Source (Y)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::DCSource { voltage: _ })), Button::new("DC Source (Y)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::Y)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::DCSource { voltage: 5.0 }); // 5V default
                 }
-                if ui.button("AC Source (A)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::ASource { amplitude: _, frequency: _ })), Button::new("AC Source (A)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::A)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool = Tool::PlaceComponent(ComponentBuildData::ASource {
@@ -351,12 +361,12 @@ impl eframe::App for CircuitApp {
                         frequency: 60.0,
                     }); // 5V, 60Hz default
                 }
-                if ui.button("Ground (G)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Ground)), Button::new("Ground (G)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::G)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Ground);
                 }
-                if ui.button("Label (L)").clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Label)), Button::new("Label (L)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::L)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     // set a variable to determine that a modal should be opened until closed
@@ -401,16 +411,16 @@ impl eframe::App for CircuitApp {
         }
 
         // Central Canvas
-        egui::CentralPanel::default().frame(Frame::new().fill(Color32::from_hex("#1a1a1f").unwrap())).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(Frame::new().fill(self.theme.panel_color)).show(ctx, |ui| {
             let island_frame = egui::Frame::default()
-                .fill(Color32::from_hex("#0b0c16").unwrap())
+                .fill(self.theme.background)
                 .corner_radius(CornerRadius {
                     nw: 20,
                     ne: 0,
                     sw: 0,
                     se: 0,
                 })
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(30))) // Subtle border
+                .stroke(egui::Stroke::new(1.0, self.theme.panel_border)) // Subtle border
                 .inner_margin(0.)
                 .outer_margin(Margin {
                     top: 10,
@@ -444,7 +454,7 @@ impl eframe::App for CircuitApp {
                 }
 
                 // Draw Grid
-                draw_grid(&painter, rect, self.zoom, self.pan);
+                draw_grid(&painter, rect, self.zoom, self.pan, self.theme.dot_color);
 
                 // Draw Existing Components
                 for comp in &self.state.schematic.components {
@@ -453,8 +463,8 @@ impl eframe::App for CircuitApp {
                         comp,
                         |p| self.to_screen(p),
                         self.zoom,
-                        Color32::from_gray(80),
-                        Color32::WHITE
+                        self.theme.component_body.blend(self.theme.disabled_text_color),
+                        self.theme.component_body
                     );
 
                     draw_component_labels(
@@ -463,14 +473,62 @@ impl eframe::App for CircuitApp {
                         |p| self.to_screen(p),
                         self.zoom,
                     );
-                    println!("Drew component: {:?}", comp);
                 }
 
+                const voltage_sensitivity: f64 = 5.0;
+
                 // Draw Wires (really naive rn)
-                for wire in &self.state.schematic.wires {
-                    let start = self.to_screen(wire.start);
-                    let end = self.to_screen(wire.end);
-                    painter.line_segment([start, end], Stroke::new(2.0, Color32::from_hex("#808080").unwrap()));
+                if running {
+                    if let Some(netlist) = &self.active_netlist {
+                        for (coord, &node_id) in &netlist.node_map {
+                            // calculate RMS
+                            let (sum_sq, count) = self.sim_state.history.iter().rev().take(8000)
+                                .filter_map(|step| step.voltages.get(node_id.0))
+                                .fold((0.0, 0), |(acc_sq, acc_cnt), &v| {
+                                    (acc_sq + (v * v), acc_cnt + 1)
+                                });
+
+                            let color = if count > 0 {
+                                let rms = (sum_sq / count as f64).sqrt();
+                                let t = (rms / 5.0) as f32; // 5.0 is sensitivity
+                                lerp_color(self.theme.wire_off, self.theme.wire_on, t)
+                            } else {
+                                self.theme.wire_off
+                            };
+
+                            self.wire_color_cache.insert(node_id, color);
+                        }
+                    }
+                        // get latest sim state
+                        for wire in &self.state.schematic.wires {
+                            let start = self.to_screen(wire.start);
+                            let end = self.to_screen(wire.end);
+
+                            let mut color = self.theme.wire_off;
+                            let mut stroke_width = 2.0;
+
+                            if let Some(netlist) = &self.active_netlist {
+                                if let Some(&node_id) = netlist.node_map.get(&wire.start) {
+                                    if let Some(cached_color) = self.wire_color_cache.get(&node_id) {
+                                        color = *cached_color;
+
+                                        if color != self.theme.wire_off {
+                                            if color.r() > self.theme.wire_off.r() + 10 {
+                                                stroke_width = 2.5;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            painter.line_segment([start, end], Stroke::new(stroke_width, color));
+                        }
+                } else {
+                    for wire in &self.state.schematic.wires {
+                        let start = self.to_screen(wire.start);
+                        let end = self.to_screen(wire.end);
+                        painter.line_segment([start, end], Stroke::new(2.0, self.theme.wire_off));
+                    }
                 }
 
                 // Tool Interaction & Ghost Drawing
@@ -623,9 +681,8 @@ impl eframe::App for CircuitApp {
                                         }
 
                                         // get latest data
-                                        if let Some(state) = self.shared_state.try_read() {
                                             if running {
-                                                if let Some(volts) = state.get_latest_voltage(node_id) {
+                                                if let Some(volts) = self.sim_state.get_latest_voltage(node_id) {
                                                     painter.text(
                                                         mouse_pos + Vec2::new(15.0, -15.0),
                                                         egui::Align2::LEFT_BOTTOM,
@@ -635,7 +692,6 @@ impl eframe::App for CircuitApp {
                                                     );
                                                 }
                                             }
-                                        }
                                     }
 
                                     // Check for Component Current (Hovering body)
@@ -649,12 +705,10 @@ impl eframe::App for CircuitApp {
                                                 if response.clicked_by(egui::PointerButton::Primary) {
                                                     self.plotting_component_current = Some(sim_idx);
                                                 }
-
-                                                if let Some(state) = self.shared_state.try_read() {
                                                     // it is not safe to get a component or node id if the sim is not running, as the data may be stale
                                                     // TODO: improve this
                                                     if running {
-                                                        if state.get_latest_current(sim_idx).is_some() {
+                                                        if self.sim_state.get_latest_current(sim_idx).is_some() {
                                                             painter.text(
                                                                 mouse_pos + Vec2::new(15.0, 0.0),
                                                                 egui::Align2::LEFT_TOP,
@@ -664,7 +718,6 @@ impl eframe::App for CircuitApp {
                                                             );
                                                         }
                                                     }
-                                                }
                                             }
                                             break;
                                         }
@@ -847,19 +900,14 @@ impl eframe::App for CircuitApp {
 
                             ui.add_space(4.0);
 
-                            if let Some(state) = self.shared_state.try_read() {
-                                let history = &state.history;
-                                if history.is_empty() {
+                                if self.sim_state.history.is_empty() {
                                     ui.label("No data available");
                                     return;
                                 }
 
-                                draw_oscilloscope(ui, &mut self.scope_state, history, self.plotting_node_voltage.map(|id| id.0), self.plotting_component_current);
+                                draw_oscilloscope(ui, &mut self.scope_state, self.sim_state.history.as_slice(), self.plotting_node_voltage.map(|id| id.0), self.plotting_component_current);
 
                                 ctx.request_repaint();
-                            } else {
-                                ui.centered_and_justified(|ui| ui.spinner());
-                            }
                         });
                 }
 
@@ -953,12 +1001,10 @@ impl eframe::App for CircuitApp {
         });
 
         // check for repaint, full redraw next frame if sim is running and 30fps if not
-        if let Some(state) = self.shared_state.try_read() {
-            if running {
+        if running {
                 ctx.request_repaint();
             } else {
                 ctx.request_repaint_after(std::time::Duration::from_millis(33));
             }
         }
     }
-}

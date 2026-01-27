@@ -3,15 +3,75 @@ use crate::components::ComponentDescriptor;
 use crate::model::{CircuitScalar, GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{ComponentBuildData, Netlist, Schematic, SimCommand, SimState, VisualWire};
+use crate::ui::{ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData, VisualWire};
 use crossbeam::channel::{Sender, unbounded, Receiver};
-use egui::style::{WidgetVisuals, Widgets};
-use egui::{Color32, CornerRadius, Pos2, Stroke, Vec2, Visuals};
+use egui::style::{Selection, WidgetVisuals, Widgets};
+use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, Visuals};
 use faer::prelude::default;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+pub struct AppTheme {
+    pub background: Color32,
+    pub dot_color: Color32,
+    pub panel_color: Color32,
+    pub panel_border: Color32,
+    pub modal_surface: Color32,
+    pub text_color: Color32,
+    pub secondary_text_color: Color32,
+    pub disabled_text_color: Color32,
+    pub modal_backdrop: Color32,
+    pub selection_color: Color32,
+    pub primary: Color32,
+    pub primary_hover: Color32,
+    pub error: Color32,
+    pub success: Color32,
+    pub warning: Color32,
+    pub info: Color32,
+    pub floating: Color32,
+    pub wire_off: Color32,
+    pub wire_on: Color32,
+    pub component_body: Color32,
+    pub inactive: Color32,
+    pub hover: Color32,
+    pub active: Color32,
+    pub inactive_stroke: Color32,
+    pub hover_stroke: Color32,
+}
+
+impl AppTheme {
+    pub fn default_dark() -> Self {
+        Self {
+            background: Color32::from_hex("#111116").unwrap(),
+            dot_color: Color32::from_hex("#232329").unwrap(),
+            panel_color: Color32::from_hex("#1A1A1F").unwrap(),
+            panel_border: Color32::from_hex("#2D2D35").unwrap(),
+            modal_surface: Color32::from_hex("#212126").unwrap(),
+            text_color: Color32::from_hex("#ebe4d6").unwrap(),
+            secondary_text_color: Color32::from_hex("#8E8E98").unwrap(),
+            disabled_text_color: Color32::from_hex("#54555B").unwrap(),
+            modal_backdrop: Color32::from_rgba_unmultiplied(0, 0, 0, 128),
+            selection_color: Color32::from_hex("#345197").unwrap(),
+            primary: Color32::from_hex("#EF852E").unwrap(),
+            primary_hover: Color32::from_hex("#FF9845").unwrap(),
+            error: Color32::from_hex("#F13B2E").unwrap(),
+            success: Color32::from_hex("#54B85B").unwrap(),
+            warning: Color32::from_hex("#DCA400").unwrap(),
+            info: Color32::from_hex("#2098DB").unwrap(),
+            floating: Color32::from_hex("#8C6EBD").unwrap(),
+            wire_off: Color32::from_hex("#464652").unwrap(),
+            wire_on: Color32::from_hex("#EF852E").unwrap(),
+            component_body: Color32::from_hex("#D6D7DE").unwrap(),
+            inactive: Color32::from_hex("#47372c").unwrap(),
+            hover: Color32::from_hex("#5f4738").unwrap(),
+            active: Color32::from_hex("#3a2a1f").unwrap(),
+            inactive_stroke: Color32::from_hex("#675040").unwrap(),
+            hover_stroke: Color32::from_hex("#896a56").unwrap(),
+        }
+    }
+}
 
 pub struct UndoStack<T> {
     undo_queue: VecDeque<T>,
@@ -94,16 +154,26 @@ pub struct CircuitApp {
     pub scope_state: ScopeState,
     pub realtime_mode: bool,
     pub tx_command: Sender<SimCommand>,
-    pub shared_state: Arc<RwLock<SimState>>,
+    //pub shared_state: Arc<RwLock<SimState>>,
+    pub sim_state: SimState,
+    pub state_receiver: Receiver<StateUpdate>,
 
     pub temp_state_snapshot: Option<ProjectState>,
     pub active_netlist: Option<Netlist>,
 
+    pub theme: AppTheme,
     pub keybinds_locked: bool,
     pub file_receiver: Receiver<Option<PathBuf>>,
     pub file_sender: Sender<Option<PathBuf>>,
     pub file_dialog_state: FileDialogState,
-    pub current_file: Option<PathBuf>
+    pub current_file: Option<PathBuf>,
+    pub wire_color_cache: HashMap<NodeId, Color32>,
+}
+
+pub enum StateUpdate {
+    SendHistory(Vec<SimStepData>, usize),
+    UpdateRunning(bool),
+    ClearHistory,
 }
 
 #[derive(PartialEq)]
@@ -117,36 +187,73 @@ impl CircuitApp {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         // Create channels and shared state
         let (tx, rx) = unbounded();
-        let state = Arc::new(RwLock::new(SimState {
+        let sim_state = SimState {
             history: Vec::new(),
             running: false,
             current_sample: 0,
-        }));
+        };
 
         // Spawn simulation thread
-        let state_clone = state.clone();
+        let (state_sender, state_receiver) = unbounded();
         std::thread::spawn(move || {
-            run_simulation_loop(rx, state_clone);
+            run_simulation_loop(rx, state_sender);
         });
+
+        let theme = AppTheme::default_dark();
 
         cc.egui_ctx.style_mut(|style| {
             style.visuals = Visuals {
                 dark_mode: true,
-                window_fill: Color32::from_hex("#10111a").unwrap(),
-                panel_fill: Color32::from_hex("#10111a").unwrap(),
+                window_fill: theme.background,
+                panel_fill: theme.panel_color,
                 widgets: Widgets {
                     noninteractive: WidgetVisuals {
                         bg_stroke: Stroke::NONE,
                         corner_radius: CornerRadius::ZERO,
-                        bg_fill: Color32::from_hex("#10111a").unwrap(),
+                        bg_fill: theme.primary,
                         expansion: 0.0,
-                        fg_stroke: Stroke::new(1.0, Color32::from_hex("#BEBEBE").unwrap()),
-                        weak_bg_fill: Color32::from_hex("#10111a").unwrap(),
+                        fg_stroke: Stroke::new(1.0, theme.text_color),
+                        weak_bg_fill: Color32::TRANSPARENT,
                     },
+                    inactive: WidgetVisuals {
+                        bg_stroke: Stroke::new(1.0, theme.inactive_stroke),
+                        corner_radius: CornerRadius::same(4),
+                        bg_fill: theme.inactive,
+                        expansion: 0.0,
+                        fg_stroke: Stroke::new(1.0, theme.text_color),
+                        weak_bg_fill: theme.inactive,
+                    },
+                    hovered: WidgetVisuals {
+                        bg_stroke: Stroke::new(1.0, theme.hover_stroke),
+                        corner_radius: CornerRadius::same(4),
+                        bg_fill: theme.hover,
+                        expansion: 0.0,
+                        fg_stroke: Stroke::new(1.0, theme.text_color),
+                        weak_bg_fill: theme.hover,
+                    },
+                    active: WidgetVisuals {
+                        bg_stroke: Stroke::NONE,
+                        corner_radius: CornerRadius::same(4),
+                        bg_fill: theme.active,
+                        expansion: 0.0,
+                        fg_stroke: Stroke::new(1.0, theme.text_color),
+                        weak_bg_fill: theme.active,
+                    },
+
                     ..default()
                 },
+                selection: Selection {
+                    bg_fill: theme.active,
+                    stroke: Stroke::new(1.0, theme.text_color),
+                },
                 ..default()
-            }
+            };
+
+            style.text_styles.get_mut(&TextStyle::Button).unwrap().size = 13.0;
+            style.text_styles.get_mut(&TextStyle::Body).unwrap().size = 13.0;
+
+            style.spacing.button_padding = Vec2::new(8.0, 4.0);
+            style.spacing.item_spacing = Vec2::new(4.0, 4.0);
         });
 
         let (file_sender, file_receiver) = unbounded();
@@ -167,9 +274,11 @@ impl CircuitApp {
             plotting_component_current: None,
             scope_state: ScopeState::default(),
             realtime_mode: false,
+            theme,
             //simulation_time: -1.0,
             tx_command: tx,
-            shared_state: state,
+            sim_state: sim_state,
+            state_receiver,
             active_netlist: None,
 
             keybinds_locked: false, // to prevent keybinds when typing in text fields
@@ -177,6 +286,7 @@ impl CircuitApp {
             file_sender,
             file_dialog_state: FileDialogState::Closed,
             current_file: None,
+            wire_color_cache: HashMap::new(),
         }
     }
 

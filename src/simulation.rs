@@ -1,19 +1,22 @@
 use crate::circuit::Circuit;
 use crate::model::NodeId;
 use crate::ui::{ComponentBuildData, Netlist, SimCommand, SimState};
-use crossbeam::channel::Receiver;
+use crossbeam::channel::{Receiver, Sender};
 use parking_lot::RwLock;
 use std::sync::Arc;
+use crate::ui::app::StateUpdate;
 
-pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>>) {
+pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>) {
     let mut realtime_mode = false;
     let sample_rate = 192000.0;
     let mut circuit: Option<Circuit<f64>> = None;
-    state.write().running = false;
+    //state.write().running = false;
+    let mut running = false;
+    state.send(StateUpdate::UpdateRunning(false));
     let dt = 1.0 / sample_rate;
 
     // Batch size: Push data to UI roughly at 60fps
-    let steps_per_batch = 3200; // 96000 / 60 ≈ 1600
+    let steps_per_batch = (sample_rate / 60.0 as f64).ceil() as usize;
 
     let mut current_step: usize = 0;
     let mut max_steps: usize = usize::MAX;
@@ -24,12 +27,19 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>
     loop {
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
-                SimCommand::Pause => state.write().running = false,
-                SimCommand::Resume => state.write().running = true,
+                SimCommand::Pause => {
+                    running = false;
+                    state.send(StateUpdate::UpdateRunning(false));
+                }
+                SimCommand::Resume => {
+                    running = true;
+                    state.send(StateUpdate::UpdateRunning(true));
+                },
                 SimCommand::LoadCircuit(netlist) => {
-                    let mut s = state.write();
-                    s.running = false;
-                    s.history.clear();
+                    //let mut s = state.write();
+                    state.send(StateUpdate::UpdateRunning(false));
+                    running = false;
+                    state.send(StateUpdate::ClearHistory);
                     current_step = 0;
                     pending_data.clear();
 
@@ -45,7 +55,7 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>
                     updated: ComponentBuildData,
                 } => {
                     if let Some(ref mut ckt) = circuit {
-                        if !state.read().running {
+                        if !running {
                             // NOT IMPLEMENTED
                         }
                     }
@@ -64,12 +74,14 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>
         }
 
         // Run Simulation Batch
-        let is_running = state.read().running;
-        if is_running {
+        if running {
+            // clear pending data
+            pending_data.clear();
             let batch_start = std::time::Instant::now();
 
             if current_step >= max_steps {
-                state.write().running = false;
+                running = false;
+                state.send(StateUpdate::UpdateRunning(false));
             } else if let Some(ref mut ckt) = circuit {
                 let mut steps_performed = 0;
                 while steps_performed < steps_per_batch && current_step < max_steps {
@@ -86,16 +98,7 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>
 
                 // Try to flush to UI
                 if !pending_data.is_empty() {
-                    if let Some(mut s) = state.try_write() {
-                        s.history.append(&mut pending_data);
-                        s.current_sample = current_step;
-                    }
-                    // if buffer gets HUGE (UI stuck/slow for >1s), force a blocking write
-                    else if pending_data.len() > 200_000 {
-                        let mut s = state.write();
-                        s.history.append(&mut pending_data);
-                        s.current_sample = current_step;
-                    }
+                    state.send(StateUpdate::SendHistory(pending_data.clone(), current_step));
                 }
 
                 if realtime_mode && steps_performed > 0 {
@@ -108,7 +111,8 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Arc<RwLock<SimState>
                 }
 
                 if current_step >= max_steps {
-                    state.write().running = false;
+                    running = false;
+                    state.send(StateUpdate::UpdateRunning(false));
                 }
             }
         } else {

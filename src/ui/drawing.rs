@@ -6,15 +6,13 @@ use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use egui::{FontSelection, Painter, RichText, Style};
 
-pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2) {
+pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2, color: Color32) {
     let min_visible = (rect.min.to_vec2() - pan) / zoom;
     let max_visible = (rect.max.to_vec2() - pan) / zoom;
     let (min_col, max_col) = (min_visible.x.floor() as i32, max_visible.x.ceil() as i32);
     let (min_row, max_row) = (min_visible.y.floor() as i32, max_visible.y.ceil() as i32);
 
     let draw_minor = zoom > 10.0;
-
-    let dot_color = Color32::from_rgb(44, 45, 56);
     let dot_radius = 1.25;
 
     for x in min_col..=max_col {
@@ -31,7 +29,7 @@ pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2) {
 
             let sy = y as f32 * zoom + pan.y;
 
-            painter.circle_filled(Pos2::new(sx, sy), dot_radius, dot_color);
+            painter.circle_filled(Pos2::new(sx, sy), dot_radius, color);
         }
     }
 }
