@@ -171,6 +171,12 @@ impl eframe::App for CircuitApp {
                             if ui.button("About").clicked() {
                                 ui.close_menu();
                             }
+                            if ui.button("GitHub").clicked() {
+                                ui.close_menu();
+                                if let Err(err) = open::that("https://github.com/CyCodeDE/Copperhead") {
+                                    eprintln!("Failed to open GitHub page: {}", err);
+                                }
+                            }
                         });
                     });
 
