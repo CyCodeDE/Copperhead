@@ -754,7 +754,7 @@ impl eframe::App for CircuitApp {
                                 painter.rect(
                                     selection_rect,
                                     5.0,
-                                    Color32::from_rgba_unmultiplied(155, 20, 20, 5),
+                                    Color32::from_rgba_unmultiplied(135, 5, 1, 40),
                                     Stroke::new(1.0, Color32::WHITE),
                                     StrokeKind::Inside
                                 );
