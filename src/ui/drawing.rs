@@ -73,6 +73,9 @@ pub fn draw_component<F>(
         ComponentBuildData::Diode { .. } => {
             draw_diode(painter, center, rotation, zoom, fill_color, stroke_color);
         }
+        ComponentBuildData::Label => {
+            draw_label(painter, center, rotation, zoom, fill_color, stroke_color);
+        }
         // Fallback for unimplemented components
         _ => {
             draw_generic_box(painter, center, rotation, zoom, fill_color, stroke_color);
@@ -100,6 +103,36 @@ fn rotate_vec(vec: Vec2, rotation: u8) -> Vec2 {
 
 // Tbh I vibe coded the component visuals. Looks decent enough. Might not be most optimal for performance but who tf cares
 
+fn draw_label(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let w = 0.6;
+    let h = -0.5;
+
+    let points = [
+        Vec2::new(0.0, 0.0),
+        Vec2::new(w, h / 2.),
+        Vec2::new(0.0, h),
+        Vec2::new(-w, h / 2.),
+    ];
+
+    let rotated_points: Vec<Pos2> = points
+        .iter()
+        .map(|&p| center + rotate_vec(p * zoom, rotation))
+        .collect();
+
+    painter.add(Shape::convex_polygon(
+        rotated_points,
+        fill_color,
+        Stroke::new(1.5, stroke_color),
+    ));
+}
+
 fn draw_resistor(
     painter: &Painter,
     center: Pos2,
@@ -123,7 +156,6 @@ fn draw_resistor(
         .map(|&p| center + rotate_vec(p * zoom, rotation))
         .collect();
 
-    // Draw using a generic polygon to support rotation
     painter.add(Shape::convex_polygon(
         rotated_points,
         fill_color,
@@ -587,6 +619,15 @@ pub fn draw_component_labels(
 
             (label_pos, value_pos)
         }
+        ComponentBuildData::Label => {
+            // Place label above for horizontal, right for vertical
+            let label_pos = match rotation {
+                0 | 2 => Vec2::new(0.0, -1.1 * zoom),        // Above
+                1 | 3 => Vec2::new(0.7 * zoom, -0.35 * zoom), // Right top
+                _ => Vec2::ZERO,
+            };
+            (label_pos, Vec2::ZERO)
+        }
         ComponentBuildData::DCSource { .. } | ComponentBuildData::ASource { .. } => {
             // Place label below for vertical, right for horizontal
             let label_pos = match rotation {
@@ -617,7 +658,6 @@ pub fn draw_component_labels(
             (label_pos, value_pos)
         }
         _ => {
-            // Default: label above, value below
             (Vec2::new(0.0, -0.7 * zoom), Vec2::new(0.0, 0.7 * zoom))
         }
     };
@@ -637,6 +677,11 @@ pub fn draw_component_labels(
     let label_galley = painter.layout_job(label_layout);
 
     painter.galley(label_pos, label_galley, Color32::WHITE);
+
+    if component.component == ComponentBuildData::Label {
+        return; // No value for label components
+    }
+
 
     let mapping = match &component.component {
         ComponentBuildData::Resistor { resistance } => vec![(*resistance, "Ω")],

@@ -99,6 +99,7 @@ pub struct CircuitApp {
     pub temp_state_snapshot: Option<ProjectState>,
     pub active_netlist: Option<Netlist>,
 
+    pub keybinds_locked: bool,
     pub file_receiver: Receiver<Option<PathBuf>>,
     pub file_sender: Sender<Option<PathBuf>>,
     pub file_dialog_state: FileDialogState,
@@ -171,6 +172,7 @@ impl CircuitApp {
             shared_state: state,
             active_netlist: None,
 
+            keybinds_locked: false, // to prevent keybinds when typing in text fields
             file_receiver,
             file_sender,
             file_dialog_state: FileDialogState::Closed,
@@ -229,7 +231,6 @@ impl CircuitApp {
 
         // Register Points
         for wire in &effective_wires {
-            // Use effective_wires here
             for pos in [wire.start, wire.end] {
                 point_map.entry(pos).or_insert_with(|| {
                     let i = next_point_id;
@@ -251,10 +252,33 @@ impl CircuitApp {
 
         // Build DSU
         let mut dsu = DisjointSet::new(point_map.len());
+
         for wire in &effective_wires {
             let start_id = point_map[&wire.start];
             let end_id = point_map[&wire.end];
             dsu.union(start_id, end_id);
+        }
+
+        let mut label_groups: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for comp in &self.state.schematic.components {
+            if matches!(&comp.component, ComponentBuildData::Label) {
+                let name = comp.name.clone();
+
+                if let Some(pos) = comp.get_pin_locations().first() {
+                    if let Some(&pt_id) = point_map.get(pos) {
+                        label_groups.entry(name).or_default().push(pt_id);
+                    }
+                }
+            }
+        }
+
+        for points in label_groups.values() {
+            if let Some(&first) = points.first() {
+                for &other in points.iter().skip(1) {
+                    dsu.union(first, other);
+                }
+            }
         }
 
         // Identify Grounded Roots
@@ -302,10 +326,12 @@ impl CircuitApp {
 
         // Generate instruction
         for comp in &self.state.schematic.components {
-            // Skip the Ground component in instructions, it's not a circuit element,
+            // Skip the Ground and Label components in instructions, it's not a circuit element,
             // it's just a constraint we applied above.
-            if let ComponentBuildData::Ground = comp.component {
-                continue;
+            match comp.component {
+                ComponentBuildData::Ground => continue,
+                ComponentBuildData::Label => continue,
+                _ => {}
             }
 
             let pins = comp.get_pin_locations();

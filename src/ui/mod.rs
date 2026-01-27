@@ -17,6 +17,7 @@ pub enum ComponentBuildData {
     ASource { amplitude: f64, frequency: f64 },
     Inductor { inductance: f64 },
     Diode { model: DiodeModel },
+    Label,
     Ground,
 }
 
@@ -28,6 +29,7 @@ impl ComponentBuildData {
             Self::Inductor { .. } => "L",
             Self::DCSource { .. } | Self::ASource { .. } => "V",
             Self::Diode { .. } => "D",
+            Self::Label { .. } => "",
             Self::Ground => "",
         }
     }
@@ -52,6 +54,7 @@ impl VisualComponent {
         // Left pin: (-1, 0), Right pin: (1, 0)
         let local_pins = match &self.component {
             ComponentBuildData::Ground => vec![(0, 0)], // 1 Pin
+            ComponentBuildData::Label { .. } => vec![(0, 0)], // 1 Pin (for positioning)
             ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
             ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom)
             ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom)
@@ -160,6 +163,23 @@ impl Schematic {
 
     pub fn add_component(&mut self, data: ComponentBuildData, pos: GridPos, rotation: u8) {
         let name = self.generate_next_name(data.prefix());
+        self.components.push(VisualComponent {
+            id: self.next_component_id,
+            name,
+            component: data,
+            pos,
+            rotation,
+        });
+        self.next_component_id += 1;
+    }
+
+    pub fn add_component_with_name(
+        &mut self,
+        data: ComponentBuildData,
+        pos: GridPos,
+        rotation: u8,
+        name: String,
+    ) {
         self.components.push(VisualComponent {
             id: self.next_component_id,
             name,
