@@ -76,6 +76,96 @@ pub fn format_si(values: &[(f64, &str)], threshold: f64, precision: usize) -> St
     result.join(", ")
 }
 
+pub fn parse_si(input: &str) -> Option<f64> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+
+    let end_of_number = input
+        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-' && c != '+')
+        .unwrap_or(input.len());
+
+    let (num_part, mut suffix_part) = input.split_at(end_of_number);
+
+    if suffix_part.starts_with('e') || suffix_part.starts_with('E') {
+        let next_char = suffix_part.chars().nth(1);
+        if let Some(c) = next_char {
+            if c.is_ascii_digit() || c == '-' || c == '+' {
+                return input.parse::<f64>().ok();
+            }
+        }
+    }
+
+    let value = num_part.parse::<f64>().ok()?;
+
+    suffix_part = suffix_part.trim();
+
+    // Handle special "Meg" case (insensitive) for SPICE users
+    if suffix_part.to_lowercase().starts_with("meg") {
+        return Some(value * 1e6);
+    }
+
+    if suffix_part.is_empty() {
+        return Some(value);
+    }
+
+    let prefix = suffix_part.chars().next().unwrap();
+
+    let multiplier = match prefix {
+        'f' => 1e-15,      // femto
+        'p' => 1e-12,      // pico
+        'n' => 1e-9,       // nano
+        'u' | 'µ' => 1e-6, // micro (allow 'u' or mu)
+        'm' => 1e-3,       // milli
+        'k' | 'K' => 1e3,  // kilo (allow uppercase K for convenience)
+        'M' => 1e6,        // Mega (Standard SI)
+        'G' => 1e9,        // Giga
+        'T' => 1e12,       // Tera
+        // 'R' is often used in resistor values like "10R", effectively x1
+        'R' | 'r' => 1.0,
+        _ => 1.0, // Unknown prefix, assume unit (e.g. "10V" -> 10.0)
+    };
+
+    Some(value * multiplier)
+}
+
+pub fn format_si_single(val: f64, precision: usize) -> String {
+    if val.abs() < 1e-24 {
+        return "0".to_string();
+    }
+
+    let log_val = val.abs().log10();
+    let degree = (log_val / 3.0).floor() as i32;
+
+    // Clamp degree to supported prefixes
+    let degree = degree.clamp(-5, 5);
+
+    let factor = 10f64.powi(degree * 3);
+    let scaled_val = val / factor;
+
+    let prefix = match degree {
+        -5 => "f",
+        -4 => "p",
+        -3 => "n",
+        -2 => "µ",
+        -1 => "m",
+        0 => "",
+        1 => "k",
+        2 => "M",
+        3 => "G",
+        4 => "T",
+        5 => "P",
+        _ => "",
+    };
+
+    // Format with precision, trim trailing zeros/dot
+    let s = format!("{0:.1$}", scaled_val, precision);
+    let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
+
+    format!("{}{}", s, prefix)
+}
+
 /// Returns the default path for the application (usually in home or the documents folder)
 pub fn get_default_path() -> PathBuf {
     dirs::document_dir()

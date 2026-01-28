@@ -3,8 +3,11 @@ use crate::components::ComponentDescriptor;
 use crate::model::{CircuitScalar, GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData, VisualWire};
-use crossbeam::channel::{Sender, unbounded, Receiver};
+use crate::ui::{
+    ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData, VisualWire,
+};
+use crossbeam::channel::{Receiver, Sender, unbounded};
+use eframe::emath::Align;
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, Visuals};
 use faer::prelude::default;

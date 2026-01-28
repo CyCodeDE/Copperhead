@@ -620,7 +620,7 @@ pub fn draw_component_labels(
         ComponentBuildData::Label => {
             // Place label above for horizontal, right for vertical
             let label_pos = match rotation {
-                0 | 2 => Vec2::new(0.0, -1.1 * zoom),        // Above
+                0 | 2 => Vec2::new(0.0, -1.1 * zoom),         // Above
                 1 | 3 => Vec2::new(0.7 * zoom, -0.35 * zoom), // Right top
                 _ => Vec2::ZERO,
             };
@@ -655,9 +655,7 @@ pub fn draw_component_labels(
 
             (label_pos, value_pos)
         }
-        _ => {
-            (Vec2::new(0.0, -0.7 * zoom), Vec2::new(0.0, 0.7 * zoom))
-        }
+        _ => (Vec2::new(0.0, -0.7 * zoom), Vec2::new(0.0, 0.7 * zoom)),
     };
 
     let label_pos = center + offset_label;
@@ -679,7 +677,6 @@ pub fn draw_component_labels(
     if component.component == ComponentBuildData::Label {
         return; // No value for label components
     }
-
 
     let mapping = match &component.component {
         ComponentBuildData::Resistor { resistance } => vec![(*resistance, "Ω")],

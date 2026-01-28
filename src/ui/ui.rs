@@ -1,5 +1,3 @@
-use std::ops::Add;
-use std::thread;
 use crate::components::diode::DiodeModel;
 use crate::model::GridPos;
 use crate::ui::app::{CircuitApp, FileDialogState, StateUpdate, Tool};
@@ -7,13 +5,22 @@ use crate::ui::components::oscilloscope::draw_oscilloscope;
 use crate::ui::drawing::{
     check_line_rect_intersection, draw_component, draw_component_labels, draw_grid,
 };
-use crate::ui::{lerp_color, ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire};
-use crate::util::get_default_path;
+use crate::ui::{
+    ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire, lerp_color,
+};
+use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
-use egui::{Align, Align2, Button, CentralPanel, Checkbox, Color32, CornerRadius, CursorIcon, Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextFormat, TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText};
+use egui::{
+    Align, Align2, Button, CentralPanel, Checkbox, Color32, CornerRadius, CursorIcon, Direction,
+    FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect,
+    RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat,
+    TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText,
+};
 use egui_plot::{Line, Plot, PlotPoints};
 use faer::prelude::default;
 use log::{debug, info};
+use std::ops::Add;
+use std::thread;
 use std::time::Duration;
 
 impl Tool {
@@ -65,18 +72,19 @@ impl eframe::App for CircuitApp {
             }
 
             self.file_dialog_state = FileDialogState::Closed;
-
         }
 
         if !running {
             // Handle undo and redo only if not running
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) && !self.keybinds_locked
+            {
                 if let Some(prev) = self.undo_stack.undo(self.state.clone()) {
                     self.state = prev;
                     // TODO: maybe show a notification that undo was performed
                 }
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Y)) {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Y)) && !self.keybinds_locked
+            {
                 if let Some(next) = self.undo_stack.redo(self.state.clone()) {
                     self.state = next;
                 }
@@ -95,11 +103,7 @@ impl eframe::App for CircuitApp {
 
         // menu bar
         egui::TopBottomPanel::top("menu_bar")
-            .frame(
-                Frame::new()
-                    .inner_margin(8.)
-                    .fill(self.theme.panel_color),
-            )
+            .frame(Frame::new().inner_margin(8.).fill(self.theme.panel_color))
             .show(ctx, |ui| {
                 ui.columns(3, |columns| {
                     columns[0].horizontal(|ui| {
@@ -111,7 +115,13 @@ impl eframe::App for CircuitApp {
                                 ui.close_menu();
                             }
 
-                            if ui.add_enabled(self.file_dialog_state == FileDialogState::Closed, Button::new("Open")).clicked() {
+                            if ui
+                                .add_enabled(
+                                    self.file_dialog_state == FileDialogState::Closed,
+                                    Button::new("Open"),
+                                )
+                                .clicked()
+                            {
                                 let default_path = get_default_path();
 
                                 self.file_dialog_state = FileDialogState::Load;
@@ -119,13 +129,21 @@ impl eframe::App for CircuitApp {
                                 let ctx_clone = ctx.clone();
 
                                 thread::spawn(move || {
-                                    let file = rfd::FileDialog::new().set_directory(default_path).pick_file();
+                                    let file = rfd::FileDialog::new()
+                                        .set_directory(default_path)
+                                        .pick_file();
                                     let _ = tx.send(file);
                                     ctx_clone.request_repaint();
                                 });
                             }
 
-                            if ui.add_enabled(self.file_dialog_state == FileDialogState::Closed, Button::new("Save")).clicked() {
+                            if ui
+                                .add_enabled(
+                                    self.file_dialog_state == FileDialogState::Closed,
+                                    Button::new("Save"),
+                                )
+                                .clicked()
+                            {
                                 let default_path = get_default_path();
 
                                 self.file_dialog_state = FileDialogState::Save;
@@ -173,7 +191,9 @@ impl eframe::App for CircuitApp {
                             }
                             if ui.button("GitHub").clicked() {
                                 ui.close_menu();
-                                if let Err(err) = open::that("https://github.com/CyCodeDE/Copperhead") {
+                                if let Err(err) =
+                                    open::that("https://github.com/CyCodeDE/Copperhead")
+                                {
                                     eprintln!("Failed to open GitHub page: {}", err);
                                 }
                             }
@@ -193,11 +213,7 @@ impl eframe::App for CircuitApp {
                     // Measure Button
                     let btn_font_id = egui::TextStyle::Button.resolve(ui.style());
                     let btn_text_width = ui.fonts_mut(|f| {
-                        f.layout_no_wrap(
-                            btn_text.to_string(),
-                            btn_font_id,
-                            egui::Color32::WHITE,
-                        )
+                        f.layout_no_wrap(btn_text.to_string(), btn_font_id, egui::Color32::WHITE)
                             .rect
                             .width()
                     });
@@ -211,8 +227,8 @@ impl eframe::App for CircuitApp {
                             label_font_id,
                             egui::Color32::WHITE,
                         )
-                            .rect
-                            .width()
+                        .rect
+                        .width()
                     });
 
                     // Set a fixed width for the input box so our math is reliable
@@ -220,7 +236,8 @@ impl eframe::App for CircuitApp {
 
                     // Calculate offset
                     // Total = Label + Spacing + Input + Spacing + Button
-                    let total_content_width = label_width + item_spacing + input_width + item_spacing + btn_total_width;
+                    let total_content_width =
+                        label_width + item_spacing + input_width + item_spacing + btn_total_width;
 
                     let available_width = ui.available_width();
                     let offset = (available_width - total_content_width) / 2.0;
@@ -232,7 +249,10 @@ impl eframe::App for CircuitApp {
                         }
 
                         // Simulation Time Input
-                        ui.add_enabled(!self.realtime_mode && !running, Label::new(label_text).selectable(false));
+                        ui.add_enabled(
+                            !self.realtime_mode && !running,
+                            Label::new(label_text).selectable(false),
+                        );
 
                         let response = ui.add_enabled(
                             !self.realtime_mode && !running,
@@ -240,7 +260,7 @@ impl eframe::App for CircuitApp {
                                 .speed(1)
                                 .clamp_range(0.001..=1000.0)
                                 .max_decimals(3)
-                                .suffix("s")
+                                .suffix("s"),
                         );
 
                         // Snapshot logic for Undo/Redo
@@ -384,36 +404,45 @@ impl eframe::App for CircuitApp {
                 ui.label(format!("State: {:?}", self.selected_tool.get_name()));
             });
 
-        if ctx.data(|d| d.get_temp::<bool>(Id::new("label_tool_open"))).unwrap_or(false) {
-            egui::Modal::new(Id::new("label_tool_window"))
-                .show(ctx, |ui| {
-                    ui.label("Enter label text:");
-                    // create a text edit that uses the data to store the label text
-                    let mut label_text = ctx.data(|d| d.get_temp::<String>(Id::new("label_tool_text")).unwrap_or_default());
-                    let text_edit = ui.text_edit_singleline(&mut label_text);
-                    text_edit.request_focus();
-                    ctx.data_mut(|d| d.insert_temp(Id::new("label_tool_text"), label_text.clone()));
-
-                    ui.horizontal(|ui| {
-                            if ui.button("Add Label").clicked() {
-                                let label_text = ctx.data(|d| d.get_temp::<String>(Id::new("label_tool_text"))).unwrap_or_default();
-                                if !label_text.is_empty() {
-                                    self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Label);
-                                    // clear the stored text
-                                    // update the stored text to the final value
-                                    ctx.data_mut(|d| d.insert_temp::<String>(Id::new("label_tool_text"), label_text));
-                                    // close the modal
-                                    ctx.data_mut(|d| d.remove::<bool>(Id::new("label_tool_open")));
-                                    self.keybinds_locked = false;
-                                }
-                            }
-
-                            if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-                                ctx.data_mut(|d| d.remove::<bool>(Id::new("label_tool_open")));
-                                self.keybinds_locked = false;
-                            }
-                    });
+        if ctx
+            .data(|d| d.get_temp::<bool>(Id::new("label_tool_open")))
+            .unwrap_or(false)
+        {
+            egui::Modal::new(Id::new("label_tool_window")).show(ctx, |ui| {
+                ui.label("Enter label text:");
+                // create a text edit that uses the data to store the label text
+                let mut label_text = ctx.data(|d| {
+                    d.get_temp::<String>(Id::new("label_tool_text"))
+                        .unwrap_or_default()
                 });
+                let text_edit = ui.text_edit_singleline(&mut label_text);
+                text_edit.request_focus();
+                ctx.data_mut(|d| d.insert_temp(Id::new("label_tool_text"), label_text.clone()));
+
+                ui.horizontal(|ui| {
+                    if ui.button("Add Label").clicked() {
+                        let label_text = ctx
+                            .data(|d| d.get_temp::<String>(Id::new("label_tool_text")))
+                            .unwrap_or_default();
+                        if !label_text.is_empty() {
+                            self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Label);
+                            // clear the stored text
+                            // update the stored text to the final value
+                            ctx.data_mut(|d| {
+                                d.insert_temp::<String>(Id::new("label_tool_text"), label_text)
+                            });
+                            // close the modal
+                            ctx.data_mut(|d| d.remove::<bool>(Id::new("label_tool_open")));
+                            self.keybinds_locked = false;
+                        }
+                    }
+
+                    if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                        ctx.data_mut(|d| d.remove::<bool>(Id::new("label_tool_open")));
+                        self.keybinds_locked = false;
+                    }
+                });
+            });
         }
 
         // Central Canvas
@@ -555,11 +584,30 @@ impl eframe::App for CircuitApp {
                                 _ => self.state.schematic.generate_next_name(&comp_data.prefix()),
                             };
 
+                            // calculate size in grid units depending on the type of component
+                            let size = match comp_data {
+                                ComponentBuildData::Resistor { .. } |
+                                ComponentBuildData::Capacitor { .. } |
+                                ComponentBuildData::Inductor { .. } |
+                                ComponentBuildData::Diode { .. } |
+                                ComponentBuildData::DCSource { .. } |
+                                ComponentBuildData::ASource { .. } => GridPos { x: 2, y: 1 },
+                                ComponentBuildData::Ground |
+                                ComponentBuildData::Label => GridPos { x: 1, y: 1 },
+                            };
+
+                            let rotated_size = match self.current_rotation % 4 {
+                                0 | 2 => size,
+                                1 | 3 => GridPos { x: size.y, y: size.x },
+                                _ => unreachable!(),
+                            };
+
                             let ghost_comp = VisualComponent {
                                 name: name.clone(),
                                 id: 0,
                                 component: comp_data.clone(),
                                 pos: grid_pos,
+                                size: rotated_size,
                                 rotation: self.current_rotation,
                             };
 
@@ -581,6 +629,7 @@ impl eframe::App for CircuitApp {
                                     grid_pos,
                                     self.current_rotation,
                                     name,
+                                    rotated_size,
                                 );
 
                                 self.current_rotation = 0;
@@ -661,11 +710,11 @@ impl eframe::App for CircuitApp {
 
                                 for comp in &self.state.schematic.components {
                                     let comp_screen_pos = self.to_screen(comp.pos);
-                                    let size = Vec2::new(2.0 * self.zoom, 1.0 * self.zoom);
+                                    // add a small tolerance to the size for easier selection
+                                    let size = (comp.size.to_vec2() + Vec2::splat(0.5)) * self.zoom;
                                     let rect = Rect::from_center_size(comp_screen_pos, size);
 
                                     if rect.contains(mouse_pos) {
-                                        println!("Selected component ID: {}", comp.id);
                                         found_id = Some(comp.id);
                                         break;
                                     }
@@ -918,88 +967,166 @@ impl eframe::App for CircuitApp {
                 }
 
                 if let Some(id) = self.editing_component_id {
-                    let mut open_via_x = true;
-                    let mut close_via_button = false;
+                    let mut open = true;
+
+                    let mut rename_request: Option<(usize, String)> = None;
 
                     if let Some(comp) = self.state.schematic.components.iter_mut().find(|c| c.id == id) {
-                        egui::Window::new("Edit Component")
-                            .id(Id::new("component_edit_window"))
-                            .open(&mut open_via_x)
-                            .collapsible(false)
-                            .resizable(false)
-                            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                            .show(ctx, |ui| {
-                                ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
+                        // break if the component has no properties. For example ground
+                        if comp.component != ComponentBuildData::Ground {
+                            self.keybinds_locked = true;
 
-                                // Reusable Match for different components
-                                match &mut comp.component {
-                                    ComponentBuildData::Resistor { resistance } => {
-                                        ui.heading("Resistor Properties");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Resistance (Ω):");
-                                            ui.add(egui::DragValue::new(resistance)
-                                                .speed(10.0)
-                                                .range(0.0..=f64::INFINITY));
-                                        });
-                                    }
-                                    ComponentBuildData::Capacitor { capacitance } => {
-                                        ui.heading("Capacitor Properties");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Capacitance (F):");
-                                            // Use scientific notation for small values
-                                            ui.add(egui::DragValue::new(capacitance)
-                                                .speed(1e-7)
-                                                .range(0.0..=f64::INFINITY));
-                                        });
-                                    }
-                                    ComponentBuildData::DCSource { voltage } => {
-                                        ui.heading("DC Source Properties");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Voltage (V):");
-                                            ui.add(egui::DragValue::new(voltage).speed(0.1));
-                                        });
-                                    }
-                                    ComponentBuildData::ASource { amplitude, frequency } => {
-                                        ui.heading("DC Source Properties");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Voltage (V):");
-                                            ui.add(egui::DragValue::new(amplitude).speed(0.1));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Frequency (Hz):");
-                                            ui.add(egui::DragValue::new(frequency).speed(1.0));
-                                        });
-                                    }
-                                    ComponentBuildData::Ground => {
-                                        ui.label("Ground component has no properties.");
-                                    }
-                                    ComponentBuildData::Inductor { inductance } => {
-                                        ui.heading("Inductor Properties");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Inductance (H):");
-                                            // Use scientific notation for small values
-                                            ui.add(egui::DragValue::new(inductance)
-                                                .speed(1e-4)
-                                                .range(0.0..=f64::INFINITY));
-                                        });
-                                    }
-                                    _ => {
-                                        ui.label("No editable properties for this component.");
-                                    }
-                                }
+                            egui::Modal::new(Id::new("component_edit_modal"))
+                                .backdrop_color(self.theme.modal_backdrop)
+                                .show(ctx, |ui| {
+                                    self.keybinds_locked = true;
+                                    ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
 
-                                ui.separator();
+                                    let prefix = comp.component.prefix().to_string();
 
-                                if ui.button("Close").clicked() {
-                                    close_via_button = true;
-                                }
-                            });
+                                    ui.heading(format!("{} Properties", match comp.component {
+                                        ComponentBuildData::Resistor { .. } => "Resistor",
+                                        ComponentBuildData::Capacitor { .. } => "Capacitor",
+                                        ComponentBuildData::DCSource { .. } => "DC Source",
+                                        ComponentBuildData::ASource { .. } => "AC Source",
+                                        ComponentBuildData::Inductor { .. } => "Inductor",
+                                        ComponentBuildData::Label => "Label",
+                                        _ => "Component",
+                                    }));
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("Name:");
+                                        let mut text = comp.name.clone();
+                                        let text_edit = TextEdit::singleline(&mut text)
+                                            .cursor_at_end(true)
+                                            .clip_text(false)
+                                            .desired_width(35.0)
+                                            .horizontal_align(Align::Center);
+
+                                        if ui.add(text_edit).changed() {
+                                            if text.trim().is_empty() {
+                                                rename_request = Some((id, prefix));
+                                            } else {
+                                                comp.name = text.trim().to_string();
+                                            }
+                                        }
+                                    });
+
+                                    match &mut comp.component {
+                                        ComponentBuildData::Resistor { resistance } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Resistance:");
+                                                ui.add(egui::DragValue::new(resistance)
+                                                    .speed(10.0)
+                                                    .range(0.0..=f64::INFINITY)
+                                                    .suffix("Ω")
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                        }
+                                        ComponentBuildData::Capacitor { capacitance } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Capacitance:");
+                                                // Use scientific notation for small values
+                                                ui.add(egui::DragValue::new(capacitance).suffix("F")
+                                                    .speed(1e-7)
+                                                    .range(0.0..=f64::INFINITY)
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                        }
+                                        ComponentBuildData::DCSource { voltage } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Voltage:");
+                                                ui.add(egui::DragValue::new(voltage).speed(0.1).range(-f64::INFINITY..=f64::INFINITY).suffix("V")
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                        }
+                                        ComponentBuildData::ASource { amplitude, frequency } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Voltage:");
+                                                ui.add(egui::DragValue::new(amplitude).speed(0.1).range(-f64::INFINITY..=f64::INFINITY).suffix("V")
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Frequency:");
+                                                ui.add(egui::DragValue::new(frequency).speed(1.0).range(0.0..=f64::INFINITY).suffix("Hz")
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                        }
+                                        ComponentBuildData::Ground => {
+                                            open = false;
+                                        }
+                                        ComponentBuildData::Inductor { inductance } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Inductance:");
+                                                // Use scientific notation for small values
+                                                ui.add(egui::DragValue::new(inductance).suffix("H")
+                                                    .speed(1e-4)
+                                                    .range(0.0..=f64::INFINITY)
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                        }
+                                        ComponentBuildData::Label => {
+                                        }
+                                        _ => {
+                                            ui.label("No editable properties for this component.");
+                                        }
+                                    }
+
+                                    ui.separator();
+
+                                    if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                        open = false;
+                                        self.keybinds_locked = false;
+                                    }
+                                });
+                        } else {
+                            // Component has no properties, close the modal
+                            open = false;
+                            self.keybinds_locked = false;
+                        }
                     } else {
                         // ID not found (maybe component was deleted?), close the modal
-                        close_via_button = false;
+                        open = false;
                     }
 
-                    if !open_via_x || close_via_button {
+                    if let Some((target_id, prefix)) = rename_request {
+                        let new_name = self.state.schematic.generate_next_name(&prefix);
+                        if let Some(comp) = self.state.schematic.components.iter_mut().find(|c| c.id == target_id) {
+                            comp.name = new_name;
+                        }
+                    }
+
+                    if !open {
                         self.editing_component_id = None;
                     }
                 }
@@ -1008,9 +1135,9 @@ impl eframe::App for CircuitApp {
 
         // check for repaint, full redraw next frame if sim is running and 30fps if not
         if running {
-                ctx.request_repaint();
-            } else {
-                ctx.request_repaint_after(std::time::Duration::from_millis(33));
-            }
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
+}

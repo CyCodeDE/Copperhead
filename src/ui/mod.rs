@@ -6,9 +6,9 @@ pub mod ui;
 use crate::components::ComponentDescriptor;
 use crate::components::diode::DiodeModel;
 use crate::model::{CircuitScalar, GridPos, NodeId};
+use egui::{Color32, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use egui::Color32;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
@@ -43,7 +43,8 @@ pub struct VisualComponent {
     pub name: String,
     pub component: ComponentBuildData, // TODO: replace with a UI specific descriptor instead of the logical one
     pub pos: GridPos,
-    pub rotation: u8, // 0, 1, 2, 3 (90 degree steps)
+    pub size: GridPos, // width and height in grid units at rotation 0, rotation has to be applied beforehand
+    pub rotation: u8,  // 0, 1, 2, 3 (90 degree steps)
 }
 
 impl VisualComponent {
@@ -54,7 +55,7 @@ impl VisualComponent {
         // Define local offsets for a generic 2-port component (e.g. width 2 units)
         // Left pin: (-1, 0), Right pin: (1, 0)
         let local_pins = match &self.component {
-            ComponentBuildData::Ground => vec![(0, 0)], // 1 Pin
+            ComponentBuildData::Ground => vec![(0, 0)],       // 1 Pin
             ComponentBuildData::Label { .. } => vec![(0, 0)], // 1 Pin (for positioning)
             ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
             ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom)
@@ -162,12 +163,19 @@ impl Schematic {
         format!("{}{}", prefix, next_idx)
     }
 
-    pub fn add_component(&mut self, data: ComponentBuildData, pos: GridPos, rotation: u8) {
+    pub fn add_component(
+        &mut self,
+        data: ComponentBuildData,
+        pos: GridPos,
+        rotation: u8,
+        size: GridPos,
+    ) {
         let name = self.generate_next_name(data.prefix());
         self.components.push(VisualComponent {
             id: self.next_component_id,
             name,
             component: data,
+            size,
             pos,
             rotation,
         });
@@ -180,12 +188,14 @@ impl Schematic {
         pos: GridPos,
         rotation: u8,
         name: String,
+        size: GridPos,
     ) {
         self.components.push(VisualComponent {
             id: self.next_component_id,
             name,
             component: data,
             pos,
+            size,
             rotation,
         });
         self.next_component_id += 1;

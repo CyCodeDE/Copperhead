@@ -1,10 +1,10 @@
 use crate::circuit::Circuit;
 use crate::model::NodeId;
+use crate::ui::app::StateUpdate;
 use crate::ui::{ComponentBuildData, Netlist, SimCommand, SimState};
 use crossbeam::channel::{Receiver, Sender};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use crate::ui::app::StateUpdate;
 
 pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>) {
     let mut realtime_mode = false;
@@ -34,7 +34,7 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                 SimCommand::Resume => {
                     running = true;
                     state.send(StateUpdate::UpdateRunning(true));
-                },
+                }
                 SimCommand::LoadCircuit(netlist) => {
                     //let mut s = state.write();
                     state.send(StateUpdate::UpdateRunning(false));
