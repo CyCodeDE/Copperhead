@@ -21,6 +21,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
     *   Capacitors
     *   Diodes (currently the 1N4148 is the only preset available, more coming soon)
     *   Voltage Sources (AC and DC)
+    *   Net labels
 *   **GUI:** Immediate mode interface built with `egui`.
 *   **Oscilloscope:** Allows measuring voltages between nodes and currents on components and scaling correctly.
 
@@ -49,6 +50,7 @@ This profile is optimized for solver speed compared to the default release or de
 ## License
 
 Copperhead is licensed under [MIT](https://github.com/CyCodeDE/Copperhead/blob/main/LICENSE)
+
 
 
 
