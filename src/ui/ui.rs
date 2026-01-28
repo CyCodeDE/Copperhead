@@ -465,6 +465,15 @@ impl eframe::App for CircuitApp {
                 });
 
             island_frame.show(ui, |ui| {
+                if !self.is_initialized {
+                    println!("Initializing view pan to center");
+                    let rect = ui.available_rect_before_wrap();
+                    let center = rect.center();
+                    println!("Center pos: {:?}", center);
+                    self.pan = center.to_vec2();
+                    self.is_initialized = true;
+                }
+
                 let (response, painter) = ui.allocate_painter(
                     ui.available_size_before_wrap(),
                     Sense::click_and_drag()

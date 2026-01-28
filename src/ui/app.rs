@@ -164,6 +164,7 @@ pub struct CircuitApp {
     pub temp_state_snapshot: Option<ProjectState>,
     pub active_netlist: Option<Netlist>,
 
+    pub is_initialized: bool,
     pub theme: AppTheme,
     pub keybinds_locked: bool,
     pub file_receiver: Receiver<Option<PathBuf>>,
@@ -270,6 +271,7 @@ impl CircuitApp {
             undo_stack: UndoStack::new(50),
             selected_tool: Tool::Select,
             pan: Vec2::ZERO,
+            is_initialized: false,
             zoom: 30.0, // pixels per grid unit
             current_rotation: 0,
             editing_component_id: None,
@@ -294,7 +296,9 @@ impl CircuitApp {
     }
 
     pub fn save_to_path(&self, path: PathBuf) {
-        let serialized = serde_json::to_string(&self.state.schematic).unwrap();
+        let mut centered_schematic = self.state.schematic.clone();
+        centered_schematic.recenter_schematic();
+        let serialized = serde_json::to_string(&centered_schematic).unwrap();
         let real_time = self.realtime_mode;
         let sim_time = self.state.simulation_time;
         let save_data = (serialized, real_time, sim_time);
@@ -309,6 +313,9 @@ impl CircuitApp {
         self.state.schematic = schematic;
         self.realtime_mode = real_time;
         self.state.simulation_time = sim_time;
+        self.is_initialized = false; // force re-initialization
+        self.zoom = 30.0;
+        self.selected_tool = Tool::Select;
     }
 
     /// Converts a Grid Position (logical) to Screen Position (pixels)
