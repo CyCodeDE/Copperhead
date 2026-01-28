@@ -207,7 +207,6 @@ impl Schematic {
     }
 
     pub fn recenter_schematic(&mut self) {
-        // If schematic is empty, do nothing to avoid division by zero or invalid bounds
         if self.components.is_empty() && self.wires.is_empty() {
             return;
         }
@@ -225,13 +224,11 @@ impl Schematic {
             if y > max_y { max_y = y; }
         };
 
-        // 1. Calculate the bounding box of the entire circuit
         for comp in &self.components {
             // Include the top-left anchor
             include_point(comp.pos.x as i64, comp.pos.y as i64);
 
             // Include the bottom-right corner based on size
-            // This ensures large components don't feel "off-center"
             include_point((comp.pos.x + comp.size.x) as i64, (comp.pos.y + comp.size.y) as i64);
         }
 
@@ -240,17 +237,15 @@ impl Schematic {
             include_point(wire.end.x as i64, wire.end.y as i64);
         }
 
-        // 2. Determine the center of that bounding box
+        // Determine the center of that bounding box
         let center_x = (min_x + max_x) / 2;
         let center_y = (min_y + max_y) / 2;
 
-        // Stop if we are already centered (optimization)
         if center_x == 0 && center_y == 0 {
             return;
         }
 
-        // 3. Apply the offset to every element
-        // We subtract the center coordinates from every position to shift it to 0,0
+        // Apply the offset to every element
         for comp in &mut self.components {
             comp.pos.x -= center_x as isize;
             comp.pos.y -= center_y as isize;
