@@ -53,6 +53,10 @@ pub enum ComponentDescriptor {
         m: f64,
         /// Transit time (tt)
         transit_time: f64,
+        // Breakdown voltage (BV)
+        breakdown_voltage: f64,
+        // Current at breakdown (IBV)
+        breakdown_current: f64,
     },
 }
 
@@ -113,6 +117,8 @@ impl ComponentDescriptor {
                 cjo,
                 m,
                 transit_time,
+                breakdown_voltage,
+                breakdown_current
             } => Box::new(diode::Diode::new(
                 NodeId(a),
                 NodeId(b),
@@ -128,6 +134,10 @@ impl ComponentDescriptor {
                     .expect("Failed to cast grading coefficient to circuit scalar type"),
                 num_traits::cast(transit_time)
                     .expect("Failed to cast transit time to circuit scalar type"),
+                num_traits::cast(breakdown_voltage)
+                    .expect("Failed to cast breakdown voltage to circuit scalar type"),
+                num_traits::cast(breakdown_current)
+                    .expect("Failed to cast breakdown current to circuit scalar type"),
             )),
         }
     }

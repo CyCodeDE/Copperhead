@@ -501,6 +501,8 @@ impl CircuitApp {
                         cjo,
                         m,
                         transit_time,
+                        breakdown_voltage,
+                        breakdown_current
                     ) = model.parameters();
 
                     ComponentDescriptor::Diode {
@@ -512,6 +514,8 @@ impl CircuitApp {
                         cjo,
                         m,
                         transit_time,
+                        breakdown_voltage,
+                        breakdown_current
                     }
                 }
                 _ => continue,

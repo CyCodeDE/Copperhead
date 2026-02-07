@@ -20,7 +20,7 @@ pub enum DiodeModel {
 }
 
 impl DiodeModel {
-    pub fn parameters<T: CircuitScalar>(&self) -> (T, T, T, T, T, T) {
+    pub fn parameters<T: CircuitScalar>(&self) -> (T, T, T, T, T, T, T, T) {
         match self {
             DiodeModel::D1N4148 => {
                 let is = T::from(2.52e-9).unwrap(); // Saturation Current | typical 2.52nA
@@ -29,7 +29,9 @@ impl DiodeModel {
                 let cjo = T::from(4e-12).unwrap(); // Zero-bias junction capacitance | typical 4pF
                 let m = T::from(0.4).unwrap(); // Grading coefficient | typical 0.4
                 let tt = T::from(20e-9).unwrap(); // Transit time | typical 20ns
-                (is, n, rs, cjo, m, tt)
+                let bv = T::from(75.0).unwrap(); // breakdown voltage
+                let ibv = T::from(5.0e-6).unwrap() ; // breakdown current at BV | typical 5µA
+                (is, n, rs, cjo, m, tt, bv, ibv)
             }
         }
     }
@@ -53,8 +55,9 @@ pub struct Diode<T: CircuitScalar> {
     pub vt: T,                   // Thermal voltage (kT/q)
     pub junction_potential: T,   // phi
     pub fc: T,                   // Forward-bias depletion capacitance coefficient (typ 0.5)
+    pub bv: T,                   // Breakdown voltage
+    pub ibv: T,                  // Current at Breakdown Voltage
 
-    // --- State (Time-Step History) ---
     /// Voltage across the intrinsic diode at the end of the previous time step
     prev_voltage: T,
     /// Total charge (Q_jun + Q_diff) at the end of the previous time step
@@ -67,19 +70,23 @@ pub struct Diode<T: CircuitScalar> {
     g_min: T,
     /// Critical voltage for limiting algorithm (Pre-calculated)
     v_crit: T,
+    // Critical voltage for breakdown limiting
+    v_crit_bwd: T,
 
-    iter_state: Mutex<IterationState<T>>,
+    iter_state: Mutex<IterationState<T>>, // TODO: potential bottleneck, use atomic instead or let the solve loop handle state concurrency
 }
 
 impl<T: CircuitScalar> Diode<T> {
-    pub fn new(node_a: NodeId, node_b: NodeId, is: T, n: T, rs: T, cjo: T, m: T, tt: T) -> Self {
-        let vt = T::from(0.02585).unwrap();
+    pub fn new(node_a: NodeId, node_b: NodeId, is: T, n: T, rs: T, cjo: T, m: T, tt: T, bv: T, ibv: T) -> Self {
+        let vt = T::from(0.02585).unwrap(); // ~300K thermal voltage at room temp (kT/q)
+        // TODO: calculate the temperature dynamically based on the environment or allow user to set it, and calculate vt = kT/q accordingly
 
         // Pre-calculate V_crit for pnjlim
         // V_crit = N*Vt * ln( N*Vt / (Is * sqrt(2)) )
         let vt_n = n * vt;
         let sqrt_2 = T::from(2.0).unwrap().sqrt();
         let v_crit = vt_n * (vt_n / (is * sqrt_2)).ln();
+        let v_crit_bwd = vt_n * (vt_n / (ibv * sqrt_2)).ln();
 
         Self {
             node_a,
@@ -93,6 +100,8 @@ impl<T: CircuitScalar> Diode<T> {
             vt,
             junction_potential: T::from(0.7).unwrap(),
             fc: T::from(0.5).unwrap(),
+            bv,
+            ibv,
 
             prev_voltage: T::zero(),
             prev_charge: T::zero(),
@@ -101,6 +110,7 @@ impl<T: CircuitScalar> Diode<T> {
             internal_node_idx: None,
             g_min: T::from(1.0e-12).unwrap(), // 1pA/V leakage
             v_crit,
+            v_crit_bwd,
 
             iter_state: Mutex::new(IterationState {
                 last_iter_voltage: T::zero(),
@@ -138,23 +148,51 @@ impl<T: CircuitScalar> Diode<T> {
     /// Dampens voltage changes to prevent numerical overflow in exp().
     fn limit_voltage(&self, v_new: T, v_old: T) -> T {
         let vt_n = self.emission_coefficient * self.vt;
+        let two = T::from(2.0).unwrap();
 
-        // Simple case: Voltage is low or reverse biased
-        if v_new < self.v_crit || (v_new - v_old).abs() < (vt_n + vt_n) {
+        // Checks if we are in (or entering) Breakdown
+        // Treat the breakdown region as a "forward" diode by transforming coordinates:
+        // V_equiv = -(V + BV)
+        if v_new < -self.bv {
+            let v_new_eq = -(v_new + self.bv);
+            let v_old_eq = -(v_old + self.bv);
+            let v_crit_bwd = self.v_crit_bwd;
+
+            if v_new_eq > v_crit_bwd {
+                let effective_v_old_eq = if v_old_eq < v_crit_bwd {
+                    v_crit_bwd
+                } else {
+                    v_old_eq
+                };
+
+                let arg = (v_new_eq - effective_v_old_eq) / vt_n;
+
+                if arg > two {
+                    let limited_eq = effective_v_old_eq + vt_n * (two + (arg - two).ln());
+                    // Transform back: V = -(V_eq + BV)
+                    return -(limited_eq + self.bv);
+                }
+            }
+            // If strictly inside breakdown but step is small, we accept the new voltage
+            return v_new;
+        }
+
+        // Simple case: Voltage is low or reverse biased (but not breakdown)
+        if v_new < self.v_crit {
             return v_new;
         }
 
         // Standard SPICE limiting for forward bias
         if v_new > v_old {
             let arg = (v_new - v_old) / vt_n;
-            if arg > T::from(0.0).unwrap() {
-                let k_v = v_old + vt_n * (arg.ln_1p() + T::from(1.0).unwrap());
-                return v_old + vt_n * (T::from(2.0).unwrap() + (arg - T::from(2.0).unwrap()).ln());
+            // CRITICAL FIX 1: Ensure arg > 2.0
+            if arg > two {
+                return v_old + vt_n * (two + (arg - two).ln());
             }
         } else {
             // Unwinding high voltage
             if v_new < self.v_crit {
-                return v_new; // Should have been caught by first check, but safety
+                return v_new;
             }
         }
 
@@ -168,7 +206,7 @@ impl<T: CircuitScalar> Diode<T> {
 
         let vt_n = self.emission_coefficient * self.vt;
 
-        // Clamp exponential argument for safety (backup to pnjlim)
+        // Clamp exponential argument for safety
         let max_exp_arg = T::from(80.0).unwrap();
         let exp_arg = (v_d / vt_n).min(max_exp_arg);
 
@@ -176,10 +214,32 @@ impl<T: CircuitScalar> Diode<T> {
         let evd_minus_one = exp_arg.exp_m1();
         let evd = evd_minus_one + one;
 
-        let i_dc = self.saturation_current * evd_minus_one + self.g_min * v_d;
+        let mut i_dc = self.saturation_current * evd_minus_one + self.g_min * v_d;
 
         // G = Is/(nVt) * e^(V/nVt)
-        let g_dc = (self.saturation_current / vt_n) * evd + self.g_min;
+        let mut g_dc = (self.saturation_current / vt_n) * evd + self.g_min;
+
+        let v_breakdown_onset = -self.bv + (self.emission_coefficient * self.vt * T::from(50.0).unwrap());
+
+        // Handle breakdown
+        // for performacne and floating point safety, only compute when necessary, as it is negligible otherwise
+        if v_d < v_breakdown_onset {
+            let v_bwd_arg = -(v_d + self.bv) / vt_n;
+
+            // Clamp to avoid overflow if voltage goes insanely negative before limiting kicks in
+            let v_bwd_arg_clamped = v_bwd_arg.min(max_exp_arg);
+
+            let exp_bwd = v_bwd_arg_clamped.exp();
+
+            // I_bwd flows cathode -> anode (negative sign)
+            let i_bwd = -self.ibv * exp_bwd;
+
+            // G_bwd is positive (slope is positive in IV curve)
+            let g_bwd = (self.ibv / vt_n) * exp_bwd;
+
+            i_dc = i_dc + i_bwd;
+            g_dc = g_dc + g_bwd;
+        }
 
         let q_diff = self.transit_time * i_dc;
         let c_diff = self.transit_time * g_dc;
@@ -198,7 +258,7 @@ impl<T: CircuitScalar> Diode<T> {
             // Cj = Cjo / (1 - V/phi)^M
             // Qj = Cjo * phi * (1 - (1-V/phi)^(1-M)) / (1-M)
 
-            if self.m == T::from(0.5).unwrap() {
+            if (self.m - T::from(0.5).unwrap()).abs() < T::epsilon() {
                 let s = term.sqrt();
                 c_jun = self.cjo / s;
                 q_jun = self.cjo * phi * (one - s) * T::from(2.0).unwrap(); // 1/(1-0.5) = 2
