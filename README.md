@@ -14,7 +14,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 ## Features
 
 ### Current Implementation
-*   **Solver:** "Naive" MNA (Modified Nodal Analysis) solver using trapezoidal integration.
+*   **Solver:** "Naive" MNA (Modified Nodal Analysis) solver using trapezoidal integration and Newton-Raphson iteration.
 *   **Basic Components:**
     *   Resistors
     *   Inductors (uncoupled)
@@ -50,6 +50,7 @@ This profile is optimized for solver speed compared to the default release or de
 ## License
 
 Copperhead is licensed under [MIT](https://github.com/CyCodeDE/Copperhead/blob/main/LICENSE)
+
 
 
 
