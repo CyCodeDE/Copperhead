@@ -60,6 +60,14 @@ impl eframe::App for CircuitApp {
                         self.load_from_path(path);
                         self.active_netlist = None;
                         self.undo_stack.clear();
+                        ctx.send_viewport_cmd(ViewportCommand::Title(match self.current_file {
+                            Some(ref p) => format!(
+                                "Copperhead - {}",
+                                // get file name only (no path, no extension)
+                                p.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled")
+                            ),
+                            None => "Copperhead - Untitled".to_string(),
+                        }));
                     }
                     FileDialogState::Save => {
                         self.save_to_path(path);
@@ -108,17 +116,19 @@ impl eframe::App for CircuitApp {
                 ui.columns(3, |columns| {
                     columns[0].horizontal(|ui| {
                         ui.menu_button("File", |ui| {
-                            if ui.button("New").clicked() {
+                            if ui.button("New Schematic").clicked() {
                                 self.state.schematic = Default::default();
                                 self.active_netlist = None;
                                 self.undo_stack.clear();
                                 ui.close_menu();
+                                ctx.send_viewport_cmd(ViewportCommand::Title("Copperhead - Untitled".to_string()));
+                                self.current_file = None;
                             }
 
                             if ui
                                 .add_enabled(
                                     self.file_dialog_state == FileDialogState::Closed,
-                                    Button::new("Open"),
+                                    Button::new("Open Schematic"),
                                 )
                                 .clicked()
                             {

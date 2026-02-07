@@ -9,7 +9,7 @@ use crate::ui::{
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use eframe::emath::Align;
 use egui::style::{Selection, WidgetVisuals, Widgets};
-use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, Visuals};
+use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
 use faer::prelude::default;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -260,6 +260,8 @@ impl CircuitApp {
             style.spacing.item_spacing = Vec2::new(4.0, 4.0);
         });
 
+        cc.egui_ctx.send_viewport_cmd(ViewportCommand::Title("Copperhead - Untitled".to_string()));
+
         let (file_sender, file_receiver) = unbounded();
         Self {
             state: ProjectState {
@@ -306,7 +308,7 @@ impl CircuitApp {
     }
 
     pub fn load_from_path(&mut self, path: PathBuf) {
-        let data = std::fs::read_to_string(path).unwrap();
+        let data = std::fs::read_to_string(&path).unwrap();
         let (serialized, real_time, sim_time): (String, bool, f64) =
             serde_json::from_str(&data).unwrap();
         let schematic: Schematic = serde_json::from_str(&serialized).unwrap();
@@ -316,6 +318,7 @@ impl CircuitApp {
         self.is_initialized = false; // force re-initialization
         self.zoom = 30.0;
         self.selected_tool = Tool::Select;
+        self.current_file = Some(path);
     }
 
     /// Converts a Grid Position (logical) to Screen Position (pixels)
