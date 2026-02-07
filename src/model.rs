@@ -122,7 +122,6 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Non-Linear iteration (Newton-Raphson)
     /// Called multiple times per sample
     /// Only for Diodes, Tubes, Transistors, etc.
-    /// Returns true if the component is non-linear
     /// Modifies Matrix A (Jacobian) and Vector b (Current correction)
     fn stamp_nonlinear(
         &self,
