@@ -412,8 +412,6 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_ext = Self::get_matrix_idx(self.node_b);
         let idx_e_ext = Self::get_matrix_idx(self.node_e);
 
-        // Note: For observables, users usually expect External V_ce/V_be (including parasitic drops)
-        // so we use the external indices here.
         let get_v = |i: Option<usize>| if let Some(x) = i { node_voltages[x] } else { T::zero() };
 
         let vc_ext = get_v(idx_c_ext);
@@ -422,9 +420,6 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
 
         let v_be = self.polarity * (vb_ext - ve_ext);
         let v_ce = self.polarity * (vc_ext - ve_ext);
-
-        // print Vbe and Vce for debugging
-        println!("BJT Observables: V_be = {}, V_ce = {}", v_be, v_ce);
 
         vec![v_be, v_ce, i_c, i_b]
     }
@@ -454,17 +449,14 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_int = resolve_int(idx_b_ext, self.rb);
         let idx_e_int = resolve_int(idx_e_ext, self.re);
 
-        // 2. Get Internal Voltages
         let get_v = |i: Option<usize>| if let Some(x) = i { node_voltages[x] } else { T::zero() };
         let vc = get_v(idx_c_int);
         let vb = get_v(idx_b_int);
         let ve = get_v(idx_e_int);
 
-        // 3. Calculate Junction Voltages
         let v_be = self.polarity * (vb - ve);
         let v_bc = self.polarity * (vb - vc);
 
-        // 4. Calculate Ebers-Moll Currents (Simplified state-less calculation for probing)
         let vt = self.vt;
         let is = self.saturation_current;
 
@@ -489,12 +481,6 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         // Apply Polarity
         let p = self.polarity;
 
-        // check if the calculated currents sum to zero (KCL)
-        assert!((i_c_mag + i_b_mag + i_e_mag).abs() < T::from(1e-6).unwrap(), "Currents do not sum to zero: I_c + I_b + I_e = {}", i_c_mag + i_b_mag + i_e_mag);
-
-        // debug print the calculated currents (on one line to avoid overwhelming the console)
-        println!("BJT Currents: I_c = {}, I_b = {}, I_e = {}", i_c_mag * p, i_b_mag * p, i_e_mag * p);
-
         vec![i_c_mag * p, i_b_mag * p, i_e_mag * p]
     }
 
@@ -511,10 +497,6 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
             "re" => self.re = value,
             _ => return false,
         }
-        // Since BJT stamps purely into the nonlinear matrix (iterative),
-        // we generally don't need to rebuild the static G matrix unless
-        // a resistance changed from 0 to non-zero (changing topology).
-        // Assuming topology is constant for this update:
         false
     }
 }
