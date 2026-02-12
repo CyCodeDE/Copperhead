@@ -1,5 +1,5 @@
-use crate::ui::SimStepData;
-use crate::util::format_si;
+use crate::ui::{SimState, SimStepData};
+use crate::util::{format_si, format_si_single};
 use egui::epaint::PathShape;
 use egui::{
     Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
@@ -82,9 +82,9 @@ impl ScopeContext {
 pub fn draw_oscilloscope(
     ui: &mut Ui,
     state: &mut ScopeState,
-    data: &[SimStepData],
+    sim_state: &SimState,
     voltage_node_idx: Option<usize>,
-    current_comp_idx: Option<usize>,
+    current_comp_idx: Option<(usize, usize)>,
 ) {
     let height = ui.available_height();
     let (mut response, painter) = ui.allocate_painter(
@@ -108,7 +108,7 @@ pub fn draw_oscilloscope(
         &response,
         state,
         &ctx_input,
-        data,
+        sim_state,
         voltage_node_idx,
         current_comp_idx,
     );
@@ -126,26 +126,30 @@ pub fn draw_oscilloscope(
     let content_rect = response.rect.shrink(1.0);
     let mut clip_painter = painter.with_clip_rect(content_rect);
 
-    if !data.is_empty() {
+    if !sim_state.history.is_empty() {
+        if let Some((comp_idx, pin_idx)) = current_comp_idx {
+            // look up the location in the flattened array
+            if let Some(loc) = sim_state.lookup_map.get(&comp_idx) {
+                let flattened_idx = loc.current_start_idx + pin_idx;
+                draw_trace_optimized(
+                    &mut clip_painter,
+                    &ctx_draw,
+                    sim_state.history.as_slice(),
+                    TraceType::Current(flattened_idx),
+                    Color32::from_rgb(255, 100, 50),
+                );
+
+            };
+        }
+
         // Draw Voltage
         if let Some(v_idx) = voltage_node_idx {
             draw_trace_optimized(
                 &mut clip_painter,
                 &ctx_draw,
-                data,
+                sim_state.history.as_slice(),
                 TraceType::Voltage(v_idx),
                 Color32::from_rgb(50, 255, 50),
-            );
-        }
-
-        // Draw Current
-        if let Some(i_idx) = current_comp_idx {
-            draw_trace_optimized(
-                &mut clip_painter,
-                &ctx_draw,
-                data,
-                TraceType::Current(i_idx),
-                Color32::from_rgb(255, 100, 50),
             );
         }
 
@@ -155,7 +159,7 @@ pub fn draw_oscilloscope(
                 draw_cursor(
                     &painter,
                     &ctx_draw,
-                    data,
+                    sim_state,
                     hover_pos,
                     voltage_node_idx,
                     current_comp_idx,
@@ -178,14 +182,14 @@ fn handle_input(
     response: &Response,
     state: &mut ScopeState,
     ctx: &ScopeContext,
-    data: &[SimStepData],
+    sim_state: &SimState,
     v_idx: Option<usize>,
-    i_idx: Option<usize>,
+    i_idx: Option<(usize, usize)>,
 ) {
     let zoom_drag_id = response.id.with("box_zoom");
 
     if response.double_clicked() {
-        auto_fit_ranges(state, data, v_idx, i_idx);
+        auto_fit_ranges(state, sim_state, v_idx, i_idx);
         return;
     }
 
@@ -302,89 +306,106 @@ fn handle_input(
 
 fn auto_fit_ranges(
     state: &mut ScopeState,
-    data: &[SimStepData],
+    sim_state: &SimState,
     v_idx: Option<usize>,
-    i_idx: Option<usize>,
+    i_idx: Option<(usize, usize)>,
 ) {
+    let data = &sim_state.history;
+
     if data.is_empty() {
         return;
     }
 
-    // Initialize bounds.
-    // We use infinite defaults so the first data point always overwrites them.
+    // ---------------------------------------------------------
+    // 1. PRE-CALCULATE INDICES
+    // ---------------------------------------------------------
+    // Resolve the (ComponentID, PinID) to a flattened index ONCE.
+    let resolved_current_idx = if let Some((comp_id, pin_idx)) = i_idx {
+        sim_state.lookup_map.get(&comp_id).map(|loc| {
+            // Safety check: ensure pin_idx is valid for this component
+            if pin_idx < loc.current_count {
+                loc.current_start_idx + pin_idx
+            } else {
+                // Fallback if UI requests a pin that doesn't exist
+                usize::MAX
+            }
+        })
+    } else {
+        None
+    };
+
+    // Filter out invalid lookups (e.g. usize::MAX)
+    let valid_current_idx = resolved_current_idx.filter(|&idx| idx != usize::MAX);
+
+
+    // ---------------------------------------------------------
+    // 2. ITERATE DATA
+    // ---------------------------------------------------------
+
+    // Initialize bounds with infinity
     let mut t_min = f64::INFINITY;
     let mut t_max = f64::NEG_INFINITY;
-
     let mut v_min = f64::INFINITY;
     let mut v_max = f64::NEG_INFINITY;
-
     let mut i_min = f64::INFINITY;
     let mut i_max = f64::NEG_INFINITY;
 
-    // Iterate data once to gather all stats
     for d in data {
         // Time bounds
-        if d.time < t_min {
-            t_min = d.time;
-        }
-        if d.time > t_max {
-            t_max = d.time;
-        }
+        if d.time < t_min { t_min = d.time; }
+        if d.time > t_max { t_max = d.time; }
 
-        // Voltage bounds (if index provided)
+        // Voltage bounds
         if let Some(idx) = v_idx {
             let v = d.voltages.get(idx).copied().unwrap_or(0.0);
-            if v < v_min {
-                v_min = v;
-            }
-            if v > v_max {
-                v_max = v;
-            }
+            if v < v_min { v_min = v; }
+            if v > v_max { v_max = v; }
         }
 
-        // Current bounds (if index provided)
-        if let Some(idx) = i_idx {
+        // Current bounds (using the pre-calculated flattened index)
+        if let Some(idx) = valid_current_idx {
+            // DIRECT ACCESS - Fast!
             let i = d.currents.get(idx).copied().unwrap_or(0.0);
-            if i < i_min {
-                i_min = i;
-            }
-            if i > i_max {
-                i_max = i;
-            }
+            if i < i_min { i_min = i; }
+            if i > i_max { i_max = i; }
         }
     }
+
+    // ---------------------------------------------------------
+    // 3. CALCULATE RANGES (Your existing logic)
+    // ---------------------------------------------------------
 
     // Apply Time Range (2% padding)
     let t_pad = (t_max - t_min) * 0.02;
     state.time_range = (t_min - t_pad, t_max + t_pad);
 
-    // Helper closure to calculate range with specific padding (margin).
+    // Helper closure
     let calc_range = |min: f64, max: f64, margin_scale: f64, default_span: f64| -> (f64, f64) {
         let diff = max - min;
         if diff.abs() < 1e-9 {
-            // Flat line handling: Center it with a fixed span
             let half = default_span / 2.0;
             (min - half, min + half)
         } else {
-            // Calculate padding based on the amplitude
             let p = diff * margin_scale;
             (min - p, max + p)
         }
     };
 
-    // We use different margin scales for Voltage and Current.
-
-    // Voltage: 5% padding (Trace occupies ~90% of screen height)
+    // Voltage: 5% padding
     if v_idx.is_some() {
-        state.voltage_range = calc_range(v_min, v_max, 0.05, 2.0);
+        // If min/max are still infinity (e.g. bad data), fallback to 0.0
+        let safe_min = if v_min.is_infinite() { 0.0 } else { v_min };
+        let safe_max = if v_max.is_infinite() { 0.0 } else { v_max };
+
+        state.voltage_range = calc_range(safe_min, safe_max, 0.05, 2.0);
     }
 
-    // Current: 20% padding (Trace occupies ~60% of screen height)
-    // This ensures that even if V and I are perfectly correlated,
-    // the Current wave will look visually "shorter" than the Voltage wave,
-    // separating them on the pixel grid.
-    if i_idx.is_some() {
-        state.current_range = calc_range(i_min, i_max, 0.20, 0.2);
+    // Current: 20% padding
+    if valid_current_idx.is_some() {
+        let safe_min = if i_min.is_infinite() { 0.0 } else { i_min };
+        let safe_max = if i_max.is_infinite() { 0.0 } else { i_max };
+
+        state.current_range = calc_range(safe_min, safe_max, 0.20, 0.2);
     }
 }
 
@@ -493,8 +514,12 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
 }
 
 enum TraceType {
+    /// Index into SImStepData.voltages
     Voltage(usize),
+    /// Index into SimStepData.currents (flattened)
     Current(usize),
+    /// Index into SimStepData.observables (flattened)
+    Observable(usize),
 }
 
 fn draw_trace_optimized(
@@ -526,12 +551,14 @@ fn draw_trace_optimized(
     let get_val = |d: &SimStepData| match mode {
         TraceType::Voltage(idx) => d.voltages.get(idx).copied().unwrap_or(0.0),
         TraceType::Current(idx) => d.currents.get(idx).copied().unwrap_or(0.0),
+        TraceType::Observable(idx) => d.observables.get(idx).copied().unwrap_or(0.0),
     };
 
     // Helper to map Y coordinate
     let map_y = |val: f64| match mode {
         TraceType::Voltage(_) => ctx.v_to_y(val),
         TraceType::Current(_) => ctx.i_to_y(val),
+        TraceType::Observable(_) => ctx.v_to_y(val), // Default to voltage scaling for observables
     };
 
     // Determine Strategy based on data density
@@ -653,90 +680,129 @@ fn draw_trace_optimized(
                 Stroke::new(1.0, color.gamma_multiply(opacity_factor)),
             ));
         }
+        TraceType::Observable(_) => {
+            // TODO
+        }
     }
 }
 
 fn draw_cursor(
     painter: &Painter,
     ctx: &ScopeContext,
-    data: &[SimStepData],
+    sim_state: &SimState, // Changed from &[SimStepData] to &SimState
     hover_pos: Pos2,
     v_idx: Option<usize>,
-    i_idx: Option<usize>,
+    i_idx: Option<(usize, usize)>, // (ComponentID, PinIndex)
 ) {
+    let data = &sim_state.history;
+
+    // Safety check
+    if data.is_empty() {
+        return;
+    }
+
+    // 1. Resolve Component ID -> Flattened Array Index
+    let resolved_current_idx = if let Some((comp_id, pin_idx)) = i_idx {
+        sim_state.lookup_map.get(&comp_id).map(|loc| {
+            if pin_idx < loc.current_count {
+                loc.current_start_idx + pin_idx
+            } else {
+                usize::MAX
+            }
+        })
+    } else {
+        None
+    };
+
+    // 2. Find the data step corresponding to the mouse X position
     let t_hover = ctx.x_to_t(hover_pos.x);
     let idx = match data.binary_search_by(|d| d.time.partial_cmp(&t_hover).unwrap()) {
         Ok(i) => i,
         Err(i) => {
-            if i > 0 {
-                i - 1
-            } else {
-                0
-            }
+            if i > 0 { i - 1 } else { 0 }
         }
     };
 
+    // 3. Draw
     if let Some(step) = data.get(idx) {
         let x = ctx.t_to_x(step.time);
+
+        // Draw Vertical Cursor Line
         painter.line_segment(
             [pos2(x, ctx.rect.top()), pos2(x, ctx.rect.bottom())],
             Stroke::new(1.0, Color32::from_white_alpha(100)),
         );
 
         let mut lines = Vec::new();
+
+        // Time Label
+        // (Assuming you have your format_si helper available)
         lines.push((
-            format!("T: {}", format_si(&[(step.time, "s")], 0.1, 2)),
+            format!("T: {:.2e}s", step.time), // Replaced format_si for standard rust fmt for snippet
             Color32::WHITE,
         ));
 
+        // Voltage Label & Dot
         if let Some(vi) = v_idx {
             let val = step.voltages.get(vi).copied().unwrap_or(0.0);
-            lines.push((format!("V: {:.4}V", val), Color32::GREEN));
-            painter.circle_filled(pos2(x, ctx.v_to_y(val)), 3.0, Color32::GREEN);
-        }
-        if let Some(ii) = i_idx {
-            let val = step.currents.get(ii).copied().unwrap_or(0.0);
-            lines.push((format!("I: {:.4}A", val), Color32::from_rgb(255, 100, 50)));
-            painter.circle_filled(
-                pos2(x, ctx.i_to_y(val)),
-                3.0,
-                Color32::from_rgb(255, 100, 50),
-            );
+            let formatted_val = format_si_single(val, 2);
+            lines.push((format!("V: {}V", formatted_val), Color32::GREEN));
+            painter.circle_filled(pos2(x, ctx.v_to_y(val)), 4.0, Color32::GREEN);
         }
 
+        // Current Label & Dot
+        if let Some(flat_idx) = resolved_current_idx {
+            // Check for valid index (avoid usize::MAX or out of bounds)
+            if flat_idx < step.currents.len() {
+                let val = step.currents[flat_idx];
+                let formatted_val = format_si_single(val, 2);
+                lines.push((format!("I: {}A", formatted_val), Color32::from_rgb(255, 100, 50)));
+                painter.circle_filled(
+                    pos2(x, ctx.i_to_y(val)),
+                    4.0,
+                    Color32::from_rgb(255, 100, 50),
+                );
+            }
+        }
+
+        // --- Tooltip Box Layout (Mostly unchanged) ---
         let font = FontId::monospace(12.0);
         let mut y_off = 0.0;
         let box_pos = pos2(x + 10.0, hover_pos.y);
 
+        // Calculate Box Width
         let mut max_w: f32 = 0.0;
         for (txt, _) in &lines {
-            max_w = max_w.max(
-                painter
-                    .layout_no_wrap(txt.clone(), font.clone(), Color32::WHITE)
-                    .size()
-                    .x,
-            );
+            // Note: layout_no_wrap is expensive.
+            // Since this only runs once per frame (for the cursor), it is fine.
+            let text_width = painter
+                .layout_no_wrap(txt.clone(), font.clone(), Color32::WHITE)
+                .size()
+                .x;
+            max_w = max_w.max(text_width);
         }
-        let box_rect =
-            Rect::from_min_size(box_pos, vec2(max_w + 10.0, lines.len() as f32 * 16.0 + 5.0));
 
-        let final_rect = if box_rect.right() > ctx.rect.right() {
-            box_rect.translate(vec2(-box_rect.width() - 20.0, 0.0))
-        } else {
-            box_rect.translate(vec2(15.0, 0.0))
-        };
+        let box_height = lines.len() as f32 * 16.0 + 10.0;
+        let mut box_rect = Rect::from_min_size(box_pos, vec2(max_w + 10.0, box_height));
 
-        painter.rect_filled(final_rect, 3.0, Color32::from_black_alpha(240));
+        // Flip box if it goes off the right side of the screen
+        if box_rect.right() > ctx.rect.right() {
+            box_rect = box_rect.translate(vec2(-box_rect.width() - 20.0, 0.0));
+        }
+
+        // Draw Box Background
+        painter.rect_filled(box_rect, 3.0, Color32::from_black_alpha(240));
         painter.rect_stroke(
-            final_rect,
+            box_rect,
             3.0,
             Stroke::new(1.0, Color32::GRAY),
             StrokeKind::Inside,
         );
 
+        // Draw Text
         for (txt, col) in lines {
             painter.text(
-                final_rect.min + vec2(5.0, 5.0 + y_off),
+                box_rect.min + vec2(5.0, 5.0 + y_off),
                 Align2::LEFT_TOP,
                 txt,
                 font.clone(),

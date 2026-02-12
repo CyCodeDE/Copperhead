@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
 use crate::signals::Signal;
 use faer::{ColMut, ColRef, MatMut};
 
@@ -45,8 +45,6 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
         let one = T::one();
 
-        // Stamp the topology (Connection to nodes)
-
         if let Some(p) = self.get_node_idx(self.pos) {
             matrix[(p, src_idx)] = matrix[(p, src_idx)] + one;
             matrix[(src_idx, p)] = matrix[(src_idx, p)] + one;
@@ -71,16 +69,45 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         rhs[src_idx] = val;
     }
 
-    fn update_state(&mut self, _current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
-        // No internal state to update
+    fn probe_definitions(&self) -> Vec<ComponentProbe> {
+        vec![
+            ComponentProbe { name: "V_src".to_string(), unit: "V".to_string() },
+            ComponentProbe { name: "I_src".to_string(), unit: "A".to_string() },
+        ]
     }
-    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
-        // The current for voltage sources is explicitly calculated by the solver
-        // and stored in the auxiliary row index we were assigned
-        if let Some(idx) = self.matrix_idx {
-            solution[idx]
+
+    fn calculate_observables(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+        let voltage = self.signal.get_voltage(ctx.time);
+
+        // In MNA, the current is the unknown variable at the auxiliary index
+        let current = if let Some(idx) = self.matrix_idx {
+            node_voltages[idx]
         } else {
             T::zero()
-        }
+        };
+
+        vec![voltage, current]
+    }
+
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+        // The variable solved at 'matrix_idx' represents the current flowing
+        // OUT of the positive node and INTO the negative node.
+        let i_src = if let Some(idx) = self.matrix_idx {
+            node_voltages[idx]
+        } else {
+            T::zero()
+        };
+
+        // We return current flowing INTO the ports [Pos, Neg]
+        vec![
+            -i_src, // Into Pos
+            i_src   // Into Neg
+        ]
+    }
+
+    fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
+        self.signal.set_parameter(name, value);
+
+        false
     }
 }

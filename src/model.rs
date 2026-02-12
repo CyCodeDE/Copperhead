@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
 use faer::{Col, ColMut, ColRef, MatMut};
@@ -8,7 +9,7 @@ use std::ops::{Add, Sub};
 /// For inference: T = f32
 /// For high quality: T = f64
 pub trait CircuitScalar:
-    num_traits::Float + std::fmt::Debug + Copy + Send + Sync + ComplexField + 'static
+num_traits::Float + std::fmt::Debug + Copy + Send + Sync + ComplexField + Display + 'static
 {
     // possibly helper methods for fast approximations
 }
@@ -79,12 +80,6 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         true
     }
 
-    /// Returns the raw parameters if available (used for codegen)
-    /// For example, a Resistor would return its resistance value here
-    fn get_parameters(&self) -> Option<Vec<T>> {
-        None
-    }
-
     /// Returns the nodes this component is connected to
     fn ports(&self) -> Vec<NodeId>;
 
@@ -104,7 +99,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Used for components that do not change over time
     /// (e.g. Resistors, discretized capacitors and inductors with fixed sample rate)
     /// Adds G (conductance) values to the A Matrix.
-    fn stamp_static(&self, matrix: &mut MatMut<T>);
+    fn stamp_static(&self, _matrix: &mut MatMut<T>) {}
 
     /// Time step preparation
     /// Called at the start of every audio sample
@@ -135,17 +130,46 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
     /// Used to update internal state (e.g. capacitor charge)
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
-        // Default: Do nothing
-    }
-
-    /// Calculates the current flowing through the component.
-    /// Usually returns current flowing from Port 0 -> Port 1.
-    fn calculate_current(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> T {
-        T::zero()
-    }
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {}
 
     fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
         false
     }
+
+    fn probe_definitions(&self) -> Vec<ComponentProbe> {
+        vec![]
+    }
+
+    /// Calculates the values for the probes defined in `probe_definitions`
+    /// TODO: pass a mutable slice of the probe values to avoid allocations in the audio thread.
+    fn calculate_observables(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        vec![]
+    }
+
+    /// Calculates the exact current flowing INTO every port defined in `ports()`
+    /// For example for a BJT with ports [C, B, E], this returns [I_C, I_B, I_E]
+    /// KCL defines that theoretically the sums should be zero
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T>;
+
+    /// Updates a parameter by name.
+    /// Returns true if the static matrix needs to be rebuilt.
+    /// For example if a Resistor value changes -> true
+    /// If a Voltage source amplitude changes, return false since it only affects the b vector.
+    fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
+        false
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ComponentProbe {
+    pub name: String,
+    pub unit: String,
 }

@@ -16,6 +16,9 @@ pub struct Circuit<T: CircuitScalar> {
     step_count: usize,
 
     pub step_buffer: Vec<SimStepData>,
+
+    pub total_terminals: usize,
+    pub total_observables: usize,
 }
 
 impl<T: CircuitScalar> Circuit<T> {
@@ -28,6 +31,8 @@ impl<T: CircuitScalar> Circuit<T> {
             current_solution: Col::<T>::zeros(0),
             time: T::zero(),
             step_count: 0,
+            total_terminals: 0,
+            total_observables: 0,
 
             step_buffer: Vec::new(),
         }
@@ -38,6 +43,9 @@ impl<T: CircuitScalar> Circuit<T> {
         for node in component.ports() {
             self.num_nodes = self.num_nodes.max(node.0);
         }
+
+        self.total_observables += component.probe_definitions().len();
+        self.total_terminals += component.ports().len();
         self.components.push(component);
     }
 
@@ -191,6 +199,9 @@ impl<T: CircuitScalar> Circuit<T> {
 
         // Data Collection
         let mut voltages = Vec::with_capacity(self.num_nodes + 1);
+        let mut currents = Vec::with_capacity(self.total_terminals);
+        let mut observables = Vec::with_capacity(self.total_observables);
+
         voltages.push(0.0);
         for i in 0..self.num_nodes {
             if i < self.current_solution.nrows() {
@@ -200,19 +211,24 @@ impl<T: CircuitScalar> Circuit<T> {
             }
         }
 
-        let mut currents = Vec::with_capacity(self.components.len());
         for comp in &self.components {
-            currents.push(
-                comp.calculate_current(&self.current_solution.as_ref(), &ctx)
-                    .to_f64()
-                    .unwrap(),
-            );
+            let term_currents = comp.terminal_currents(&self.current_solution.as_ref(), &ctx);
+            for val in term_currents {
+                currents.push(val.to_f64().unwrap());
+            }
+
+            let obs_vals = comp.calculate_observables(&self.current_solution.as_ref(), &ctx);
+            for val in obs_vals {
+                observables.push(val.to_f64().unwrap());
+            }
         }
+
 
         self.step_buffer.push(SimStepData {
             time: self.time.to_f64().unwrap(),
             voltages,
             currents,
+            observables,
         });
 
         // Update history and time
@@ -246,10 +262,10 @@ impl<T: CircuitScalar> Circuit<T> {
         }
     }
 
-    /// Read the current flowing through a specific component from the last solution
-    pub fn get_component_current(&self, component_idx: usize, dt: T) -> T {
+    /// Read the terminal currents for a component at the current time step. The order of currents corresponds to the order of ports returned by `Component::ports()`.
+    pub fn get_terminal_current(&self, component_idx: usize, dt: T) -> Vec<T> {
         if component_idx < self.components.len() {
-            self.components[component_idx].calculate_current(
+            self.components[component_idx].terminal_currents(
                 &self.current_solution.as_ref(),
                 &SimulationContext {
                     dt,
@@ -258,7 +274,7 @@ impl<T: CircuitScalar> Circuit<T> {
                 },
             )
         } else {
-            T::zero()
+            vec![]
         }
     }
 

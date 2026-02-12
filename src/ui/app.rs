@@ -3,9 +3,7 @@ use crate::components::ComponentDescriptor;
 use crate::model::{CircuitScalar, GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{
-    ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData, VisualWire,
-};
+use crate::ui::{CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData, VisualWire};
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use eframe::emath::Align;
 use egui::style::{Selection, WidgetVisuals, Widgets};
@@ -152,7 +150,8 @@ pub struct CircuitApp {
     pub current_rotation: u8,
     pub editing_component_id: Option<usize>,
     pub plotting_node_voltage: Option<NodeId>,
-    pub plotting_component_current: Option<usize>,
+    pub plotting_component_current: Option<(usize, usize)>, // (component_idx, pin_idx)
+    pub plotting_observable: Option<(usize, usize)>, // (component_idx, observable_idx)
     //pub simulation_time: f64, // in seconds, for how long to simulate
     pub scope_state: ScopeState,
     pub realtime_mode: bool,
@@ -175,6 +174,7 @@ pub struct CircuitApp {
 }
 
 pub enum StateUpdate {
+    CircuitLoaded(CircuitMetadata),
     SendHistory(Vec<SimStepData>, usize),
     UpdateRunning(bool),
     ClearHistory,
@@ -195,6 +195,8 @@ impl CircuitApp {
             history: Vec::new(),
             running: false,
             current_sample: 0,
+            lookup_map: HashMap::new(),
+            metadata: None,
         };
 
         // Spawn simulation thread
@@ -279,6 +281,7 @@ impl CircuitApp {
             editing_component_id: None,
             plotting_node_voltage: None,
             plotting_component_current: None,
+            plotting_observable: None,
             scope_state: ScopeState::default(),
             realtime_mode: false,
             theme,
@@ -464,8 +467,10 @@ impl CircuitApp {
 
             let node_a = *final_node_map.get(&pins[0]).expect("Pin not mapped");
             let node_b = *final_node_map.get(&pins[1]).expect("Pin not mapped");
+            let node_c = pins.get(2).and_then(|p| final_node_map.get(p)).cloned();
 
             let (a, b) = (node_a.0, node_b.0);
+            let c = node_c.map(|n| n.0);
 
             let descriptor = match comp.component {
                 ComponentBuildData::Resistor { resistance } => ComponentDescriptor::Resistor {
@@ -516,6 +521,26 @@ impl CircuitApp {
                         transit_time,
                         breakdown_voltage,
                         breakdown_current
+                    }
+                }
+                ComponentBuildData::Bjt { model } => {
+                    assert!(c.is_some(), "BJT must have 3 pins");
+                    let (is, bf, br, vt, vaf, var, rc, rb, re, polarity) = model.parameters();
+
+                    ComponentDescriptor::Bjt {
+                        c: a,
+                        b,
+                        e: c.unwrap(),
+                        saturation_current: is,
+                        beta_f: bf,
+                        beta_r: br,
+                        vt,
+                        vaf,
+                        var,
+                        rc,
+                        rb,
+                        re,
+                        polarity
                     }
                 }
                 _ => continue,
@@ -599,6 +624,57 @@ impl CircuitApp {
 
         final_wires
     }
+
+    /// Checks if a screen position (in pixels) is hovering over a wire.
+    /// Returns the NodeId of the wire if found within the given tolerance (in pixels).
+    /// The tolerance should match or be slightly larger than the wire stroke width (e.g., 2.0-4.0).
+    pub fn wire_at_screen_pos(&self, screen_pos: Pos2, tolerance: f32) -> Option<NodeId> {
+        for wire in &self.state.schematic.wires {
+            let start = self.to_screen(wire.start);
+            let end = self.to_screen(wire.end);
+
+            let distance = point_to_segment_distance(screen_pos, start, end);
+
+            if distance <= tolerance {
+                // Found a wire under the cursor, look up its NodeId
+                if let Some(netlist) = &self.active_netlist {
+                    // Both start and end belong to the same node, so we can use either
+                    if let Some(&node_id) = netlist.node_map.get(&wire.start) {
+                        return Some(node_id);
+                    }
+                    if let Some(&node_id) = netlist.node_map.get(&wire.end) {
+                        return Some(node_id);
+                    }
+                }
+                // Wire found but no netlist available or node not mapped
+                return None;
+            }
+        }
+        None
+    }
+}
+
+/// Calculates the shortest distance from a point to a line segment.
+fn point_to_segment_distance(point: Pos2, seg_start: Pos2, seg_end: Pos2) -> f32 {
+    let v = seg_end - seg_start;
+    let w = point - seg_start;
+
+    let c1 = w.dot(v);
+    if c1 <= 0.0 {
+        // Point is before the segment start
+        return point.distance(seg_start);
+    }
+
+    let c2 = v.dot(v);
+    if c2 <= c1 {
+        // Point is after the segment end
+        return point.distance(seg_end);
+    }
+
+    // Point projects onto the segment
+    let t = c1 / c2;
+    let projection = seg_start + v * t;
+    point.distance(projection)
 }
 
 struct DisjointSet {

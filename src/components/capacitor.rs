@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 
 pub struct Capacitor<T: CircuitScalar> {
@@ -18,7 +18,6 @@ pub struct Capacitor<T: CircuitScalar> {
 
 impl<T: CircuitScalar> Capacitor<T> {
     /// Creates a new Capacitor.
-    /// `dt` is the simulation time step (1.0 / sample_rate).
     pub fn new(a: NodeId, b: NodeId, capacitance: T, dt: T) -> Self {
         // Trapezoidal rule equivalent conductance: G = 2C / dt
         let conductance = (T::from(2.0).unwrap() * capacitance) / dt;
@@ -105,9 +104,44 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         self.eq_current = -self.eq_current - (two * self.conductance * v_new);
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
-        // i(t) = G * v(t) + I_eq(t)
-        let v = self.get_voltage_diff(solution);
-        (v * self.conductance) + self.eq_current
+    fn probe_definitions(&self) -> Vec<ComponentProbe> {
+        vec![
+            ComponentProbe { name: "Voltage".to_string(), unit: "V".to_string() },
+            ComponentProbe { name: "Current".to_string(), unit: "A".to_string() },
+        ]
+    }
+
+    fn calculate_observables(
+        &self,
+        node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let v = self.get_voltage_diff(node_voltages);
+        let i = (v * self.conductance) + self.eq_current;
+        vec![v, i]
+    }
+
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let v = self.get_voltage_diff(node_voltages);
+        let i_flow = (v * self.conductance) + self.eq_current;
+
+        // Current entering Node A = i_flow
+        // Current entering Node B = -i_flow
+        vec![i_flow, -i_flow]
+    }
+
+    fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
+        if name == "capacitance" {
+            self.capacitance = value;
+            // Recalculate conductance: G = 2C / dt
+            self.conductance = (T::from(2.0).unwrap() * self.capacitance) / ctx.dt;
+            // Return true because the matrix A (conductance) changed
+            return true;
+        }
+        false
     }
 }

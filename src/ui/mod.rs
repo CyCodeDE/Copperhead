@@ -6,10 +6,11 @@ pub mod ui;
 use std::cmp::{max, min};
 use crate::components::ComponentDescriptor;
 use crate::components::diode::DiodeModel;
-use crate::model::{CircuitScalar, GridPos, NodeId};
+use crate::model::{CircuitScalar, ComponentProbe, GridPos, NodeId};
 use egui::{Color32, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::components::transistor::bjt::BjtModel;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
@@ -19,6 +20,7 @@ pub enum ComponentBuildData {
     ASource { amplitude: f64, frequency: f64 },
     Inductor { inductance: f64 },
     Diode { model: DiodeModel },
+    Bjt { model: BjtModel },
     Label,
     Ground,
 }
@@ -31,6 +33,7 @@ impl ComponentBuildData {
             Self::Inductor { .. } => "L",
             Self::DCSource { .. } | Self::ASource { .. } => "V",
             Self::Diode { .. } => "D",
+            Self::Bjt { .. } => "Q",
             Self::Label { .. } => "",
             Self::Ground => "",
         }
@@ -42,7 +45,7 @@ impl ComponentBuildData {
 pub struct VisualComponent {
     pub id: usize, // UID to map to the solver
     pub name: String,
-    pub component: ComponentBuildData, // TODO: replace with a UI specific descriptor instead of the logical one
+    pub component: ComponentBuildData,
     pub pos: GridPos,
     pub size: GridPos, // width and height in grid units at rotation 0, rotation has to be applied beforehand
     pub rotation: u8,  // 0, 1, 2, 3 (90 degree steps)
@@ -55,15 +58,20 @@ impl VisualComponent {
     pub fn get_pin_locations(&self) -> Vec<GridPos> {
         // Define local offsets for a generic 2-port component (e.g. width 2 units)
         // Left pin: (-1, 0), Right pin: (1, 0)
+        // ATTENTION: These order needs to match the order of ports() in the Component implementation or else the mapping of UI pins to simulation nodes will be wrong!
         let local_pins = match &self.component {
             ComponentBuildData::Ground => vec![(0, 0)],       // 1 Pin
             ComponentBuildData::Label { .. } => vec![(0, 0)], // 1 Pin (for positioning)
-            ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
-            ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom)
-            ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom)
-            ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
-            ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins
-            ComponentBuildData::Diode { .. } => vec![(-1, 0), (1, 0)], // 2 Pins (Anode, Cathode)
+            ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
+            ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
+            ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
+            ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
+            ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
+            ComponentBuildData::Diode { .. } => vec![(-1, 0), (1, 0)], // 2 Pins (Anode, Cathode) -> A and B
+            ComponentBuildData::Bjt { model } => match model.polarity() {
+                true => vec![(1, -1), (-1, 0), (1, 1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E   | NPN
+                false => vec![(1, 1), (-1, 0), (1, -1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E  | PNP
+            }
         };
 
         local_pins
@@ -290,14 +298,65 @@ pub struct SimStepData {
     pub time: f64,
     // Index corresponds to NodeId
     pub voltages: Vec<f64>,
-    // Index corresponds to Simulation Component Index
+    // Flattened list of all terminal currents from all components
     pub currents: Vec<f64>,
+    // Flattend list of all observables from all components
+    // Layout: [Comp0_Probe0, Comp0_Probe1, Comp1_Probe0, ...]
+    pub observables: Vec<f64>
 }
 
 pub struct SimState {
     pub history: Vec<SimStepData>,
     pub running: bool,
     pub current_sample: usize,
+    pub metadata: Option<CircuitMetadata>,
+    pub lookup_map: CircuitDataMap,
+}
+
+pub struct CircuitMetadata {
+    pub components: Vec<ComponentMetadata>,
+}
+
+pub struct ComponentMetadata {
+    pub id: usize,
+    pub probe_definitions: Vec<ComponentProbe>,
+    pub num_terminals: usize, // Derived from ports().len()
+}
+
+struct ComponentDataLocation {
+    current_start_idx: usize,
+    current_count: usize,
+    observable_start_idx: usize,
+    observable_count: usize,
+    probe_names: Vec<String>,
+}
+
+// Map internal Component index -> Location Info
+type CircuitDataMap = HashMap<usize, ComponentDataLocation>;
+
+fn handle_circuit_loaded(meta: &CircuitMetadata) -> CircuitDataMap {
+    let mut map = HashMap::new();
+
+    let mut current_offset = 0;
+    let mut obs_offset = 0;
+
+    for comp in &meta.components {
+        let loc = ComponentDataLocation {
+            current_start_idx: current_offset,
+            current_count: comp.num_terminals,
+            observable_start_idx: obs_offset,
+            observable_count: comp.probe_definitions.len(),
+            probe_names: comp.probe_definitions.iter().map(|p| p.name.clone()).collect(),
+        };
+
+        map.insert(comp.id, loc);
+
+        // Increment offsets for the next component
+        current_offset += comp.num_terminals;
+        obs_offset += comp.probe_definitions.len();
+    }
+
+    map
 }
 
 impl SimState {
@@ -314,6 +373,52 @@ impl SimState {
             .last()
             .and_then(|step| step.currents.get(comp_idx).copied())
     }
+
+    pub fn get_history_series(
+        &self,
+        comp_id: usize,
+        data_type: CircuitSelection,
+        local_index: usize
+    ) -> Vec<(f64, f64)> {
+        let mut series = Vec::with_capacity(self.history.len());
+
+        // Look up where this component's data lives in the flattened arrays
+        // only if the component is not a voltage probe
+        let loc: Option<&ComponentDataLocation> = self.lookup_map.get(&comp_id);
+
+        // 2. Iterate through history and grab the specific value
+        for step in &self.history {
+            let value = match data_type {
+                CircuitSelection::Current => {
+                    // Calculate absolute index in the flattened 'currents' vec
+                    let loc_unwrapped = loc.expect("Component ID not found in lookup map. Is this a voltage probe?");
+                    let global_idx = loc_unwrapped.current_start_idx + local_index;
+                    step.currents.get(global_idx).copied().unwrap_or(0.0)
+                },
+                CircuitSelection::Observable => {
+                    // Calculate absolute index in the flattened 'observables' vec
+                    let loc_unwrapped = loc.expect("Component ID not found in lookup map. Is this a voltage probe?");
+                    let global_idx = loc_unwrapped.observable_start_idx + local_index;
+                    step.observables.get(global_idx).copied().unwrap_or(0.0)
+                },
+                CircuitSelection::Voltage => {
+                    // For voltages, comp_id is actually the NodeID, so we use it directly
+                    step.voltages.get(comp_id).copied().unwrap_or(0.0)
+                }
+            };
+
+            series.push((step.time, value));
+        }
+
+        series
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum CircuitSelection {
+    Voltage,
+    Current,
+    Observable
 }
 
 impl Default for SimState {
@@ -322,6 +427,8 @@ impl Default for SimState {
             history: Vec::new(),
             running: false,
             current_sample: 0,
+            metadata: None,
+            lookup_map: HashMap::new(),
         }
     }
 }

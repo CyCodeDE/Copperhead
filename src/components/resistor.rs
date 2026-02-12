@@ -1,15 +1,17 @@
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
 use faer::{Col, ColRef};
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
     pub node_b: NodeId,
     pub conductance: T,
+    pub resistance: T,
 }
 
 impl<T: CircuitScalar> Resistor<T> {
     pub fn new(a: NodeId, b: NodeId, resistance: T) -> Self {
         // Guard against divide-by-zero
+        println!("RESISTOR");
         let conductance = if resistance.abs() < T::from(1e-12).unwrap() {
             // TODO: Treat it as a node-merge instead
             T::from(1.0e12).unwrap()
@@ -21,6 +23,7 @@ impl<T: CircuitScalar> Resistor<T> {
             node_a: a,
             node_b: b,
             conductance,
+            resistance,
         }
     }
 
@@ -39,11 +42,6 @@ impl<T: CircuitScalar> Resistor<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for Resistor<T> {
-    fn get_parameters(&self) -> Option<Vec<T>> {
-        // Resistance
-        Some(vec![T::one() / self.conductance])
-    }
-
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }
@@ -71,22 +69,51 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         }
     }
 
-    fn stamp_dynamic(
-        &mut self,
-        _prev: &faer::ColRef<T>,
-        _rhs: &mut faer::ColMut<T>,
-        ctx: &SimulationContext<T>,
-    ) {
-        // No dynamic behavior
+    fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
+        if name == "resistance" {
+            self.resistance = value;
+
+            // update derived conductance
+            self.conductance = if value.abs() < T::from(1e-12).unwrap() {
+                T::from(1.0e12).unwrap()
+            } else {
+                T::one() / value
+            };
+            // Return TRUE: The conductance matrix (G) changed,
+            // so the solver MUST rebuild Matrix A before the next step.
+            return true;
+        }
+        false
     }
 
-    fn update_state(&mut self, _current: &faer::ColRef<T>, _ctx: &SimulationContext<T>) {
-        // No state
+    fn probe_definitions(&self) -> Vec<ComponentProbe> {
+        vec![
+            ComponentProbe { name: "V_delta".into(), unit: "V".into() },
+            ComponentProbe { name: "Current".into(), unit: "A".into() },
+            ComponentProbe { name: "Power".into(), unit: "W".into() },
+        ]
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
-        let v_a = self.get_voltage(self.node_a, solution);
-        let v_b = self.get_voltage(self.node_b, solution);
-        (v_a - v_b) * self.conductance
+    fn calculate_observables(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+        let v_a = self.get_voltage(self.node_a, node_voltages);
+        let v_b = self.get_voltage(self.node_b, node_voltages);
+
+        let voltage_drop = v_a - v_b;
+        let current = voltage_drop * self.conductance;
+        let power = voltage_drop * current;
+
+        vec![voltage_drop, current, power]
+    }
+
+    fn terminal_currents(&self, sol: &ColRef<T>, _ctx: &SimulationContext<T>) -> Vec<T> {
+        let v_a = self.get_voltage(self.node_a, sol);
+        let v_b = self.get_voltage(self.node_b, sol);
+
+        // Current flows from A -> B
+        let i_a = (v_a - v_b) * self.conductance;
+        // Current flowing INTO Node B is negative of that
+        let i_b = -i_a;
+
+        vec![i_a, i_b]
     }
 }

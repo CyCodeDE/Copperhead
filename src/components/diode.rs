@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -36,9 +36,9 @@ impl DiodeModel {
         }
     }
 
-    pub fn format_name(&self) -> String {
+    pub fn format_name(&self) -> &'static str {
         match self {
-            DiodeModel::D1N4148 => "1N4148".to_string(),
+            DiodeModel::D1N4148 => "1N4148",
         }
     }
 }
@@ -330,6 +330,20 @@ impl<T: CircuitScalar> Diode<T> {
             rhs[j] = rhs[j] + val;
         }
     }
+
+    /// Helper to calculate the total current (DC + Transient) flowing through the diode
+    /// based on the converged solution.
+    fn compute_total_current(&self, solution: &ColRef<T>, dt: T) -> T {
+        let v_d = self.get_intrinsic_voltage(solution);
+        let (i_dc, _, q_tot, _) = self.calculate_operating_point(v_d);
+
+        // I_cap = (2/dt) * (Q_new - Q_old) - I_cap_old
+        let ag = T::from(2.0).unwrap() / dt;
+        let i_cap = ag * (q_tot - self.prev_charge) - self.prev_cap_current;
+
+        // Total Current = DC + Transient
+        i_dc + i_cap
+    }
 }
 
 impl<T: CircuitScalar> Component<T> for Diode<T> {
@@ -443,20 +457,76 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         state_guard.last_iter_current = T::zero();
     }
 
-    fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
-        self.iter_state.lock().unwrap().is_converged
+
+    fn probe_definitions(&self) -> Vec<ComponentProbe> {
+        vec![
+            ComponentProbe { name: "Voltage".to_string(), unit: "V".to_string() },
+            ComponentProbe { name: "Current".to_string(), unit: "A".to_string() },
+            ComponentProbe { name: "Power".to_string(), unit: "W".to_string() },
+        ]
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> T {
-        let v_d = self.get_intrinsic_voltage(solution);
+    fn calculate_observables(
+        &self,
+        solution: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        // Calculate external voltage (Node A - Node B)
+        let v_a = if self.node_a.0 == 0 { T::zero() } else { solution[self.node_a.0 - 1] };
+        let v_b = if self.node_b.0 == 0 { T::zero() } else { solution[self.node_b.0 - 1] };
+        let v_total = v_a - v_b;
 
-        let (i_dc, _, q_tot, _) = self.calculate_operating_point(v_d);
+        let i_total = self.compute_total_current(solution, ctx.dt);
 
-        // I_cap = (2/dt) * (Q_new - Q_old) - I_cap_old
-        let ag = T::from(2.0).unwrap() / ctx.dt;
-        let i_cap = ag * (q_tot - self.prev_charge) - self.prev_cap_current;
+        vec![v_total, i_total, v_total * i_total]
+    }
 
-        // Total Current = DC + Transient
-        i_dc + i_cap
+    fn terminal_currents(
+        &self,
+        solution: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let i_flow = self.compute_total_current(solution, ctx.dt);
+        // Current flows into Anode, out of Cathode
+        vec![i_flow, -i_flow]
+    }
+
+    fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
+        match name {
+            "is" | "saturation_current" => {
+                self.saturation_current = value;
+                false
+            }
+            "n" | "emission_coefficient" => {
+                self.emission_coefficient = value;
+                false
+            }
+            "rs" | "series_resistance" => {
+                self.series_resistance = value;
+                // Rs affects the static matrix (G = 1/Rs), so we must rebuild
+                true
+            }
+            "bv" | "breakdown_voltage" => {
+                self.bv = value;
+                false
+            }
+            "ibv" => {
+                self.ibv = value;
+                false
+            }
+            "cjo" => {
+                self.cjo = value;
+                false
+            }
+            "tt" | "transit_time" => {
+                self.transit_time = value;
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
+        self.iter_state.lock().unwrap().is_converged
     }
 }

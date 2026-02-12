@@ -1,7 +1,8 @@
+use std::fmt::format;
 use crate::circuit::Circuit;
 use crate::model::NodeId;
 use crate::ui::app::StateUpdate;
-use crate::ui::{ComponentBuildData, Netlist, SimCommand, SimState};
+use crate::ui::{CircuitMetadata, ComponentBuildData, ComponentMetadata, Netlist, SimCommand, SimState};
 use crossbeam::channel::{Receiver, Sender};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -10,13 +11,12 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
     let mut realtime_mode = false;
     let sample_rate = 192000.0;
     let mut circuit: Option<Circuit<f64>> = None;
-    //state.write().running = false;
     let mut running = false;
     state.send(StateUpdate::UpdateRunning(false));
     let dt = 1.0 / sample_rate;
 
     // Batch size: Push data to UI roughly at 60fps
-    let steps_per_batch = (sample_rate / 60.0 as f64).ceil() as usize;
+    let steps_per_batch = (sample_rate / 60.0f64).ceil() as usize;
 
     let mut current_step: usize = 0;
     let mut max_steps: usize = usize::MAX;
@@ -39,7 +39,6 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                     //let mut s = state.write();
                     state.send(StateUpdate::UpdateRunning(false));
                     running = false;
-                    state.send(StateUpdate::ClearHistory);
                     current_step = 0;
                     pending_data.clear();
 
@@ -48,6 +47,30 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                         new_ckt.add_component(instr.build(dt));
                     }
                     new_ckt.prepare();
+
+                    let mut comp_meta = Vec::new();
+                    let mut total_terminals = 0;
+                    let mut total_observables = 0;
+
+                    for (idx, comp) in new_ckt.components.iter().enumerate() {
+                        let probes = comp.probe_definitions();
+                        let num_terms = comp.ports().len();
+
+                        total_observables += probes.len();
+                        total_terminals += num_terms;
+
+                        comp_meta.push(ComponentMetadata {
+                            id: idx,
+                            probe_definitions: probes,
+                            num_terminals: num_terms,
+                        });
+                    }
+
+                    state.send(StateUpdate::ClearHistory);
+                    state.send(StateUpdate::CircuitLoaded(CircuitMetadata {
+                        components: comp_meta,
+                    }));
+
                     circuit = Some(new_ckt);
                 }
                 SimCommand::UpdateValue {

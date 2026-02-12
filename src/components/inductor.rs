@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 
 pub struct Inductor<T> {
@@ -119,11 +119,51 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         self.prev_current = i_new;
     }
 
-    fn calculate_current(&self, solution: &ColRef<T>, _ctx: &SimulationContext<T>) -> T {
-        let v_new = self.get_voltage_diff(solution);
-        let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
+    fn probe_definitions(&self) -> Vec<ComponentProbe> {
+        vec![
+            ComponentProbe { name: "Voltage".to_string(), unit: "V".to_string() },
+            ComponentProbe { name: "Current".to_string(), unit: "A".to_string() },
+        ]
+    }
 
-        // i[n] = G_eq * v[n] + I_history
-        (self.g_eq * v_new) + i_history_term
+    fn calculate_observables(
+        &self,
+        node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let v_new = self.get_voltage_diff(node_voltages);
+
+        let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
+        let i_new = (self.g_eq * v_new) + i_history_term;
+
+        vec![v_new, i_new]
+    }
+
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let v_new = self.get_voltage_diff(node_voltages);
+
+        let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
+        let i_flow = (self.g_eq * v_new) + i_history_term;
+
+        vec![i_flow, -i_flow]
+    }
+
+    fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
+        if name == "inductance" {
+            self.inductance = value;
+
+            // Recalculate G_eq = dt / (2L)
+            if self.inductance.abs() > T::from(1e-15).unwrap() {
+                self.g_eq = ctx.dt / (T::from(2.0).unwrap() * self.inductance);
+            } else {
+                self.g_eq = T::from(1.0e12).unwrap();
+            }
+            return true;
+        }
+        false
     }
 }

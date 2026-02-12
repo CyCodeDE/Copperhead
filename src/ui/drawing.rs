@@ -4,7 +4,12 @@ use crate::util::format_si;
 use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
-use egui::{FontSelection, Painter, RichText, Style};
+use egui::{Align2, FontSelection, Painter, RichText, Style};
+use crate::components::transistor::bjt::BjtModel;
+
+// DISCLAIMER:
+// Most of this file is vibe-coded. Performance is probably not optimal, but tbh I couldn't give less of a fuck.
+// Is the performance good? No. Probably not. But that is a problem for the me/myself/and I of tomorrow.
 
 pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2, color: Color32) {
     let min_visible = (rect.min.to_vec2() - pan) / zoom;
@@ -74,6 +79,12 @@ pub fn draw_component<F>(
         ComponentBuildData::Label => {
             draw_label(painter, center, rotation, zoom, fill_color, stroke_color);
         }
+        ComponentBuildData::Bjt { model } => {
+            match model.polarity() {
+                true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
+                false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
+            }
+        }
         // Fallback for unimplemented components
         _ => {
             draw_generic_box(painter, center, rotation, zoom, fill_color, stroke_color);
@@ -98,8 +109,6 @@ fn rotate_vec(vec: Vec2, rotation: u8) -> Vec2 {
         _ => vec,
     }
 }
-
-// Tbh I vibe coded the component visuals. Looks decent enough. Might not be most optimal for performance but who tf cares
 
 fn draw_label(
     painter: &Painter,
@@ -166,9 +175,6 @@ fn draw_capacitor(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, stro
     let plate_height = 0.8; // Total height of the plate
     let stroke = Stroke::new(2.0, stroke_color);
 
-    // Draw Wires (From edge to plates)
-    // Left Wire: (-1.0, 0) -> (-plate_gap, 0)
-    // Right Wire: (1.0, 0) -> (plate_gap, 0)
     let wire_left_start = rotate_vec(Vec2::new(-1.0, 0.0) * zoom, rotation);
     let wire_left_end = rotate_vec(Vec2::new(-plate_gap, 0.0) * zoom, rotation);
     painter.line_segment([center + wire_left_start, center + wire_left_end], stroke);
@@ -177,42 +183,29 @@ fn draw_capacitor(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, stro
     let wire_right_end = rotate_vec(Vec2::new(plate_gap, 0.0) * zoom, rotation);
     painter.line_segment([center + wire_right_start, center + wire_right_end], stroke);
 
-    // 2. Draw Plates (Vertical lines perpendicular to wire)
-    // Left Plate: (-plate_gap, -h/2) -> (-plate_gap, h/2)
     let p1_top = rotate_vec(Vec2::new(-plate_gap, -plate_height / 2.0) * zoom, rotation);
     let p1_bot = rotate_vec(Vec2::new(-plate_gap, plate_height / 2.0) * zoom, rotation);
     painter.line_segment([center + p1_top, center + p1_bot], stroke);
 
-    // Right Plate
     let p2_top = rotate_vec(Vec2::new(plate_gap, -plate_height / 2.0) * zoom, rotation);
     let p2_bot = rotate_vec(Vec2::new(plate_gap, plate_height / 2.0) * zoom, rotation);
     painter.line_segment([center + p2_top, center + p2_bot], stroke);
 }
 
 fn draw_inductor(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, stroke_color: Color32) {
-    // Inductor is 2x1.
-    // Visual Pins are at x = -1.0 and x = 1.0.
-
     let stroke = Stroke::new(2.0, stroke_color);
 
-    // Geometry settings
     let num_coils = 4;
     let lead_length = 0.2; // Straight wire segment at ends
     let total_width = 2.0;
 
-    // Calculate coil dimensions
-    // Available width for coils = Total - (Left Lead + Right Lead)
     let coil_section_width = total_width - (2.0 * lead_length);
     let loop_width = coil_section_width / num_coils as f32;
     let loop_radius = loop_width / 2.0;
 
-    // Determine Y-offset for the "hump"
-    // For a cubic bezier to approximate a semi-circle, the control points
-    // should be at distance (4/3)*r from the baseline.
     let k = 1.33333;
     let ctrl_height = loop_radius * k;
 
-    // 1. Draw Left Lead: (-1.0, 0) -> (-0.8, 0)
     let start_x = -1.0;
     let coil_start_x = -1.0 + lead_length;
 
@@ -221,29 +214,22 @@ fn draw_inductor(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, strok
 
     painter.line_segment([p_lead_start, p_coil_start], stroke);
 
-    // 2. Draw 4 Semi-Circles
     let mut current_x = coil_start_x;
 
     for _ in 0..num_coils {
         let next_x = current_x + loop_width;
 
-        // Local points
         let p1_local = Vec2::new(current_x, 0.0);
         let p2_local = Vec2::new(next_x, 0.0);
 
-        // Control points go "Up" (Negative Y in local coords usually implies up in screen space logic
-        // depending on rotation, but we maintain consistency with the resistor/cap alignment).
-        // Using -ctrl_height makes the humps point "up" relative to the wire line.
         let c1_local = Vec2::new(current_x, -ctrl_height);
         let c2_local = Vec2::new(next_x, -ctrl_height);
 
-        // Transform to screen space
         let p1 = center + rotate_vec(p1_local * zoom, rotation);
         let p2 = center + rotate_vec(p2_local * zoom, rotation);
         let c1 = center + rotate_vec(c1_local * zoom, rotation);
         let c2 = center + rotate_vec(c2_local * zoom, rotation);
 
-        // Draw Bezier
         let bezier = egui::epaint::CubicBezierShape::from_points_stroke(
             [p1, c1, c2, p2],
             false,
@@ -255,7 +241,6 @@ fn draw_inductor(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, strok
         current_x = next_x;
     }
 
-    // 3. Draw Right Lead: (0.8, 0) -> (1.0, 0)
     let p_coil_end = center + rotate_vec(Vec2::new(current_x, 0.0) * zoom, rotation);
     let p_lead_end = center + rotate_vec(Vec2::new(1.0, 0.0) * zoom, rotation);
 
@@ -270,31 +255,19 @@ fn draw_dc_source(
     fill_color: Color32,
     stroke_color: Color32,
 ) {
-    // DC Source is 1x2 (Vertical).
-    // Pins are at Top (0, -1) and Bottom (0, 1) in local space (assuming vertical default).
-
     let radius = 0.4;
     let stroke = Stroke::new(2.0, stroke_color);
 
-    // 1. Draw Circle Body
     painter.circle(center, radius * zoom, fill_color, stroke);
 
-    // 2. Draw Wires extending from circle to pins
-    // Top Wire: (0, -1.0) -> (0, -radius)
     let top_pin = rotate_vec(Vec2::new(0.0, -1.0) * zoom, rotation);
     let top_circle = rotate_vec(Vec2::new(0.0, -radius) * zoom, rotation);
     painter.line_segment([center + top_pin, center + top_circle], stroke);
 
-    // Bottom Wire: (0, 1.0) -> (0, radius)
     let bot_pin = rotate_vec(Vec2::new(0.0, 1.0) * zoom, rotation);
     let bot_circle = rotate_vec(Vec2::new(0.0, radius) * zoom, rotation);
     painter.line_segment([center + bot_pin, center + bot_circle], stroke);
 
-    // 3. Draw Symbols (+ and -) inside
-    // Because we rotate the whole coordinate system, the text would rotate too.
-    // To keep text upright, we calculate position but don't rotate the text orientation itself.
-
-    // "+" Position (Top inside)
     let pos_plus = center + rotate_vec(Vec2::new(0.0, -0.15) * zoom, rotation);
     painter.text(
         pos_plus,
@@ -304,7 +277,6 @@ fn draw_dc_source(
         stroke_color,
     );
 
-    // "-" Position (Bottom inside)
     let pos_minus = center + rotate_vec(Vec2::new(0.0, 0.15) * zoom, rotation);
     painter.text(
         pos_minus,
@@ -323,14 +295,11 @@ fn draw_ac_source(
     fill_color: Color32,
     stroke_color: Color32,
 ) {
-    // Structure is identical to DC Source (1x2 vertical)
     let radius = 0.4;
     let stroke = Stroke::new(2.0, stroke_color);
 
-    // 1. Draw Circle Body
     painter.circle(center, radius * zoom, fill_color, stroke);
 
-    // 2. Draw Wires
     let top_pin = rotate_vec(Vec2::new(0.0, -1.0) * zoom, rotation);
     let top_circle = rotate_vec(Vec2::new(0.0, -radius) * zoom, rotation);
     painter.line_segment([center + top_pin, center + top_circle], stroke);
@@ -339,30 +308,12 @@ fn draw_ac_source(
     let bot_circle = rotate_vec(Vec2::new(0.0, radius) * zoom, rotation);
     painter.line_segment([center + bot_pin, center + bot_circle], stroke);
 
-    // 3. Draw Sine Wave
-    // A sine wave inside the circle.
-    // Let's approximate it with 4 points or a bezier.
-    // Local coords: roughly from (-0.25, 0) to (0.25, 0)
-
-    // We construct a path relative to (0,0) and rotate points
-    let sine_points_local = [
-        Vec2::new(-0.25, 0.0),   // Start
-        Vec2::new(-0.12, -0.15), // Peak 1 Control/Point
-        Vec2::new(0.12, 0.15),   // Peak 2 Control/Point
-        Vec2::new(0.25, 0.0),    // End
-    ];
-
-    // For a smoother look in Egui we can use a Cubic Bezier, but line segments are easier to implement quickly:
-    // Simple line approximation: Start -> Peak Top -> Crossing -> Peak Bottom -> End
     let wave_width = 0.25;
     let wave_amp = 0.15;
 
-    // We will draw a cubic bezier curve manually-ish or just small segments.
-    // Let's use a cubic bezier shape for smoothness.
     let start = center + rotate_vec(Vec2::new(-wave_width, 0.0) * zoom, rotation);
     let end = center + rotate_vec(Vec2::new(wave_width, 0.0) * zoom, rotation);
 
-    // Control points for the S-shape
     let c1 = center
         + rotate_vec(
             Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom,
@@ -373,41 +324,24 @@ fn draw_ac_source(
     let bezier = egui::epaint::CubicBezierShape::from_points_stroke(
         [start, c1, c2, end],
         false,
-        Color32::TRANSPARENT, // fill
+        Color32::TRANSPARENT,
         stroke,
     );
     painter.add(bezier);
 }
 
 fn draw_ground(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, stroke_color: Color32) {
-    // Ground is 1x1.
-    // Pin location is usually the "node" point.
-    // Standard Ground Symbol:
-    // Pin is at (0, -0.5) (Top of the box).
-    // Main vertical line goes down to (0, 0) or (0, 0.2).
-    // Let's say pin is at (0, -0.5) and the symbol is centered around y=0.
-
     let stroke = Stroke::new(2.0, stroke_color);
 
-    /*// 1. Main Vertical Wire: From Pin (Top) to Center
-    // Assuming the grid pin is at the edge of the 1x1 cell, which is (0, -0.5) locally.
-    let pin_pos = rotate_vec(Vec2::new(0.0, -0.5) * zoom, rotation);
-    let symbol_top = rotate_vec(Vec2::new(0.0, 0.0) * zoom, rotation); // Center of the visual
-    painter.line_segment([center + pin_pos, center + symbol_top], stroke);*/
-
-    // 2. Horizontal Lines (Inverted Triangle)
-    // Line 1: Wide
     let l1_start = center + rotate_vec(Vec2::new(-0.4, 0.0) * zoom, rotation);
     let l1_end = center + rotate_vec(Vec2::new(0.4, 0.0) * zoom, rotation);
     painter.line_segment([l1_start, l1_end], stroke);
 
-    // Line 2: Medium
     let l2_y_offset = 0.15;
     let l2_start = center + rotate_vec(Vec2::new(-0.25, l2_y_offset) * zoom, rotation);
     let l2_end = center + rotate_vec(Vec2::new(0.25, l2_y_offset) * zoom, rotation);
     painter.line_segment([l2_start, l2_end], stroke);
 
-    // Line 3: Small
     let l3_y_offset = 0.3;
     let l3_start = center + rotate_vec(Vec2::new(-0.1, l3_y_offset) * zoom, rotation);
     let l3_end = center + rotate_vec(Vec2::new(0.1, l3_y_offset) * zoom, rotation);
@@ -422,12 +356,8 @@ fn draw_generic_box(
     fill_color: Color32,
     stroke_color: Color32,
 ) {
-    // Fallback logic from original code
-    // Assuming 2x1 default
     let (base_w, base_h) = (2.0, 1.0);
 
-    // Adjust logic for bounding box rotation
-    // Note: This logic assumes 0/180 are Horizontal, 90/270 are Vertical
     let (w, h) = if rotation % 2 == 1 {
         (base_h, base_w)
     } else {
@@ -464,18 +394,13 @@ fn draw_diode(
 ) {
     let stroke = Stroke::new(2.0, stroke_color);
 
-    // Dimensions
-    // The symbol body fits roughly between x = -0.5 and x = 0.5
-    let half_len = 0.5; // Distance from center to the edge of the symbol body
-    let half_h = 0.5; // Half height of the triangle/bar
+    let half_len = 0.5;
+    let half_h = 0.5;
 
-    // 1. Draw Wires (Leads)
-    // Left (Anode) Lead: (-1.0, 0) -> (-0.5, 0)
     let lead_anode_start = rotate_vec(Vec2::new(-1.0, 0.0) * zoom, rotation);
     let lead_anode_end = rotate_vec(Vec2::new(-half_len, 0.0) * zoom, rotation);
     painter.line_segment([center + lead_anode_start, center + lead_anode_end], stroke);
 
-    // Right (Cathode) Lead: (0.5, 0) -> (1.0, 0)
     let lead_cathode_start = rotate_vec(Vec2::new(half_len, 0.0) * zoom, rotation);
     let lead_cathode_end = rotate_vec(Vec2::new(1.0, 0.0) * zoom, rotation);
     painter.line_segment(
@@ -483,14 +408,10 @@ fn draw_diode(
         stroke,
     );
 
-    // 2. Draw Triangle (Anode Body)
-    // Points relative to center (before rotation)
-    // - Base is at x = -0.5
-    // - Tip is at x = 0.5
     let triangle_points_local = [
-        Vec2::new(-half_len, -half_h), // Top Left
-        Vec2::new(-half_len, half_h),  // Bottom Left
-        Vec2::new(half_len, 0.0),      // Tip (Right)
+        Vec2::new(-half_len, -half_h),
+        Vec2::new(-half_len, half_h),
+        Vec2::new(half_len, 0.0),
     ];
 
     let triangle_points_screen: Vec<Pos2> = triangle_points_local
@@ -498,38 +419,274 @@ fn draw_diode(
         .map(|&p| center + rotate_vec(p * zoom, rotation))
         .collect();
 
-    // Use convex_polygon to allow for filling (standard DIN is often hollow, but fill_color is supported)
     painter.add(Shape::convex_polygon(
         triangle_points_screen,
         fill_color,
         stroke,
     ));
 
-    // 3. Draw Cathode Bar (Vertical line at the tip)
-    // Line from (0.5, -0.4) to (0.5, 0.4)
     let bar_top = center + rotate_vec(Vec2::new(half_len, -half_h) * zoom, rotation);
     let bar_bot = center + rotate_vec(Vec2::new(half_len, half_h) * zoom, rotation);
 
     painter.line_segment([bar_top, bar_bot], stroke);
 }
 
+fn draw_bjt_npn(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let stroke = Stroke::new(2.0, stroke_color);
+
+    // 1. Draw the Circle Body
+    // Center offset to shift the circle slightly right
+    let circle_center_offset = Vec2::new(0.3, 0.0);
+    let radius = 0.7;
+
+    painter.circle(
+        center + rotate_vec(circle_center_offset * zoom, rotation),
+        radius * zoom,
+        fill_color, // Use the fill color for the circle body
+        stroke,
+    );
+
+    // 2. Draw Base (Left Side)
+    // Base Pin: (-1.0, 0.0) -> Connects to Base Bar at (-0.2, 0.0)
+    let base_pin = Vec2::new(-1.0, 0.0);
+    let base_bar_x = -0.2;
+    let base_connect = Vec2::new(base_bar_x, 0.0);
+
+    // Wire from Pin to Bar
+    painter.line_segment(
+        [
+            center + rotate_vec(base_pin * zoom, rotation),
+            center + rotate_vec(base_connect * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // Base Bar (Vertical Line)
+    let bar_height = 0.5;
+    let bar_top = Vec2::new(base_bar_x, -bar_height);
+    let bar_bot = Vec2::new(base_bar_x, bar_height);
+
+    painter.line_segment(
+        [
+            center + rotate_vec(bar_top * zoom, rotation),
+            center + rotate_vec(bar_bot * zoom, rotation),
+        ],
+        Stroke::new(2.5, stroke_color), // Make the base bar slightly thicker
+    );
+
+    // 3. Draw Collector (Top Right)
+    // Pin: (1.0, -1.0)
+    let col_pin = Vec2::new(1.0, -1.0);
+    let col_corner = Vec2::new(1.0, -0.5); // The "Knee"
+    let col_base_contact = Vec2::new(base_bar_x, -0.25); // Where it touches the base
+
+    // Wire: Pin -> Corner
+    painter.line_segment(
+        [
+            center + rotate_vec(col_pin * zoom, rotation),
+            center + rotate_vec(col_corner * zoom, rotation),
+        ],
+        stroke,
+    );
+    // Wire: Corner -> Base
+    painter.line_segment(
+        [
+            center + rotate_vec(col_corner * zoom, rotation),
+            center + rotate_vec(col_base_contact * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // 4. Draw Emitter (Bottom Right)
+    // Pin: (1.0, 1.0)
+    let emit_pin = Vec2::new(1.0, 1.0);
+    let emit_corner = Vec2::new(1.0, 0.5);
+    let emit_base_contact = Vec2::new(base_bar_x, 0.25);
+
+    // Wire: Pin -> Corner
+    painter.line_segment(
+        [
+            center + rotate_vec(emit_pin * zoom, rotation),
+            center + rotate_vec(emit_corner * zoom, rotation),
+        ],
+        stroke,
+    );
+    // Wire: Corner -> Base
+    painter.line_segment(
+        [
+            center + rotate_vec(emit_corner * zoom, rotation),
+            center + rotate_vec(emit_base_contact * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // 5. Draw Emitter Arrow (NPN Style - Pointing Out)
+    // We calculate a position along the vector (Base -> Corner)
+    let arrow_pos_t = 0.5; // Position 0.0 to 1.0 along the segment
+
+    // Manual Lerp: A + (B - A) * t
+    let arrow_center_local = emit_base_contact + (emit_corner - emit_base_contact) * arrow_pos_t;
+
+    // Direction vector of the emitter leg (normalized)
+    let dir = (emit_corner - emit_base_contact).normalized();
+    // Perpendicular vector for arrow width
+    let perp = Vec2::new(-dir.y, dir.x);
+
+    let arrow_size = 0.15;
+    let arrow_width = 0.1;
+
+    // Triangle points relative to local center
+    let tip = arrow_center_local + dir * arrow_size;
+    let base_l = arrow_center_local - dir * arrow_size + perp * arrow_width;
+    let base_r = arrow_center_local - dir * arrow_size - perp * arrow_width;
+
+    let arrow_points_local = [tip, base_l, base_r];
+
+    let rotated_arrow: Vec<Pos2> = arrow_points_local
+        .iter()
+        .map(|&p| center + rotate_vec(p * zoom, rotation))
+        .collect();
+
+    // Use fill_color or stroke_color based on preference (filled arrows are common)
+    painter.add(Shape::convex_polygon(
+        rotated_arrow,
+        stroke_color,
+        Stroke::NONE,
+    ));
+}
+
+fn draw_bjt_pnp(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let stroke = Stroke::new(2.0, stroke_color);
+
+    let circle_center_offset = Vec2::new(0.3, 0.0);
+    let radius = 0.7;
+
+    painter.circle(
+        center + rotate_vec(circle_center_offset * zoom, rotation),
+        radius * zoom,
+        fill_color,
+        stroke,
+    );
+
+    let base_pin = Vec2::new(-1.0, 0.0);
+    let base_bar_x = -0.2;
+    let base_connect = Vec2::new(base_bar_x, 0.0);
+
+    // Wire from Pin to Bar
+    painter.line_segment(
+        [
+            center + rotate_vec(base_pin * zoom, rotation),
+            center + rotate_vec(base_connect * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // Base Bar (Vertical Line)
+    let bar_height = 0.5;
+    let bar_top = Vec2::new(base_bar_x, -bar_height);
+    let bar_bot = Vec2::new(base_bar_x, bar_height);
+
+    painter.line_segment(
+        [
+            center + rotate_vec(bar_top * zoom, rotation),
+            center + rotate_vec(bar_bot * zoom, rotation),
+        ],
+        Stroke::new(2.5, stroke_color),
+    );
+
+    let emit_pin = Vec2::new(1.0, -1.0);
+    let emit_corner = Vec2::new(1.0, -0.5);
+    let emit_base_contact = Vec2::new(base_bar_x, -0.25);
+
+    painter.line_segment(
+        [
+            center + rotate_vec(emit_pin * zoom, rotation),
+            center + rotate_vec(emit_corner * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    painter.line_segment(
+        [
+            center + rotate_vec(emit_corner * zoom, rotation),
+            center + rotate_vec(emit_base_contact * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    let col_pin = Vec2::new(1.0, 1.0);
+    let col_corner = Vec2::new(1.0, 0.5);
+    let col_base_contact = Vec2::new(base_bar_x, 0.25);
+
+    painter.line_segment(
+        [
+            center + rotate_vec(col_pin * zoom, rotation),
+            center + rotate_vec(col_corner * zoom, rotation),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            center + rotate_vec(col_corner * zoom, rotation),
+            center + rotate_vec(col_base_contact * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    let arrow_pos_t = 0.5;
+
+    let arrow_center_local = emit_base_contact + (emit_corner - emit_base_contact) * arrow_pos_t;
+
+    let dir = (emit_base_contact - emit_corner).normalized();
+
+    let perp = Vec2::new(-dir.y, dir.x);
+
+    let arrow_size = 0.15;
+    let arrow_width = 0.1;
+
+    let tip = arrow_center_local + dir * arrow_size;
+    let base_l = arrow_center_local - dir * arrow_size + perp * arrow_width;
+    let base_r = arrow_center_local - dir * arrow_size - perp * arrow_width;
+
+    let arrow_points_local = [tip, base_l, base_r];
+
+    let rotated_arrow: Vec<Pos2> = arrow_points_local
+        .iter()
+        .map(|&p| center + rotate_vec(p * zoom, rotation))
+        .collect();
+
+    painter.add(Shape::convex_polygon(
+        rotated_arrow,
+        stroke_color,
+        Stroke::NONE,
+    ));
+}
+
 // Helper to check if a line segment (p1, p2) intersects a Rectangle
 pub fn check_line_rect_intersection(p1: Pos2, p2: Pos2, rect: Rect) -> bool {
-    // 1. Trivial accept: Start or End is inside
     if rect.contains(p1) || rect.contains(p2) {
         return true;
     }
 
-    // 2. Trivial reject: Bounding box of line does not intersect rect
     let line_bounds = Rect::from_two_pos(p1, p2);
     if !rect.intersects(line_bounds) {
         return false;
     }
 
-    // 3. Line intersection test (Liang-Barsky or checking intersection with rect sides)
-    // A simplified approach for 2D UI:
-    // The line intersects the rect if it intersects any of the 4 segments of the rect
-    // OR if the line is completely inside (covered by step 1).
     let corners = [
         rect.min,
         Pos2::new(rect.max.x, rect.min.y),
@@ -537,7 +694,6 @@ pub fn check_line_rect_intersection(p1: Pos2, p2: Pos2, rect: Rect) -> bool {
         Pos2::new(rect.min.x, rect.max.y),
     ];
 
-    // Check intersection with Top, Right, Bottom, Left edges
     for i in 0..4 {
         let c1 = corners[i];
         let c2 = corners[(i + 1) % 4];
@@ -569,11 +725,11 @@ pub fn draw_component_labels(
     zoom: f32,
 ) {
     if component.component == ComponentBuildData::Ground {
-        return; // No label for ground
+        return;
     }
 
     let center = transform(component.pos);
-    let rotation = component.rotation % 4; // Ensure 0-3 range
+    let rotation = component.rotation % 4;
 
     let label = &component.name;
 
@@ -655,6 +811,43 @@ pub fn draw_component_labels(
 
             (label_pos, value_pos)
         }
+        ComponentBuildData::Bjt { .. } => {
+            let offset_dist = 1.5 * zoom;
+
+            let label_pos = match rotation {
+                0 => Vec2::new(offset_dist, -0.62 * zoom),  // Right, slightly up
+                1 => Vec2::new(1. * zoom, -0.45 * zoom), // Down, slightly right
+                2 => Vec2::new(-offset_dist, -0.62 * zoom), // Left, slightly up
+                3 => Vec2::new(1. * zoom, -0.1 * zoom),  // Up, slightly right
+                _ => Vec2::ZERO,
+            };
+
+            let value_pos = match rotation {
+                0 => Vec2::new(offset_dist, 0.2 * zoom),      // Right, slightly down
+                1 => Vec2::new(-0.0 * zoom, 1.2 * zoom),   // Down, slightly left
+                2 => Vec2::new(-offset_dist, 0.2 * zoom),     // Left, slightly down
+                3 => Vec2::new(-0.0 * zoom, -1.65 * zoom), // Up, slightly left
+                _ => Vec2::ZERO,
+            };
+
+            (valign_label, halign_label) = match rotation {
+                0 => (Align::BOTTOM, Align::LEFT),
+                1 => (Align::TOP, Align::LEFT),
+                2 => (Align::BOTTOM, Align::RIGHT),
+                3 => (Align::BOTTOM, Align::LEFT),
+                _ => (Align::Center, Align::Center),
+            };
+
+            (valign_value, halign_value) = match rotation {
+                0 => (Align::TOP, Align::LEFT),
+                1 => (Align::TOP, Align::Center),
+                2 => (Align::TOP, Align::RIGHT),
+                3 => (Align::BOTTOM, Align::Center),
+                _ => (Align::Center, Align::Center),
+            };
+
+            (label_pos, value_pos)
+        }
         _ => (Vec2::new(0.0, -0.7 * zoom), Vec2::new(0.0, 0.7 * zoom)),
     };
 
@@ -675,7 +868,7 @@ pub fn draw_component_labels(
     painter.galley(label_pos, label_galley, Color32::WHITE);
 
     if component.component == ComponentBuildData::Label {
-        return; // No value for label components
+        return;
     }
 
     let mapping = match &component.component {
@@ -691,7 +884,8 @@ pub fn draw_component_labels(
     };
 
     let value = match &component.component {
-        ComponentBuildData::Diode { model } => model.format_name(),
+        ComponentBuildData::Diode { model } => model.format_name().to_string(),
+        ComponentBuildData::Bjt { model } => model.format_name().to_string(),
         _ => format_si(mapping.as_slice(), 0.1, 2),
     };
 
@@ -713,4 +907,70 @@ pub fn draw_component_labels(
             Color32::WHITE.blend(Color32::LIGHT_GRAY),
         );
     }
+
+    if let ComponentBuildData::Bjt { model } = &component.component {
+        draw_bjt_pin_labels(component, painter, transform, zoom, model);
+    }
+}
+
+fn draw_bjt_pin_labels(
+    component: &VisualComponent,
+    painter: &Painter,
+    transform: impl Fn(GridPos) -> Pos2,
+    zoom: f32,
+    model: &BjtModel,
+) {
+    let center = transform(component.pos);
+    let rotation = component.rotation % 4;
+    let is_npn = model.polarity();
+
+    let rotate_vec = |x: f32, y: f32| -> Vec2 {
+        match rotation {
+            0 => Vec2::new(x, y),
+            1 => Vec2::new(-y, x),
+            2 => Vec2::new(-x, -y),
+            3 => Vec2::new(y, -x),
+            _ => Vec2::new(x, y),
+        }
+    };
+
+    let top_pin_offset = rotate_vec(1.0, -1.0) * zoom;
+    let base_pin_offset = rotate_vec(-1.0, 0.0) * zoom;
+    let bot_pin_offset = rotate_vec(1.0, 1.0) * zoom;
+
+    let (top_char, bot_char) = if is_npn { ("C", "E") } else { ("E", "C") };
+    let base_char = "B";
+
+    let (base_text_offset, pin_text_offset) = match rotation {
+        1 => (
+            Vec2::new(-0.4 * zoom, 0.0), // Base: Left
+            Vec2::new(0.0, -0.4 * zoom), // Pins: Top
+        ),
+        3 => (
+            Vec2::new(-0.4 * zoom, 0.0), // Base: Left
+            Vec2::new(0.0, 0.4 * zoom),  // Pins: Bottom
+        ),
+        _ => (
+            Vec2::new(0.0, -0.4 * zoom), // Base: Over
+            Vec2::new(0.3 * zoom, 0.0),  // Pins: Right
+        ),
+    };
+
+    let top_pos = center + top_pin_offset + pin_text_offset;
+    let base_pos = center + base_pin_offset + base_text_offset;
+    let bot_pos = center + bot_pin_offset + pin_text_offset;
+
+    let draw_text = |pos: Pos2, text: &str| {
+        painter.text(
+            pos,
+            Align2::CENTER_CENTER,
+            text,
+            egui::FontId::monospace(zoom * 0.3),
+            Color32::WHITE,
+        );
+    };
+
+    draw_text(top_pos, top_char);
+    draw_text(base_pos, base_char);
+    draw_text(bot_pos, bot_char);
 }

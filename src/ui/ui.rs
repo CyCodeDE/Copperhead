@@ -5,23 +5,17 @@ use crate::ui::components::oscilloscope::draw_oscilloscope;
 use crate::ui::drawing::{
     check_line_rect_intersection, draw_component, draw_component_labels, draw_grid,
 };
-use crate::ui::{
-    ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire, lerp_color,
-};
+use crate::ui::{ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire, lerp_color, handle_circuit_loaded, CircuitSelection};
 use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
-use egui::{
-    Align, Align2, Button, CentralPanel, Checkbox, Color32, CornerRadius, CursorIcon, Direction,
-    FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect,
-    RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat,
-    TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText,
-};
+use egui::{Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon, Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat, TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText};
 use egui_plot::{Line, Plot, PlotPoints};
 use faer::prelude::default;
 use log::{debug, info};
 use std::ops::Add;
 use std::thread;
 use std::time::Duration;
+use crate::components::transistor::bjt::BjtModel;
 
 impl Tool {
     fn get_name(&self) -> &str {
@@ -47,6 +41,10 @@ impl eframe::App for CircuitApp {
                 }
                 StateUpdate::ClearHistory => {
                     self.sim_state.history.clear();
+                }
+                StateUpdate::CircuitLoaded(metadata) => {
+                    self.sim_state.lookup_map = handle_circuit_loaded(&metadata);
+                    self.sim_state.metadata = Some(metadata);
                 }
             }
         }
@@ -370,8 +368,8 @@ impl eframe::App for CircuitApp {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: 1e-6 }); // 1 uF
                 }
-                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: _ })), Button::new("Inductor (I)")).clicked()
-                    || (ui.input(|i| i.key_pressed(Key::I)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: _ })), Button::new("Inductor (L)")).clicked()
+                    || (ui.input(|i| i.key_pressed(Key::L)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: 1e-3 }); // 1 mH
@@ -402,12 +400,16 @@ impl eframe::App for CircuitApp {
                 {
                     self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Ground);
                 }
-                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Label)), Button::new("Label (L)")).clicked()
-                    || (ui.input(|i| i.key_pressed(Key::L)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Label)), Button::new("Label (N)")).clicked()
+                    || (ui.input(|i| i.key_pressed(Key::N)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     // set a variable to determine that a modal should be opened until closed
                     ui.memory_mut(|mem| mem.data.insert_temp(Id::new("label_tool_open"), true));
                     self.keybinds_locked = true;
+                }
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Bjt { model: _ })), Button::new("Bjt")).clicked()
+                {
+                    self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Bjt { model: BjtModel::GenericNPN });
                 }
 
                 ui.separator();
@@ -611,6 +613,7 @@ impl eframe::App for CircuitApp {
                                 ComponentBuildData::ASource { .. } => GridPos { x: 2, y: 1 },
                                 ComponentBuildData::Ground |
                                 ComponentBuildData::Label => GridPos { x: 1, y: 1 },
+                                ComponentBuildData::Bjt { .. } => GridPos { x: 2, y: 2}, // a bjt has pins at these positions: vec![(1, 1), (-1, 0), (1, -1)]
                             };
 
                             let rotated_size = match self.current_rotation % 4 {
@@ -722,7 +725,6 @@ impl eframe::App for CircuitApp {
 
                         Tool::Select => {
                             if self.editing_component_id.is_none() && response.clicked_by(egui::PointerButton::Secondary) {
-
                                 let mut found_id = None;
 
                                 for comp in &self.state.schematic.components {
@@ -743,55 +745,80 @@ impl eframe::App for CircuitApp {
                             }
 
                             if let Some(mouse_pos) = response.hover_pos() {
-                                let grid_pos = self.to_grid(mouse_pos);
-
                                 if let Some(netlist) = &self.active_netlist {
-                                    if let Some(&node_id) = netlist.node_map.get(&grid_pos) {
+                                    let mut hit_pin = None;
+                                    let mut hit_body = None;
+
+                                    for comp in &self.state.schematic.components {
+                                        let comp_screen_pos = self.to_screen(comp.pos);
+
+                                        let pins = comp.get_pin_locations();
+                                        for (terminal_index, pin_pos) in pins.iter().enumerate() {
+                                            let pin_screen_pos = self.to_screen(*pin_pos);
+                                            if pin_screen_pos.distance(mouse_pos) < 10.0 {
+                                                hit_pin = Some((comp, terminal_index));
+                                                break;
+                                            }
+                                        }
+
+                                        if hit_pin.is_some() {
+                                            break;
+                                        }
+
+                                        if hit_body.is_none() {
+                                            let size = Vec2::new(2.0 * self.zoom, 1.0 * self.zoom);
+                                            let rect = Rect::from_center_size(comp_screen_pos, size);
+
+                                            if rect.contains(mouse_pos) {
+                                                hit_body = Some(comp);
+                                            }
+                                        }
+                                    }
+
+                                    // Order: Pin -> Wire -> Body
+
+                                    if let Some((comp, terminal_index)) = hit_pin {
+                                        // CASE 1: PIN CLICKED
+                                        if let Some(&sim_idx) = netlist.component_map.get(&comp.id) {
+                                            painter.text(
+                                                mouse_pos + Vec2::new(15.0, -15.0),
+                                                egui::Align2::LEFT_BOTTOM,
+                                                format!("Click to plot voltage at pin {} of {}", terminal_index, comp.name),
+                                                egui::FontId::monospace(14.0),
+                                                Color32::YELLOW,
+                                            );
+
+                                            if response.clicked_by(egui::PointerButton::Primary) {
+                                                self.plotting_component_current = Some((sim_idx.clone(), terminal_index));
+                                            }
+                                        }
+                                    } else if let Some(node_id) = self.wire_at_screen_pos(mouse_pos, 5.0) {
+                                        // CASE 2: WIRE CLICKED (Only if no Pin)
+                                        painter.text(
+                                            mouse_pos + Vec2::new(15.0, -15.0),
+                                            egui::Align2::LEFT_BOTTOM,
+                                            format!("Click to plot voltage at node {}", node_id.0),
+                                            egui::FontId::monospace(14.0),
+                                            Color32::YELLOW,
+                                        );
 
                                         if response.clicked_by(egui::PointerButton::Primary) {
                                             self.plotting_node_voltage = Some(node_id);
                                         }
+                                    } else if let Some(comp) = hit_body {
+                                        // CASE 3: BODY CLICKED (Only if no Pin AND no Wire)
+                                        if let Some(&sim_idx) = netlist.component_map.get(&comp.id) {
+                                            painter.text(
+                                                mouse_pos + Vec2::new(15.0, -15.0),
+                                                egui::Align2::LEFT_BOTTOM,
+                                                format!("Click to plot an observable of {}", comp.name),
+                                                egui::FontId::monospace(14.0),
+                                                Color32::YELLOW,
+                                            );
 
-                                        // get latest data
-                                            if running {
-                                                if let Some(volts) = self.sim_state.get_latest_voltage(node_id) {
-                                                    painter.text(
-                                                        mouse_pos + Vec2::new(15.0, -15.0),
-                                                        egui::Align2::LEFT_BOTTOM,
-                                                        format!("Click to plot voltage at node {}", node_id.0),
-                                                        egui::FontId::monospace(14.0),
-                                                        Color32::YELLOW,
-                                                    );
-                                                }
+                                            if response.clicked_by(egui::PointerButton::Primary) {
+                                                // TODO: Context menu logic
                                             }
-                                    }
-
-                                    // Check for Component Current (Hovering body)
-                                    for comp in &self.state.schematic.components {
-                                        let comp_screen_pos = self.to_screen(comp.pos);
-                                        let size = Vec2::new(2.0 * self.zoom, 1.0 * self.zoom);
-                                        let rect = Rect::from_center_size(comp_screen_pos, size);
-
-                                        if rect.contains(mouse_pos) {
-                                            if let Some(&sim_idx) = netlist.component_map.get(&comp.id) {
-                                                if response.clicked_by(egui::PointerButton::Primary) {
-                                                    self.plotting_component_current = Some(sim_idx);
-                                                }
-                                                    // it is not safe to get a component or node id if the sim is not running, as the data may be stale
-                                                    // TODO: improve this
-                                                    if running {
-                                                        if self.sim_state.get_latest_current(sim_idx).is_some() {
-                                                            painter.text(
-                                                                mouse_pos + Vec2::new(15.0, 0.0),
-                                                                egui::Align2::LEFT_TOP,
-                                                                format!("Click To Plot Current at {}", comp.name),
-                                                                egui::FontId::monospace(14.0),
-                                                                Color32::LIGHT_BLUE,
-                                                            );
-                                                        }
-                                                    }
-                                            }
-                                            break;
                                         }
                                     }
                                 }
@@ -977,7 +1004,7 @@ impl eframe::App for CircuitApp {
                                     return;
                                 }
 
-                                draw_oscilloscope(ui, &mut self.scope_state, self.sim_state.history.as_slice(), self.plotting_node_voltage.map(|id| id.0), self.plotting_component_current);
+                                draw_oscilloscope(ui, &mut self.scope_state, &self.sim_state, self.plotting_node_voltage.map(|id| id.0), self.plotting_component_current);
 
                                 ctx.request_repaint();
                         });
@@ -1007,6 +1034,8 @@ impl eframe::App for CircuitApp {
                                         ComponentBuildData::DCSource { .. } => "DC Source",
                                         ComponentBuildData::ASource { .. } => "AC Source",
                                         ComponentBuildData::Inductor { .. } => "Inductor",
+                                        ComponentBuildData::Diode { .. } => "Diode",
+                                        ComponentBuildData::Bjt { .. } => "Bipolar Junction Transistor",
                                         ComponentBuildData::Label => "Label",
                                         _ => "Component",
                                     }));
@@ -1113,6 +1142,23 @@ impl eframe::App for CircuitApp {
                                             });
                                         }
                                         ComponentBuildData::Label => {
+                                        }
+                                        ComponentBuildData::Diode { model } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Model:");
+                                                ComboBox::from_id_salt("diode_combo").selected_text(model.format_name()).show_ui(ui, |ui| {
+                                                    ui.selectable_value(&mut *model, DiodeModel::D1N4148, DiodeModel::D1N4148.format_name());
+                                                });
+                                            });
+                                        }
+                                        ComponentBuildData::Bjt { model } => {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Model:");
+                                                ComboBox::from_id_salt("bjt_combo").selected_text(model.format_name()).show_ui(ui, |ui| {
+                                                    ui.selectable_value(&mut *model, BjtModel::GenericNPN, BjtModel::GenericNPN.format_name());
+                                                    ui.selectable_value(&mut *model, BjtModel::GenericPNP, BjtModel::GenericPNP.format_name());
+                                                });
+                                            });
                                         }
                                         _ => {
                                             ui.label("No editable properties for this component.");

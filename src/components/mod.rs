@@ -1,3 +1,4 @@
+use crate::components::ComponentDescriptor::Bjt;
 use crate::components::resistor::Resistor;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
@@ -8,6 +9,7 @@ pub mod diode;
 pub mod inductor;
 pub mod resistor;
 pub mod voltage_source;
+pub mod transistor;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
 #[derive(Clone, Debug)]
@@ -58,6 +60,21 @@ pub enum ComponentDescriptor {
         // Current at breakdown (IBV)
         breakdown_current: f64,
     },
+    Bjt {
+        c: usize,
+        b: usize,
+        e: usize,
+        saturation_current: f64,
+        beta_f: f64,
+        beta_r: f64,
+        vt: f64,
+        vaf: f64,
+        var: f64,
+        rc: f64,
+        rb: f64,
+        re: f64,
+        polarity: bool
+    }
 }
 
 impl ComponentDescriptor {
@@ -138,6 +155,44 @@ impl ComponentDescriptor {
                     .expect("Failed to cast breakdown voltage to circuit scalar type"),
                 num_traits::cast(breakdown_current)
                     .expect("Failed to cast breakdown current to circuit scalar type"),
+            )),
+            ComponentDescriptor::Bjt {
+                c,
+                b,
+                e,
+                saturation_current,
+                beta_f,
+                beta_r,
+                vt,
+                vaf,
+                var,
+                rc,
+                rb,
+                re,
+                polarity
+            } => Box::new(transistor::bjt::Bjt::new(
+                NodeId(c),
+                NodeId(b),
+                NodeId(e),
+                num_traits::cast(saturation_current)
+                    .expect("Failed to cast saturation current to circuit scalar type"),
+                num_traits::cast(beta_f)
+                    .expect("Failed to cast forward beta to circuit scalar type"),
+                num_traits::cast(beta_r)
+                    .expect("Failed to cast reverse beta to circuit scalar type"),
+                num_traits::cast(vt)
+                    .expect("Failed to cast thermal voltage to circuit scalar type"),
+                num_traits::cast(vaf)
+                    .expect("Failed to cast forward Early voltage to circuit scalar type"),
+                num_traits::cast(var)
+                    .expect("Failed to cast reverse Early voltage to circuit scalar type"),
+                num_traits::cast(rc)
+                    .expect("Failed to cast collector resistance to circuit scalar type"),
+                num_traits::cast(rb)
+                    .expect("Failed to cast base resistance to circuit scalar type"),
+                num_traits::cast(re)
+                    .expect("Failed to cast emitter resistance to circuit scalar type"),
+                polarity
             )),
         }
     }
