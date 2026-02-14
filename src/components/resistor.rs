@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
 use faer::{Col, ColRef};
 
 pub struct Resistor<T: CircuitScalar> {
@@ -11,7 +11,6 @@ pub struct Resistor<T: CircuitScalar> {
 impl<T: CircuitScalar> Resistor<T> {
     pub fn new(a: NodeId, b: NodeId, resistance: T) -> Self {
         // Guard against divide-by-zero
-        println!("RESISTOR");
         let conductance = if resistance.abs() < T::from(1e-12).unwrap() {
             // TODO: Treat it as a node-merge instead
             T::from(1.0e12).unwrap()
@@ -42,6 +41,10 @@ impl<T: CircuitScalar> Resistor<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for Resistor<T> {
+    fn linearity(&self) -> ComponentLinearity {
+        ComponentLinearity::LinearStatic
+    }
+
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }

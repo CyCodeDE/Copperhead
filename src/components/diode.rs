@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -347,8 +347,8 @@ impl<T: CircuitScalar> Diode<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for Diode<T> {
-    fn is_linear(&self) -> bool {
-        false
+    fn linearity(&self) -> ComponentLinearity {
+        ComponentLinearity::NonLinear
     }
 
     fn ports(&self) -> Vec<NodeId> {

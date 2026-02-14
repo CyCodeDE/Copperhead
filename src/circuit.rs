@@ -1,5 +1,5 @@
 use crate::components::resistor::Resistor;
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentLinearity, NodeId, SimulationContext};
 use crate::ui::SimStepData;
 use faer::prelude::Solve;
 use faer::{Col, Mat};
@@ -115,7 +115,7 @@ impl<T: CircuitScalar> Circuit<T> {
         let mut converged = false;
         let mut damping_factor = T::from(1.0).unwrap();
 
-        let is_nonlinear_circuit = self.components.iter().any(|c| !c.is_linear());
+        let is_nonlinear_circuit = self.components.iter().any(|c| matches!(c.linearity(), ComponentLinearity::NonLinear));
 
         // try to converge, if not, reduce damping factor
         for _attempt in 0..3 {
@@ -159,7 +159,7 @@ impl<T: CircuitScalar> Circuit<T> {
                 // Component Physics Convergence
                 let mut devices_converged = true;
                 for comp in &self.components {
-                    if !comp.is_linear() {
+                    if comp.linearity() == ComponentLinearity::NonLinear {
                         if !comp.is_converged(&next_solution.as_ref()) {
                             devices_converged = false;
                         }

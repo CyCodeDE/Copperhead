@@ -76,9 +76,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Returns true if the component allows the matrix A to be pre-solved
     /// (e.g. Resistors, Capacitors, Inductors with fixed sample rate)
     /// Returns false for non-linear components (Diodes, Tubes, Transistors, etc.)
-    fn is_linear(&self) -> bool {
-        true
-    }
+    fn linearity(&self) -> ComponentLinearity;
 
     /// Returns the nodes this component is connected to
     fn ports(&self) -> Vec<NodeId>;
@@ -172,4 +170,15 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
 pub struct ComponentProbe {
     pub name: String,
     pub unit: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ComponentLinearity {
+    /// Static Linear. Stamped once into the A matrix
+    LinearStatic,
+    /// Dynamic Linear. Stamped into Matrix A (conductance)
+    /// and Vector b (history current). Matrix A is constant if dt is constant.
+    LinearDynamic,
+    /// Non-Linear. Requires Newton-Rhapson iteration.
+    NonLinear,
 }

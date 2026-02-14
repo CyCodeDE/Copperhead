@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
 use crate::signals::Signal;
 use faer::{ColMut, ColRef, MatMut};
 
@@ -28,6 +28,10 @@ impl<T: CircuitScalar> VoltageSource<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
+    fn linearity(&self) -> ComponentLinearity {
+        ComponentLinearity::LinearDynamic
+    }
+
     fn ports(&self) -> Vec<NodeId> {
         vec![self.pos, self.neg]
     }

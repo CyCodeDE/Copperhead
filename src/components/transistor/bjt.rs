@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -164,7 +164,9 @@ impl<T: CircuitScalar> Bjt<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for Bjt<T> {
-    fn is_linear(&self) -> bool { false }
+    fn linearity(&self) -> ComponentLinearity {
+        ComponentLinearity::NonLinear
+    }
 
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_c, self.node_b, self.node_e]

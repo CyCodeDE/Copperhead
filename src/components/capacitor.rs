@@ -1,4 +1,4 @@
-use crate::model::{CircuitScalar, Component, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 
 pub struct Capacitor<T: CircuitScalar> {
@@ -53,6 +53,10 @@ impl<T: CircuitScalar> Capacitor<T> {
 }
 
 impl<T: CircuitScalar> Component<T> for Capacitor<T> {
+    fn linearity(&self) -> ComponentLinearity {
+        ComponentLinearity::LinearDynamic
+    }
+
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }
