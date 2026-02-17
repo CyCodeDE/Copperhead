@@ -2,7 +2,12 @@ use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe,
 use faer::{ColMut, ColRef, MatMut};
 
 pub struct Inductor<T> {
-    nodes: [NodeId; 2],
+    node_a: NodeId,
+    node_b: NodeId,
+
+    cached_idx_a: Option<usize>,
+    cached_idx_b: Option<usize>,
+
     inductance: T,
 
     // Cached geometric conductance g_eq = dt / (2L)
@@ -25,7 +30,10 @@ impl<T: CircuitScalar> Inductor<T> {
         };
 
         Self {
-            nodes: [n1, n2],
+            node_a: n1,
+            node_b: n2,
+            cached_idx_a: None,
+            cached_idx_b: None,
             inductance: l,
             g_eq,
             prev_current: T::zero(),
@@ -33,20 +41,15 @@ impl<T: CircuitScalar> Inductor<T> {
         }
     }
 
-    /// Helper to map NodeId to Matrix Index
-    fn get_matrix_idx(node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
-    }
-
     /// Helper to read voltage from solution vector.
     fn get_voltage_diff(&self, solution: &ColRef<T>) -> T {
-        let v1 = if let Some(idx) = Self::get_matrix_idx(self.nodes[0]) {
+        let v1 = if let Some(idx) = self.cached_idx_a {
             solution[idx]
         } else {
             T::zero()
         };
 
-        let v2 = if let Some(idx) = Self::get_matrix_idx(self.nodes[1]) {
+        let v2 = if let Some(idx) = self.cached_idx_b {
             solution[idx]
         } else {
             T::zero()
@@ -61,8 +64,16 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         ComponentLinearity::LinearDynamic
     }
 
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        let a = ctx.map_index(self.node_a);
+        let b = ctx.map_index(self.node_b);
+
+        if a.is_none() { self.cached_idx_a = None; } else { self.cached_idx_a = a; }
+        if b.is_none() { self.cached_idx_b = None; } else { self.cached_idx_b = b; }
+    }
+
     fn ports(&self) -> Vec<NodeId> {
-        self.nodes.to_vec()
+        vec![self.node_a, self.node_b]
     }
 
     fn auxiliary_row_count(&self) -> usize {
@@ -72,8 +83,8 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
     fn stamp_static(&self, matrix: &mut MatMut<T>) {
         let g = self.g_eq;
 
-        let idx_a = Self::get_matrix_idx(self.nodes[0]);
-        let idx_b = Self::get_matrix_idx(self.nodes[1]);
+        let idx_a = self.cached_idx_a;
+        let idx_b = self.cached_idx_b;
 
         // Diagonal A
         if let Some(i) = idx_a {
@@ -103,10 +114,10 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         // KCL Equation at node: G_eq * v[n] = i[n] - I_equiv
         let i_source = self.prev_current + (self.g_eq * self.prev_voltage);
 
-        if let Some(idx) = Self::get_matrix_idx(self.nodes[0]) {
+        if let Some(idx) = self.cached_idx_a {
             rhs[idx] = rhs[idx] - i_source;
         }
-        if let Some(idx) = Self::get_matrix_idx(self.nodes[1]) {
+        if let Some(idx) = self.cached_idx_b {
             rhs[idx] = rhs[idx] + i_source;
         }
     }

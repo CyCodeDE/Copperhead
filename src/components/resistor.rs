@@ -6,6 +6,9 @@ pub struct Resistor<T: CircuitScalar> {
     pub node_b: NodeId,
     pub conductance: T,
     pub resistance: T,
+
+    cached_idx_a: Option<usize>,
+    cached_idx_b: Option<usize>,
 }
 
 impl<T: CircuitScalar> Resistor<T> {
@@ -21,14 +24,11 @@ impl<T: CircuitScalar> Resistor<T> {
         Self {
             node_a: a,
             node_b: b,
+            cached_idx_a: None,
+            cached_idx_b: None,
             conductance,
             resistance,
         }
-    }
-
-    /// Helper to map NodeId to Matrix Index.
-    fn get_matrix_idx(node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
     }
 
     fn get_voltage(&self, node: NodeId, solution: &ColRef<T>) -> T {
@@ -45,6 +45,14 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         ComponentLinearity::LinearStatic
     }
 
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        let a = ctx.map_index(self.node_a);
+        let b = ctx.map_index(self.node_b);
+
+        if a.is_none() { self.cached_idx_a = None; } else { self.cached_idx_a = a; }
+        if b.is_none() { self.cached_idx_b = None; } else { self.cached_idx_b = b; }
+    }
+
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }
@@ -52,8 +60,8 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
     fn stamp_static(&self, matrix: &mut faer::MatMut<T>) {
         let g = self.conductance;
 
-        let idx_a = Self::get_matrix_idx(self.node_a);
-        let idx_b = Self::get_matrix_idx(self.node_b);
+        let idx_a = self.cached_idx_a;
+        let idx_b = self.cached_idx_b;
 
         // Diagonal: Node A
         if let Some(i) = idx_a {

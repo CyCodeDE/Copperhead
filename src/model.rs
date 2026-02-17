@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
@@ -69,6 +70,14 @@ pub struct SimulationContext<T> {
     pub dt: T,
     pub time: T,
     pub step: usize,
+    pub node_map: HashMap<NodeId, usize>,
+}
+
+impl<T> SimulationContext<T> {
+    /// maps a global node id to the current solver matrix index
+    pub fn map_index(&self, node: NodeId) -> Option<usize> {
+        self.node_map.get(&node).copied()
+    }
 }
 
 /// The interface a component must implement.
@@ -80,6 +89,10 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
 
     /// Returns the nodes this component is connected to
     fn ports(&self) -> Vec<NodeId>;
+
+    /// Called after partitioning, but before solving
+    /// Gives the component the ability to cache the matrix indices for ports and auxiliary rows
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {}
 
     /// How many extra rows/cols does this component add to the matrix?
     /// For example Resistors = 0, Voltage Sources = 1, ...
@@ -108,9 +121,15 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         prev_node_voltages: &ColRef<T>,
         rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
-    ) {
-        // Default: Do nothing
-    }
+    ) {}
+
+    /// Used for Time-Variant components (e.g. Potentiometer, LDR, Switch) that change their conductance G at runtime
+    /// in the reduced matrix without re-inverting A_LL every time step.
+    fn stamp_time_variant(
+        &self,
+        _matrix: &mut MatMut<T>,
+        _ctx: &SimulationContext<T>,
+    ) {}
 
     /// Non-Linear iteration (Newton-Raphson)
     /// Called multiple times per sample
@@ -122,8 +141,8 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         _matrix: &mut MatMut<T>,
         _rhs: &mut ColMut<T>,
         _ctx: &SimulationContext<T>,
-    ) {
-    }
+        _l_size: usize,
+    ) {}
 
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
@@ -174,11 +193,16 @@ pub struct ComponentProbe {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ComponentLinearity {
-    /// Static Linear. Stamped once into the A matrix
+    /// Conductance G is constant (e.g. Fixed Resistor)
+    /// Goes into the Static Block (A_LL).
     LinearStatic,
-    /// Dynamic Linear. Stamped into Matrix A (conductance)
-    /// and Vector b (history current). Matrix A is constant if dt is constant.
+    /// G is constant, b changes per sample (e.g. Capacitor, Inductor)
+    /// Goes into the Static Block (A_LL), but updates b_L every step.
     LinearDynamic,
-    /// Non-Linear. Requires Newton-Rhapson iteration.
+    /// G changes at runtime (e.g. Potentiometer, LDR, Switch)
+    /// Must be in the Active Block (A_NN) to avoid re-inverting A_LL.
+    TimeVariant,
+    /// G changes during iteration (e.g. Diode, BJT, Tube)
+    /// Must be in the Active Block (A_NN).
     NonLinear,
 }

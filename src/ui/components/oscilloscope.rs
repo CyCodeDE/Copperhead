@@ -554,6 +554,13 @@ fn draw_trace_optimized(
         TraceType::Observable(idx) => d.observables.get(idx).copied().unwrap_or(0.0),
     };
 
+    // check if we are in voltage mode and print the index if yes
+    if let TraceType::Voltage(idx) = mode {
+        println!("Voltage Trace Index: {}", idx);
+        println!("GET VAL: {}", get_val(&slice[0]));
+        println!("Voltages: {:?}", slice[0].voltages);
+    }
+
     // Helper to map Y coordinate
     let map_y = |val: f64| match mode {
         TraceType::Voltage(_) => ctx.v_to_y(val),

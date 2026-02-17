@@ -1,5 +1,5 @@
 use std::fmt::format;
-use crate::circuit::Circuit;
+use crate::circuit::{Circuit, CircuitElement};
 use crate::model::NodeId;
 use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentBuildData, ComponentMetadata, Netlist, SimCommand, SimState};
@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>) {
     let mut realtime_mode = false;
-    let sample_rate = 192000.0;
+    let sample_rate = 384000.0;
     let mut circuit: Option<Circuit<f64>> = None;
     let mut running = false;
     state.send(StateUpdate::UpdateRunning(false));
@@ -44,26 +44,29 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
 
                     let mut new_ckt = Circuit::<f64>::new();
                     for instr in netlist.instructions {
+                        //new_ckt.add_component(instr.build(dt));
                         new_ckt.add_component(instr.build(dt));
                     }
-                    new_ckt.prepare();
+                    new_ckt.prepare(dt);
 
                     let mut comp_meta = Vec::new();
                     let mut total_terminals = 0;
                     let mut total_observables = 0;
 
-                    for (idx, comp) in new_ckt.components.iter().enumerate() {
-                        let probes = comp.probe_definitions();
-                        let num_terms = comp.ports().len();
+                    for (ui_idx, &graph_idx) in new_ckt.component_order.iter().enumerate() {
+                        if let CircuitElement::Device(comp) = &new_ckt.graph[graph_idx] {
+                            let probes = comp.probe_definitions();
+                            let num_terms = comp.ports().len();
 
-                        total_observables += probes.len();
-                        total_terminals += num_terms;
+                            total_observables += probes.len();
+                            total_terminals += num_terms;
 
-                        comp_meta.push(ComponentMetadata {
-                            id: idx,
-                            probe_definitions: probes,
-                            num_terminals: num_terms,
-                        });
+                            comp_meta.push(ComponentMetadata {
+                                id: ui_idx,
+                                probe_definitions: probes,
+                                num_terminals: num_terms,
+                            });
+                        }
                     }
 
                     state.send(StateUpdate::ClearHistory);

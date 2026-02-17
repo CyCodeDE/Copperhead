@@ -317,6 +317,7 @@ pub struct CircuitMetadata {
     pub components: Vec<ComponentMetadata>,
 }
 
+#[derive(Clone, Debug)]
 pub struct ComponentMetadata {
     pub id: usize,
     pub probe_definitions: Vec<ComponentProbe>,

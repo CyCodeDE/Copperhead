@@ -6,6 +6,10 @@ use faer::{ColMut, ColRef, MatMut};
 pub struct VoltageSource<T: CircuitScalar> {
     pub pos: NodeId,
     pub neg: NodeId,
+
+    cached_idx_pos: Option<usize>,
+    cached_idx_neg: Option<usize>,
+
     pub signal: Box<dyn Signal<T>>,
     matrix_idx: Option<usize>,
 }
@@ -15,21 +19,26 @@ impl<T: CircuitScalar> VoltageSource<T> {
         Self {
             pos,
             neg,
+            cached_idx_pos: None,
+            cached_idx_neg: None,
             signal,
             // unknown until build time
             matrix_idx: None,
         }
-    }
-
-    // Helper to map NodeId to Matrix Index.
-    pub fn get_node_idx(&self, node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
     }
 }
 
 impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
     fn linearity(&self) -> ComponentLinearity {
         ComponentLinearity::LinearDynamic
+    }
+
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        let pos = ctx.map_index(self.pos);
+        let neg = ctx.map_index(self.neg);
+
+        if pos.is_none() { self.cached_idx_pos = None; } else { self.cached_idx_pos = pos; }
+        if neg.is_none() { self.cached_idx_neg = None; } else { self.cached_idx_neg = neg; }
     }
 
     fn ports(&self) -> Vec<NodeId> {
@@ -49,12 +58,12 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
         let one = T::one();
 
-        if let Some(p) = self.get_node_idx(self.pos) {
+        if let Some(p) = self.cached_idx_pos {
             matrix[(p, src_idx)] = matrix[(p, src_idx)] + one;
             matrix[(src_idx, p)] = matrix[(src_idx, p)] + one;
         }
 
-        if let Some(n) = self.get_node_idx(self.neg) {
+        if let Some(n) = self.cached_idx_neg {
             matrix[(n, src_idx)] = matrix[(n, src_idx)] - one;
             matrix[(src_idx, n)] = matrix[(src_idx, n)] - one;
         }

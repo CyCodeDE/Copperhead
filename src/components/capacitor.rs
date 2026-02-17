@@ -5,6 +5,9 @@ pub struct Capacitor<T: CircuitScalar> {
     pub node_a: NodeId,
     pub node_b: NodeId,
 
+    cached_idx_a: Option<usize>,
+    cached_idx_b: Option<usize>,
+
     /// The physical capacitance in Farads
     pub capacitance: T,
 
@@ -25,15 +28,12 @@ impl<T: CircuitScalar> Capacitor<T> {
         Self {
             node_a: a,
             node_b: b,
+            cached_idx_a: None,
+            cached_idx_b: None,
             capacitance,
             conductance,
             eq_current: T::zero(), // Assumes capacitor is initially uncharged
         }
-    }
-
-    /// Helper to map NodeId to Matrix Index.
-    fn get_matrix_idx(node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
     }
 
     /// Helper to get voltage across the component (Va - Vb)
@@ -57,6 +57,14 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         ComponentLinearity::LinearDynamic
     }
 
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        let a = ctx.map_index(self.node_a);
+        let b = ctx.map_index(self.node_b);
+
+        if a.is_none() { self.cached_idx_a = None; } else { self.cached_idx_a = a; }
+        if b.is_none() { self.cached_idx_b = None; } else { self.cached_idx_b = b; }
+    }
+
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }
@@ -64,8 +72,8 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
     fn stamp_static(&self, matrix: &mut MatMut<T>) {
         // A discretized capacitor looks like a resistor of conductance G_eq in the A matrix
         let g = self.conductance;
-        let idx_a = Self::get_matrix_idx(self.node_a);
-        let idx_b = Self::get_matrix_idx(self.node_b);
+        let idx_a = self.cached_idx_a;
+        let idx_b = self.cached_idx_b;
 
         // Diagonal: Node A
         if let Some(i) = idx_a {
@@ -92,11 +100,11 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
     ) {
         let i_eq = self.eq_current;
 
-        if let Some(i) = Self::get_matrix_idx(self.node_a) {
+        if let Some(i) = self.cached_idx_a {
             rhs[i] = rhs[i] - i_eq;
         }
 
-        if let Some(j) = Self::get_matrix_idx(self.node_b) {
+        if let Some(j) = self.cached_idx_b {
             rhs[j] = rhs[j] + i_eq;
         }
     }
