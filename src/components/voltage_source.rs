@@ -1,4 +1,6 @@
-use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{
+    CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
+};
 use crate::signals::Signal;
 use faer::{ColMut, ColRef, MatMut};
 
@@ -22,7 +24,6 @@ impl<T: CircuitScalar> VoltageSource<T> {
             cached_idx_pos: None,
             cached_idx_neg: None,
             signal,
-            // unknown until build time
             matrix_idx: None,
         }
     }
@@ -37,8 +38,16 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         let pos = ctx.map_index(self.pos);
         let neg = ctx.map_index(self.neg);
 
-        if pos.is_none() { self.cached_idx_pos = None; } else { self.cached_idx_pos = pos; }
-        if neg.is_none() { self.cached_idx_neg = None; } else { self.cached_idx_neg = neg; }
+        if pos.is_none() {
+            self.cached_idx_pos = None;
+        } else {
+            self.cached_idx_pos = pos;
+        }
+        if neg.is_none() {
+            self.cached_idx_neg = None;
+        } else {
+            self.cached_idx_neg = neg;
+        }
     }
 
     fn ports(&self) -> Vec<NodeId> {
@@ -54,7 +63,7 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         self.matrix_idx = Some(start_idx)
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>) {
+    fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
         let one = T::one();
 
@@ -77,20 +86,30 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
     ) {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
 
-        let val = self.signal.get_voltage(ctx.time);
+        let val = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
 
         rhs[src_idx] = val;
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_src".to_string(), unit: "V".to_string() },
-            ComponentProbe { name: "I_src".to_string(), unit: "A".to_string() },
+            ComponentProbe {
+                name: "V_src".to_string(),
+                unit: "V".to_string(),
+            },
+            ComponentProbe {
+                name: "I_src".to_string(),
+                unit: "A".to_string(),
+            },
         ]
     }
 
-    fn calculate_observables(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
-        let voltage = self.signal.get_voltage(ctx.time);
+    fn calculate_observables(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let voltage = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
 
         // In MNA, the current is the unknown variable at the auxiliary index
         let current = if let Some(idx) = self.matrix_idx {
@@ -114,7 +133,7 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         // We return current flowing INTO the ports [Pos, Neg]
         vec![
             -i_src, // Into Pos
-            i_src   // Into Neg
+            i_src,  // Into Neg
         ]
     }
 

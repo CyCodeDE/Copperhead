@@ -1,15 +1,13 @@
-use std::fmt::format;
 use crate::circuit::{Circuit, CircuitElement};
-use crate::model::NodeId;
 use crate::ui::app::StateUpdate;
-use crate::ui::{CircuitMetadata, ComponentBuildData, ComponentMetadata, Netlist, SimCommand, SimState};
+use crate::ui::{
+    CircuitMetadata, ComponentMetadata, SimCommand,
+};
 use crossbeam::channel::{Receiver, Sender};
-use parking_lot::RwLock;
-use std::sync::Arc;
 
 pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>) {
     let mut realtime_mode = false;
-    let sample_rate = 384000.0;
+    let sample_rate = 96000.0;
     let mut circuit: Option<Circuit<f64>> = None;
     let mut running = false;
     state.send(StateUpdate::UpdateRunning(false));
@@ -47,7 +45,13 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                         //new_ckt.add_component(instr.build(dt));
                         new_ckt.add_component(instr.build(dt));
                     }
-                    new_ckt.prepare(dt);
+
+                    match new_ckt.calculate_dc_operating_point(1e-6, 100, dt) {
+                        Ok(_) => println!("Initial state calculated successfully."),
+                        Err(e) => println!("Warning: Failed to calculate initial state: {}", e),
+                    }
+
+                    new_ckt.prepare(dt, false);
 
                     let mut comp_meta = Vec::new();
                     let mut total_terminals = 0;

@@ -1,5 +1,7 @@
-use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
-use faer::{Col, ColRef};
+use crate::model::{
+    CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
+};
+use faer::ColRef;
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
@@ -49,15 +51,23 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         let a = ctx.map_index(self.node_a);
         let b = ctx.map_index(self.node_b);
 
-        if a.is_none() { self.cached_idx_a = None; } else { self.cached_idx_a = a; }
-        if b.is_none() { self.cached_idx_b = None; } else { self.cached_idx_b = b; }
+        if a.is_none() {
+            self.cached_idx_a = None;
+        } else {
+            self.cached_idx_a = a;
+        }
+        if b.is_none() {
+            self.cached_idx_b = None;
+        } else {
+            self.cached_idx_b = b;
+        }
     }
 
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
     }
 
-    fn stamp_static(&self, matrix: &mut faer::MatMut<T>) {
+    fn stamp_static(&self, matrix: &mut faer::MatMut<T>, _ctx: &SimulationContext<T>) {
         let g = self.conductance;
 
         let idx_a = self.cached_idx_a;
@@ -99,13 +109,26 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_delta".into(), unit: "V".into() },
-            ComponentProbe { name: "Current".into(), unit: "A".into() },
-            ComponentProbe { name: "Power".into(), unit: "W".into() },
+            ComponentProbe {
+                name: "V_delta".into(),
+                unit: "V".into(),
+            },
+            ComponentProbe {
+                name: "Current".into(),
+                unit: "A".into(),
+            },
+            ComponentProbe {
+                name: "Power".into(),
+                unit: "W".into(),
+            },
         ]
     }
 
-    fn calculate_observables(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+    fn calculate_observables(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
         let v_a = self.get_voltage(self.node_a, node_voltages);
         let v_b = self.get_voltage(self.node_b, node_voltages);
 

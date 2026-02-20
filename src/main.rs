@@ -6,14 +6,8 @@ mod simulation;
 pub mod ui;
 mod util;
 
-use crate::circuit::Circuit;
-use crate::components::ComponentDescriptor;
-use crate::model::NodeId;
 use crate::ui::app::CircuitApp;
-use eframe::Frame;
-use egui::{Context, ViewportBuilder};
-use faer::prelude::default;
-use std::f64::consts::PI;
+use egui::ViewportBuilder;
 
 fn main() -> eframe::Result {
     let native_options = eframe::NativeOptions {

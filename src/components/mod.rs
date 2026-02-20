@@ -8,8 +8,8 @@ pub mod capacitor;
 pub mod diode;
 pub mod inductor;
 pub mod resistor;
-pub mod voltage_source;
 pub mod transistor;
+pub mod voltage_source;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
 #[derive(Clone, Debug)]
@@ -34,11 +34,13 @@ pub enum ComponentDescriptor {
         a: usize,
         b: usize,
         capacitance: f64,
+        esr: f64,
     },
     Inductor {
         a: usize,
         b: usize,
         inductance: f64,
+        series_resistance: f64,
     },
     Diode {
         a: usize,
@@ -73,8 +75,8 @@ pub enum ComponentDescriptor {
         rc: f64,
         rb: f64,
         re: f64,
-        polarity: bool
-    }
+        polarity: bool,
+    },
 }
 
 impl ComponentDescriptor {
@@ -107,24 +109,33 @@ impl ComponentDescriptor {
                 });
                 Box::new(VoltageSource::new(NodeId(pos), NodeId(neg), signal))
             }
-            ComponentDescriptor::Capacitor { a, b, capacitance } => {
-                Box::new(capacitor::Capacitor::new(
-                    NodeId(a),
-                    NodeId(b),
-                    num_traits::cast(capacitance)
-                        .expect("Failed to cast capacitance to circuit scalar type"),
-                    dt,
-                ))
-            }
-            ComponentDescriptor::Inductor { a, b, inductance } => {
-                Box::new(inductor::Inductor::new(
-                    NodeId(a),
-                    NodeId(b),
-                    num_traits::cast(inductance)
-                        .expect("Failed to cast inductance to circuit scalar type"),
-                    dt,
-                ))
-            }
+            ComponentDescriptor::Capacitor {
+                a,
+                b,
+                capacitance,
+                esr,
+            } => Box::new(capacitor::Capacitor::new(
+                NodeId(a),
+                NodeId(b),
+                num_traits::cast(capacitance)
+                    .expect("Failed to cast capacitance to circuit scalar type"),
+                num_traits::cast(esr).expect("Failed to cast ESR to circuit scalar type"),
+                dt,
+            )),
+            ComponentDescriptor::Inductor {
+                a,
+                b,
+                inductance,
+                series_resistance,
+            } => Box::new(inductor::Inductor::new(
+                NodeId(a),
+                NodeId(b),
+                num_traits::cast(inductance)
+                    .expect("Failed to cast inductance to circuit scalar type"),
+                num_traits::cast(series_resistance)
+                    .expect("Failed to cast series resistance to circuit scalar type"),
+                dt,
+            )),
             ComponentDescriptor::Diode {
                 a,
                 b,
@@ -135,7 +146,7 @@ impl ComponentDescriptor {
                 m,
                 transit_time,
                 breakdown_voltage,
-                breakdown_current
+                breakdown_current,
             } => Box::new(diode::Diode::new(
                 NodeId(a),
                 NodeId(b),
@@ -169,7 +180,7 @@ impl ComponentDescriptor {
                 rc,
                 rb,
                 re,
-                polarity
+                polarity,
             } => Box::new(transistor::bjt::Bjt::new(
                 NodeId(c),
                 NodeId(b),
@@ -192,7 +203,7 @@ impl ComponentDescriptor {
                     .expect("Failed to cast base resistance to circuit scalar type"),
                 num_traits::cast(re)
                     .expect("Failed to cast emitter resistance to circuit scalar type"),
-                polarity
+                polarity,
             )),
         }
     }

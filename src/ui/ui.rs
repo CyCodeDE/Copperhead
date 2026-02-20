@@ -1,21 +1,29 @@
 use crate::components::diode::DiodeModel;
+use crate::components::transistor::bjt::BjtModel;
 use crate::model::GridPos;
 use crate::ui::app::{CircuitApp, FileDialogState, StateUpdate, Tool};
 use crate::ui::components::oscilloscope::draw_oscilloscope;
 use crate::ui::drawing::{
     check_line_rect_intersection, draw_component, draw_component_labels, draw_grid,
 };
-use crate::ui::{ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire, lerp_color, handle_circuit_loaded, CircuitSelection};
+use crate::ui::{
+    handle_circuit_loaded, lerp_color, CircuitSelection, ComponentBuildData, SimCommand, SimStepData,
+    VisualComponent, VisualWire,
+};
 use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
-use egui::{Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon, Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat, TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText};
+use egui::{
+    Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon,
+    Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter,
+    Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat,
+    TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText,
+};
 use egui_plot::{Line, Plot, PlotPoints};
 use faer::prelude::default;
 use log::{debug, info};
 use std::ops::Add;
 use std::thread;
 use std::time::Duration;
-use crate::components::transistor::bjt::BjtModel;
 
 impl Tool {
     fn get_name(&self) -> &str {
@@ -119,7 +127,9 @@ impl eframe::App for CircuitApp {
                                 self.active_netlist = None;
                                 self.undo_stack.clear();
                                 ui.close_menu();
-                                ctx.send_viewport_cmd(ViewportCommand::Title("Copperhead - Untitled".to_string()));
+                                ctx.send_viewport_cmd(ViewportCommand::Title(
+                                    "Copperhead - Untitled".to_string(),
+                                ));
                                 self.current_file = None;
                             }
 
@@ -362,17 +372,17 @@ impl eframe::App for CircuitApp {
                     self.selected_tool =
                         Tool::PlaceComponent(ComponentBuildData::Resistor { resistance: 1000.0 }); // 1k Ohm
                 }
-                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: _ })), Button::new("Capacitor (C)")).clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: _, esr: _ })), Button::new("Capacitor (C)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::C)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
-                        Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: 1e-6 }); // 1 uF
+                        Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: 1e-6, esr: 0f64 }); // 1 uF
                 }
-                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: _ })), Button::new("Inductor (L)")).clicked()
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: _, series_resistance: _ })), Button::new("Inductor (L)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::L)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
                     self.selected_tool =
-                        Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: 1e-3 }); // 1 mH
+                        Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: 1e-3, series_resistance: 0f64 }); // 1 mH
                 }
                 if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Diode { model: _ })), Button::new("Diode (D)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::D)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
@@ -1074,12 +1084,24 @@ impl eframe::App for CircuitApp {
                                                     }));
                                             });
                                         }
-                                        ComponentBuildData::Capacitor { capacitance } => {
+                                        ComponentBuildData::Capacitor { capacitance, esr } => {
                                             ui.horizontal(|ui| {
                                                 ui.label("Capacitance:");
                                                 // Use scientific notation for small values
                                                 ui.add(egui::DragValue::new(capacitance).suffix("F")
                                                     .speed(1e-7)
+                                                    .range(0.0..=f64::INFINITY)
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("ESR:");
+                                                ui.add(egui::DragValue::new(esr).suffix("Ω")
+                                                    .speed(1e-4)
                                                     .range(0.0..=f64::INFINITY)
                                                     .custom_formatter(|val, _range| {
                                                         format_si_single(val, 3)
@@ -1126,11 +1148,23 @@ impl eframe::App for CircuitApp {
                                         ComponentBuildData::Ground => {
                                             open = false;
                                         }
-                                        ComponentBuildData::Inductor { inductance } => {
+                                        ComponentBuildData::Inductor { inductance, series_resistance } => {
                                             ui.horizontal(|ui| {
                                                 ui.label("Inductance:");
-                                                // Use scientific notation for small values
                                                 ui.add(egui::DragValue::new(inductance).suffix("H")
+                                                    .speed(1e-4)
+                                                    .range(0.0..=f64::INFINITY)
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
+                                            });
+
+                                            ui.horizontal(|ui| {
+                                                ui.label("Series Resistance:");
+                                                ui.add(egui::DragValue::new(series_resistance).suffix("Ω")
                                                     .speed(1e-4)
                                                     .range(0.0..=f64::INFINITY)
                                                     .custom_formatter(|val, _range| {

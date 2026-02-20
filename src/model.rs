@@ -1,16 +1,16 @@
-use std::collections::HashMap;
-use std::fmt::Display;
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
-use faer::{Col, ColMut, ColRef, MatMut};
+use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::ops::{Add, Sub};
 
 /// The numerical trait.
 /// For inference: T = f32
 /// For high quality: T = f64
 pub trait CircuitScalar:
-num_traits::Float + std::fmt::Debug + Copy + Send + Sync + ComplexField + Display + 'static
+    num_traits::Float + std::fmt::Debug + Copy + Send + Sync + ComplexField + Display + 'static
 {
     // possibly helper methods for fast approximations
 }
@@ -23,7 +23,7 @@ impl CircuitScalar for f64 {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
     pub x: isize,
     pub y: isize,
@@ -71,6 +71,7 @@ pub struct SimulationContext<T> {
     pub time: T,
     pub step: usize,
     pub node_map: HashMap<NodeId, usize>,
+    pub is_dc_analysis: bool,
 }
 
 impl<T> SimulationContext<T> {
@@ -110,7 +111,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Used for components that do not change over time
     /// (e.g. Resistors, discretized capacitors and inductors with fixed sample rate)
     /// Adds G (conductance) values to the A Matrix.
-    fn stamp_static(&self, _matrix: &mut MatMut<T>) {}
+    fn stamp_static(&self, _matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {}
 
     /// Time step preparation
     /// Called at the start of every audio sample
@@ -121,15 +122,12 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         prev_node_voltages: &ColRef<T>,
         rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
-    ) {}
+    ) {
+    }
 
     /// Used for Time-Variant components (e.g. Potentiometer, LDR, Switch) that change their conductance G at runtime
     /// in the reduced matrix without re-inverting A_LL every time step.
-    fn stamp_time_variant(
-        &self,
-        _matrix: &mut MatMut<T>,
-        _ctx: &SimulationContext<T>,
-    ) {}
+    fn stamp_time_variant(&self, _matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {}
 
     /// Non-Linear iteration (Newton-Raphson)
     /// Called multiple times per sample
@@ -142,7 +140,8 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         _rhs: &mut ColMut<T>,
         _ctx: &SimulationContext<T>,
         _l_size: usize,
-    ) {}
+    ) {
+    }
 
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
@@ -170,11 +169,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Calculates the exact current flowing INTO every port defined in `ports()`
     /// For example for a BJT with ports [C, B, E], this returns [I_C, I_B, I_E]
     /// KCL defines that theoretically the sums should be zero
-    fn terminal_currents(
-        &self,
-        node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
-    ) -> Vec<T>;
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T>;
 
     /// Updates a parameter by name.
     /// Returns true if the static matrix needs to be rebuilt.

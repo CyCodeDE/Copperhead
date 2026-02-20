@@ -1,18 +1,17 @@
-use crate::circuit::Circuit;
 use crate::components::ComponentDescriptor;
-use crate::model::{CircuitScalar, GridPos, NodeId};
+use crate::model::{GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData, VisualWire};
-use crossbeam::channel::{Receiver, Sender, unbounded};
-use eframe::emath::Align;
+use crate::ui::{
+    CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData,
+    VisualWire,
+};
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
 use faer::prelude::default;
-use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 pub struct AppTheme {
     pub background: Color32,
@@ -151,7 +150,7 @@ pub struct CircuitApp {
     pub editing_component_id: Option<usize>,
     pub plotting_node_voltage: Option<NodeId>,
     pub plotting_component_current: Option<(usize, usize)>, // (component_idx, pin_idx)
-    pub plotting_observable: Option<(usize, usize)>, // (component_idx, observable_idx)
+    pub plotting_observable: Option<(usize, usize)>,        // (component_idx, observable_idx)
     //pub simulation_time: f64, // in seconds, for how long to simulate
     pub scope_state: ScopeState,
     pub realtime_mode: bool,
@@ -262,7 +261,8 @@ impl CircuitApp {
             style.spacing.item_spacing = Vec2::new(4.0, 4.0);
         });
 
-        cc.egui_ctx.send_viewport_cmd(ViewportCommand::Title("Copperhead - Untitled".to_string()));
+        cc.egui_ctx
+            .send_viewport_cmd(ViewportCommand::Title("Copperhead - Untitled".to_string()));
 
         let (file_sender, file_receiver) = unbounded();
         Self {
@@ -350,7 +350,7 @@ impl CircuitApp {
     /// Turns a netlist into a circuit that can be executed
     pub fn compile_netlist(&self) -> Netlist {
         let mut instructions = Vec::new();
-        let mut point_map: HashMap<GridPos, usize> = HashMap::new();
+        let mut point_map: BTreeMap<GridPos, usize> = BTreeMap::new();
         let mut next_point_id = 0;
 
         let effective_wires = self.get_normalized_wires();
@@ -385,7 +385,7 @@ impl CircuitApp {
             dsu.union(start_id, end_id);
         }
 
-        let mut label_groups: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut label_groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
         for comp in &self.state.schematic.components {
             if matches!(&comp.component, ComponentBuildData::Label) {
@@ -492,12 +492,23 @@ impl CircuitApp {
                     amp: amplitude,
                     freq: frequency,
                 },
-                ComponentBuildData::Capacitor { capacitance } => {
-                    ComponentDescriptor::Capacitor { a, b, capacitance }
+                ComponentBuildData::Capacitor { capacitance, esr } => {
+                    ComponentDescriptor::Capacitor {
+                        a,
+                        b,
+                        capacitance,
+                        esr,
+                    }
                 }
-                ComponentBuildData::Inductor { inductance } => {
-                    ComponentDescriptor::Inductor { a, b, inductance }
-                }
+                ComponentBuildData::Inductor {
+                    inductance,
+                    series_resistance,
+                } => ComponentDescriptor::Inductor {
+                    a,
+                    b,
+                    inductance,
+                    series_resistance,
+                },
                 ComponentBuildData::Diode { model } => {
                     let (
                         saturation_current,
@@ -507,7 +518,7 @@ impl CircuitApp {
                         m,
                         transit_time,
                         breakdown_voltage,
-                        breakdown_current
+                        breakdown_current,
                     ) = model.parameters();
 
                     ComponentDescriptor::Diode {
@@ -520,7 +531,7 @@ impl CircuitApp {
                         m,
                         transit_time,
                         breakdown_voltage,
-                        breakdown_current
+                        breakdown_current,
                     }
                 }
                 ComponentBuildData::Bjt { model } => {
@@ -540,7 +551,7 @@ impl CircuitApp {
                         rc,
                         rb,
                         re,
-                        polarity
+                        polarity,
                     }
                 }
                 _ => continue,

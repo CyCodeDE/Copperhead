@@ -1,11 +1,10 @@
-use std::cell::Cell;
-use std::sync::atomic::Ordering;
-use portable_atomic::AtomicUsize;
 use crate::model::CircuitScalar;
+use portable_atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 /// Defines a value that changes over time.
 pub trait Signal<T: CircuitScalar>: Send + Sync {
-    fn get_voltage(&self, time: T) -> T;
+    fn get_voltage(&self, time: T, is_dc_analysis: bool) -> T;
 
     fn set_parameter(&mut self, _name: &str, _value: T) {}
 }
@@ -16,7 +15,7 @@ pub struct ConstantSignal<T> {
 }
 
 impl<T: CircuitScalar> Signal<T> for ConstantSignal<T> {
-    fn get_voltage(&self, time: T) -> T {
+    fn get_voltage(&self, time: T, _is_dc_analysis: bool) -> T {
         self.voltage
     }
 
@@ -34,7 +33,11 @@ pub struct SineSignal<T> {
 }
 
 impl<T: CircuitScalar> Signal<T> for SineSignal<T> {
-    fn get_voltage(&self, time: T) -> T {
+    fn get_voltage(&self, time: T, is_dc_analysis: bool) -> T {
+        if is_dc_analysis {
+            return T::zero();
+        }
+
         let two = T::from(2.0).unwrap();
         let pi = T::from(std::f64::consts::PI).unwrap();
         // V = A * sin(2 * pi * f * t + phase)
@@ -57,9 +60,12 @@ pub struct AudioBufferSignal<T> {
     pub cursor: AtomicUsize,
 }
 impl<T: CircuitScalar> Signal<T> for AudioBufferSignal<T> {
-    fn get_voltage(&self, _time: T) -> T {
-        let current = self.cursor.load(Ordering::Relaxed);
+    fn get_voltage(&self, _time: T, is_dc_analysis: bool) -> T {
+        if is_dc_analysis {
+            return T::zero();
+        }
 
+        let current = self.cursor.load(Ordering::Relaxed);
         if current < self.samples.len() {
             let v = self.samples[current];
             self.cursor.store(current + 1, Ordering::Relaxed);
