@@ -50,9 +50,9 @@ cargo run --profile release-performance
 The `--profile release-performance` flag optimizes for solver speed using Fat Link Time Optimization and reduced codegen units compared to the default release or dev builds.
 
 ## Contributing
-We welcome community contributions! Because Copperhead operates on a dual-licensing model to ensure long-term sustainability, all contributors are required to sign a quick COntributor License Agreement (CLA) via the automated GitHub bot.
+We welcome community contributions!
 
-Please read the [CONTRIBUTING.md](CONTRIBUTING.md) file for detailed guidelines on how to contribute, including coding standards, testing procedures, and the CLA process.
+Please read the [CONTRIBUTING.md](CONTRIBUTING.md) file for detailed guidelines on how to contribute, including coding standards and testing procedures.
 
 ## License & Commercial Use
 
