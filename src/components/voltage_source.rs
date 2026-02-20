@@ -1,4 +1,6 @@
-use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{
+    CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
+};
 use crate::signals::Signal;
 use faer::{ColMut, ColRef, MatMut};
 
@@ -6,6 +8,10 @@ use faer::{ColMut, ColRef, MatMut};
 pub struct VoltageSource<T: CircuitScalar> {
     pub pos: NodeId,
     pub neg: NodeId,
+
+    cached_idx_pos: Option<usize>,
+    cached_idx_neg: Option<usize>,
+
     pub signal: Box<dyn Signal<T>>,
     matrix_idx: Option<usize>,
 }
@@ -15,21 +21,33 @@ impl<T: CircuitScalar> VoltageSource<T> {
         Self {
             pos,
             neg,
+            cached_idx_pos: None,
+            cached_idx_neg: None,
             signal,
-            // unknown until build time
             matrix_idx: None,
         }
-    }
-
-    // Helper to map NodeId to Matrix Index.
-    pub fn get_node_idx(&self, node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
     }
 }
 
 impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
     fn linearity(&self) -> ComponentLinearity {
         ComponentLinearity::LinearDynamic
+    }
+
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        let pos = ctx.map_index(self.pos);
+        let neg = ctx.map_index(self.neg);
+
+        if pos.is_none() {
+            self.cached_idx_pos = None;
+        } else {
+            self.cached_idx_pos = pos;
+        }
+        if neg.is_none() {
+            self.cached_idx_neg = None;
+        } else {
+            self.cached_idx_neg = neg;
+        }
     }
 
     fn ports(&self) -> Vec<NodeId> {
@@ -45,16 +63,16 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         self.matrix_idx = Some(start_idx)
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>) {
+    fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
         let one = T::one();
 
-        if let Some(p) = self.get_node_idx(self.pos) {
+        if let Some(p) = self.cached_idx_pos {
             matrix[(p, src_idx)] = matrix[(p, src_idx)] + one;
             matrix[(src_idx, p)] = matrix[(src_idx, p)] + one;
         }
 
-        if let Some(n) = self.get_node_idx(self.neg) {
+        if let Some(n) = self.cached_idx_neg {
             matrix[(n, src_idx)] = matrix[(n, src_idx)] - one;
             matrix[(src_idx, n)] = matrix[(src_idx, n)] - one;
         }
@@ -68,20 +86,30 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
     ) {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
 
-        let val = self.signal.get_voltage(ctx.time);
+        let val = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
 
         rhs[src_idx] = val;
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_src".to_string(), unit: "V".to_string() },
-            ComponentProbe { name: "I_src".to_string(), unit: "A".to_string() },
+            ComponentProbe {
+                name: "V_src".to_string(),
+                unit: "V".to_string(),
+            },
+            ComponentProbe {
+                name: "I_src".to_string(),
+                unit: "A".to_string(),
+            },
         ]
     }
 
-    fn calculate_observables(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
-        let voltage = self.signal.get_voltage(ctx.time);
+    fn calculate_observables(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+    ) -> Vec<T> {
+        let voltage = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
 
         // In MNA, the current is the unknown variable at the auxiliary index
         let current = if let Some(idx) = self.matrix_idx {
@@ -105,7 +133,7 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         // We return current flowing INTO the ports [Pos, Neg]
         vec![
             -i_src, // Into Pos
-            i_src   // Into Neg
+            i_src,  // Into Neg
         ]
     }
 

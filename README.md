@@ -14,8 +14,8 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 ## Features
 
 ### Current Implementation
-*   **Solver:** "Naive" MNA (Modified Nodal Analysis) solver using trapezoidal integration and Newton-Raphson iteration.
-*   **Basic Components:**
+*   **Solver:** Modified Nodal Analysis solver using Newton-Raphson iteration and matrix partitioning.
+*   **Components:**
     *   Resistors
     *   Inductors (uncoupled)
     *   Capacitors
@@ -27,14 +27,14 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 *   **Oscilloscope:** Allows measuring voltages between nodes and currents on components and scaling correctly.
 
 ### Planned Features
-*   **Realtime Solver:** A JIT-compiled solver to test amps and pedals live with instrument input.
+*   **Realtime Solver:** A JIT-compiled solver with lookup tables to test amps and pedals live with instrument input.
 *   **Audio I/O:** Support for reading voltage sources from WAV files and rendering simulation output to WAV.
 *   **Component Library:** A suite of prebuilt basic components and common audio circuit blocks.
 *   **Data Export:** Export voltage readings and simulation data to text files.
 
 ### Running for Performance
 
-For development iteration, the standard `cargo run` is sufficient. However, simulation performance might be improved by using the custom profile configured in `Cargo.toml`.
+For development iteration, the standard `cargo run` is sufficient. However, simulation performance *might* be improved by using the custom profile configured in `Cargo.toml`.
 
 To run the simulator with Fat LTO (Link Time Optimization) and reduced codegen units:
 
@@ -47,6 +47,7 @@ This profile is optimized for solver speed compared to the default release or de
 ## License
 
 Copperhead is licensed under [MIT](https://github.com/CyCodeDE/Copperhead/blob/main/LICENSE)
+
 
 
 

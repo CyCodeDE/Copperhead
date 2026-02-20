@@ -1,15 +1,16 @@
-use std::fmt::Display;
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
-use faer::{Col, ColMut, ColRef, MatMut};
+use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::ops::{Add, Sub};
 
 /// The numerical trait.
 /// For inference: T = f32
 /// For high quality: T = f64
 pub trait CircuitScalar:
-num_traits::Float + std::fmt::Debug + Copy + Send + Sync + ComplexField + Display + 'static
+    num_traits::Float + std::fmt::Debug + Copy + Send + Sync + ComplexField + Display + 'static
 {
     // possibly helper methods for fast approximations
 }
@@ -22,7 +23,7 @@ impl CircuitScalar for f64 {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
     pub x: isize,
     pub y: isize,
@@ -69,6 +70,15 @@ pub struct SimulationContext<T> {
     pub dt: T,
     pub time: T,
     pub step: usize,
+    pub node_map: HashMap<NodeId, usize>,
+    pub is_dc_analysis: bool,
+}
+
+impl<T> SimulationContext<T> {
+    /// maps a global node id to the current solver matrix index
+    pub fn map_index(&self, node: NodeId) -> Option<usize> {
+        self.node_map.get(&node).copied()
+    }
 }
 
 /// The interface a component must implement.
@@ -80,6 +90,10 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
 
     /// Returns the nodes this component is connected to
     fn ports(&self) -> Vec<NodeId>;
+
+    /// Called after partitioning, but before solving
+    /// Gives the component the ability to cache the matrix indices for ports and auxiliary rows
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {}
 
     /// How many extra rows/cols does this component add to the matrix?
     /// For example Resistors = 0, Voltage Sources = 1, ...
@@ -97,7 +111,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Used for components that do not change over time
     /// (e.g. Resistors, discretized capacitors and inductors with fixed sample rate)
     /// Adds G (conductance) values to the A Matrix.
-    fn stamp_static(&self, _matrix: &mut MatMut<T>) {}
+    fn stamp_static(&self, _matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {}
 
     /// Time step preparation
     /// Called at the start of every audio sample
@@ -109,8 +123,11 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
     ) {
-        // Default: Do nothing
     }
+
+    /// Used for Time-Variant components (e.g. Potentiometer, LDR, Switch) that change their conductance G at runtime
+    /// in the reduced matrix without re-inverting A_LL every time step.
+    fn stamp_time_variant(&self, _matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {}
 
     /// Non-Linear iteration (Newton-Raphson)
     /// Called multiple times per sample
@@ -122,6 +139,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         _matrix: &mut MatMut<T>,
         _rhs: &mut ColMut<T>,
         _ctx: &SimulationContext<T>,
+        _l_size: usize,
     ) {
     }
 
@@ -151,11 +169,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
     /// Calculates the exact current flowing INTO every port defined in `ports()`
     /// For example for a BJT with ports [C, B, E], this returns [I_C, I_B, I_E]
     /// KCL defines that theoretically the sums should be zero
-    fn terminal_currents(
-        &self,
-        node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
-    ) -> Vec<T>;
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T>;
 
     /// Updates a parameter by name.
     /// Returns true if the static matrix needs to be rebuilt.
@@ -174,11 +188,16 @@ pub struct ComponentProbe {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ComponentLinearity {
-    /// Static Linear. Stamped once into the A matrix
+    /// Conductance G is constant (e.g. Fixed Resistor)
+    /// Goes into the Static Block (A_LL).
     LinearStatic,
-    /// Dynamic Linear. Stamped into Matrix A (conductance)
-    /// and Vector b (history current). Matrix A is constant if dt is constant.
+    /// G is constant, b changes per sample (e.g. Capacitor, Inductor)
+    /// Goes into the Static Block (A_LL), but updates b_L every step.
     LinearDynamic,
-    /// Non-Linear. Requires Newton-Rhapson iteration.
+    /// G changes at runtime (e.g. Potentiometer, LDR, Switch)
+    /// Must be in the Active Block (A_NN) to avoid re-inverting A_LL.
+    TimeVariant,
+    /// G changes during iteration (e.g. Diode, BJT, Tube)
+    /// Must be in the Active Block (A_NN).
     NonLinear,
 }

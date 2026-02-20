@@ -1,3 +1,4 @@
+use crate::components::transistor::bjt::BjtModel;
 use crate::model::GridPos;
 use crate::ui::{ComponentBuildData, VisualComponent};
 use crate::util::format_si;
@@ -5,7 +6,6 @@ use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use egui::{Align2, FontSelection, Painter, RichText, Style};
-use crate::components::transistor::bjt::BjtModel;
 
 // DISCLAIMER:
 // Most of this file is vibe-coded. Performance is probably not optimal, but tbh I couldn't give less of a fuck.
@@ -79,12 +79,10 @@ pub fn draw_component<F>(
         ComponentBuildData::Label => {
             draw_label(painter, center, rotation, zoom, fill_color, stroke_color);
         }
-        ComponentBuildData::Bjt { model } => {
-            match model.polarity() {
-                true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
-                false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
-            }
-        }
+        ComponentBuildData::Bjt { model } => match model.polarity() {
+            true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
+            false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
+        },
         // Fallback for unimplemented components
         _ => {
             draw_generic_box(painter, center, rotation, zoom, fill_color, stroke_color);
@@ -815,17 +813,17 @@ pub fn draw_component_labels(
             let offset_dist = 1.5 * zoom;
 
             let label_pos = match rotation {
-                0 => Vec2::new(offset_dist, -0.62 * zoom),  // Right, slightly up
-                1 => Vec2::new(1. * zoom, -0.45 * zoom), // Down, slightly right
+                0 => Vec2::new(offset_dist, -0.62 * zoom), // Right, slightly up
+                1 => Vec2::new(1. * zoom, -0.45 * zoom),   // Down, slightly right
                 2 => Vec2::new(-offset_dist, -0.62 * zoom), // Left, slightly up
-                3 => Vec2::new(1. * zoom, -0.1 * zoom),  // Up, slightly right
+                3 => Vec2::new(1. * zoom, -0.1 * zoom),    // Up, slightly right
                 _ => Vec2::ZERO,
             };
 
             let value_pos = match rotation {
-                0 => Vec2::new(offset_dist, 0.2 * zoom),      // Right, slightly down
-                1 => Vec2::new(-0.0 * zoom, 1.2 * zoom),   // Down, slightly left
-                2 => Vec2::new(-offset_dist, 0.2 * zoom),     // Left, slightly down
+                0 => Vec2::new(offset_dist, 0.2 * zoom), // Right, slightly down
+                1 => Vec2::new(-0.0 * zoom, 1.2 * zoom), // Down, slightly left
+                2 => Vec2::new(-offset_dist, 0.2 * zoom), // Left, slightly down
                 3 => Vec2::new(-0.0 * zoom, -1.65 * zoom), // Up, slightly left
                 _ => Vec2::ZERO,
             };
@@ -873,13 +871,19 @@ pub fn draw_component_labels(
 
     let mapping = match &component.component {
         ComponentBuildData::Resistor { resistance } => vec![(*resistance, "Ω")],
-        ComponentBuildData::Capacitor { capacitance } => vec![(*capacitance, "F")],
+        ComponentBuildData::Capacitor {
+            capacitance,
+            esr: _,
+        } => vec![(*capacitance, "F")],
         ComponentBuildData::DCSource { voltage } => vec![(*voltage, "V")],
         ComponentBuildData::ASource {
             amplitude,
             frequency,
         } => vec![(*amplitude, "V"), (*frequency, "Hz")],
-        ComponentBuildData::Inductor { inductance } => vec![(*inductance, "H")],
+        ComponentBuildData::Inductor {
+            inductance,
+            series_resistance: _,
+        } => vec![(*inductance, "H")],
         _ => vec![(0.0, "")],
     };
 

@@ -2,8 +2,8 @@ use crate::ui::{SimState, SimStepData};
 use crate::util::{format_si, format_si_single};
 use egui::epaint::PathShape;
 use egui::{
-    Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui, Vec2, pos2, vec2,
+    pos2, vec2, Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response,
+    Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 
 #[derive(Debug, Clone)]
@@ -138,7 +138,6 @@ pub fn draw_oscilloscope(
                     TraceType::Current(flattened_idx),
                     Color32::from_rgb(255, 100, 50),
                 );
-
             };
         }
 
@@ -337,7 +336,6 @@ fn auto_fit_ranges(
     // Filter out invalid lookups (e.g. usize::MAX)
     let valid_current_idx = resolved_current_idx.filter(|&idx| idx != usize::MAX);
 
-
     // ---------------------------------------------------------
     // 2. ITERATE DATA
     // ---------------------------------------------------------
@@ -352,22 +350,34 @@ fn auto_fit_ranges(
 
     for d in data {
         // Time bounds
-        if d.time < t_min { t_min = d.time; }
-        if d.time > t_max { t_max = d.time; }
+        if d.time < t_min {
+            t_min = d.time;
+        }
+        if d.time > t_max {
+            t_max = d.time;
+        }
 
         // Voltage bounds
         if let Some(idx) = v_idx {
             let v = d.voltages.get(idx).copied().unwrap_or(0.0);
-            if v < v_min { v_min = v; }
-            if v > v_max { v_max = v; }
+            if v < v_min {
+                v_min = v;
+            }
+            if v > v_max {
+                v_max = v;
+            }
         }
 
         // Current bounds (using the pre-calculated flattened index)
         if let Some(idx) = valid_current_idx {
             // DIRECT ACCESS - Fast!
             let i = d.currents.get(idx).copied().unwrap_or(0.0);
-            if i < i_min { i_min = i; }
-            if i > i_max { i_max = i; }
+            if i < i_min {
+                i_min = i;
+            }
+            if i > i_max {
+                i_max = i;
+            }
         }
     }
 
@@ -719,7 +729,11 @@ fn draw_cursor(
     let idx = match data.binary_search_by(|d| d.time.partial_cmp(&t_hover).unwrap()) {
         Ok(i) => i,
         Err(i) => {
-            if i > 0 { i - 1 } else { 0 }
+            if i > 0 {
+                i - 1
+            } else {
+                0
+            }
         }
     };
 
@@ -756,7 +770,10 @@ fn draw_cursor(
             if flat_idx < step.currents.len() {
                 let val = step.currents[flat_idx];
                 let formatted_val = format_si_single(val, 2);
-                lines.push((format!("I: {}A", formatted_val), Color32::from_rgb(255, 100, 50)));
+                lines.push((
+                    format!("I: {}A", formatted_val),
+                    Color32::from_rgb(255, 100, 50),
+                ));
                 painter.circle_filled(
                     pos2(x, ctx.i_to_y(val)),
                     4.0,

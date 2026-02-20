@@ -3,24 +3,40 @@ mod components;
 mod drawing;
 pub mod ui;
 
-use std::cmp::{max, min};
-use crate::components::ComponentDescriptor;
 use crate::components::diode::DiodeModel;
+use crate::components::transistor::bjt::BjtModel;
+use crate::components::ComponentDescriptor;
 use crate::model::{CircuitScalar, ComponentProbe, GridPos, NodeId};
-use egui::{Color32, Vec2};
+use egui::Color32;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::components::transistor::bjt::BjtModel;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
-    Resistor { resistance: f64 },
-    Capacitor { capacitance: f64 },
-    DCSource { voltage: f64 },
-    ASource { amplitude: f64, frequency: f64 },
-    Inductor { inductance: f64 },
-    Diode { model: DiodeModel },
-    Bjt { model: BjtModel },
+    Resistor {
+        resistance: f64,
+    },
+    Capacitor {
+        capacitance: f64,
+        esr: f64,
+    },
+    DCSource {
+        voltage: f64,
+    },
+    ASource {
+        amplitude: f64,
+        frequency: f64,
+    },
+    Inductor {
+        inductance: f64,
+        series_resistance: f64,
+    },
+    Diode {
+        model: DiodeModel,
+    },
+    Bjt {
+        model: BjtModel,
+    },
     Label,
     Ground,
 }
@@ -71,7 +87,7 @@ impl VisualComponent {
             ComponentBuildData::Bjt { model } => match model.polarity() {
                 true => vec![(1, -1), (-1, 0), (1, 1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E   | NPN
                 false => vec![(1, 1), (-1, 0), (1, -1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E  | PNP
-            }
+            },
         };
 
         local_pins
@@ -226,10 +242,18 @@ impl Schematic {
 
         // Helper closure to expand the bounding box
         let mut include_point = |x: i64, y: i64| {
-            if x < min_x { min_x = x; }
-            if x > max_x { max_x = x; }
-            if y < min_y { min_y = y; }
-            if y > max_y { max_y = y; }
+            if x < min_x {
+                min_x = x;
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y;
+            }
+            if y > max_y {
+                max_y = y;
+            }
         };
 
         for comp in &self.components {
@@ -237,7 +261,10 @@ impl Schematic {
             include_point(comp.pos.x as i64, comp.pos.y as i64);
 
             // Include the bottom-right corner based on size
-            include_point((comp.pos.x + comp.size.x) as i64, (comp.pos.y + comp.size.y) as i64);
+            include_point(
+                (comp.pos.x + comp.size.x) as i64,
+                (comp.pos.y + comp.size.y) as i64,
+            );
         }
 
         for wire in &self.wires {
@@ -302,7 +329,7 @@ pub struct SimStepData {
     pub currents: Vec<f64>,
     // Flattend list of all observables from all components
     // Layout: [Comp0_Probe0, Comp0_Probe1, Comp1_Probe0, ...]
-    pub observables: Vec<f64>
+    pub observables: Vec<f64>,
 }
 
 pub struct SimState {
@@ -317,6 +344,7 @@ pub struct CircuitMetadata {
     pub components: Vec<ComponentMetadata>,
 }
 
+#[derive(Clone, Debug)]
 pub struct ComponentMetadata {
     pub id: usize,
     pub probe_definitions: Vec<ComponentProbe>,
@@ -346,7 +374,11 @@ fn handle_circuit_loaded(meta: &CircuitMetadata) -> CircuitDataMap {
             current_count: comp.num_terminals,
             observable_start_idx: obs_offset,
             observable_count: comp.probe_definitions.len(),
-            probe_names: comp.probe_definitions.iter().map(|p| p.name.clone()).collect(),
+            probe_names: comp
+                .probe_definitions
+                .iter()
+                .map(|p| p.name.clone())
+                .collect(),
         };
 
         map.insert(comp.id, loc);
@@ -378,7 +410,7 @@ impl SimState {
         &self,
         comp_id: usize,
         data_type: CircuitSelection,
-        local_index: usize
+        local_index: usize,
     ) -> Vec<(f64, f64)> {
         let mut series = Vec::with_capacity(self.history.len());
 
@@ -391,16 +423,18 @@ impl SimState {
             let value = match data_type {
                 CircuitSelection::Current => {
                     // Calculate absolute index in the flattened 'currents' vec
-                    let loc_unwrapped = loc.expect("Component ID not found in lookup map. Is this a voltage probe?");
+                    let loc_unwrapped = loc
+                        .expect("Component ID not found in lookup map. Is this a voltage probe?");
                     let global_idx = loc_unwrapped.current_start_idx + local_index;
                     step.currents.get(global_idx).copied().unwrap_or(0.0)
-                },
+                }
                 CircuitSelection::Observable => {
                     // Calculate absolute index in the flattened 'observables' vec
-                    let loc_unwrapped = loc.expect("Component ID not found in lookup map. Is this a voltage probe?");
+                    let loc_unwrapped = loc
+                        .expect("Component ID not found in lookup map. Is this a voltage probe?");
                     let global_idx = loc_unwrapped.observable_start_idx + local_index;
                     step.observables.get(global_idx).copied().unwrap_or(0.0)
-                },
+                }
                 CircuitSelection::Voltage => {
                     // For voltages, comp_id is actually the NodeID, so we use it directly
                     step.voltages.get(comp_id).copied().unwrap_or(0.0)
@@ -418,7 +452,7 @@ impl SimState {
 pub enum CircuitSelection {
     Voltage,
     Current,
-    Observable
+    Observable,
 }
 
 impl Default for SimState {

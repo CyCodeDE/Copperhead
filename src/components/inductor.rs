@@ -1,9 +1,18 @@
-use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{
+    CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
+};
 use faer::{ColMut, ColRef, MatMut};
 
 pub struct Inductor<T> {
-    nodes: [NodeId; 2],
+    node_a: NodeId,
+    node_b: NodeId,
+
+    cached_idx_a: Option<usize>,
+    cached_idx_b: Option<usize>,
+
     inductance: T,
+
+    series_resistance: T,
 
     // Cached geometric conductance g_eq = dt / (2L)
     g_eq: T,
@@ -14,45 +23,63 @@ pub struct Inductor<T> {
 }
 
 impl<T: CircuitScalar> Inductor<T> {
-    pub fn new(n1: NodeId, n2: NodeId, l: T, dt: T) -> Self {
-        let two = T::from(2.0).unwrap();
-        // Guard against zero inductance to avoid division by zero
-        let g_eq = if l.abs() < T::from(1e-12).unwrap() {
-            T::from(1.0e12).unwrap() // effectively a short-circuit
-        // TODO: If we ever implement variable time-step simulation, this needs to be recalculated
-        } else {
-            dt / (two * l)
-        };
-
-        Self {
-            nodes: [n1, n2],
+    pub fn new(a: NodeId, b: NodeId, l: T, r: T, dt: T) -> Self {
+        let mut inductor = Self {
+            node_a: a,
+            node_b: b,
+            cached_idx_a: None,
+            cached_idx_b: None,
             inductance: l,
-            g_eq,
+            series_resistance: r,
+            g_eq: T::zero(), // Will be calculated immediately below
             prev_current: T::zero(),
             prev_voltage: T::zero(),
-        }
+        };
+
+        inductor.update_conductance(dt);
+        inductor
     }
 
-    /// Helper to map NodeId to Matrix Index
-    fn get_matrix_idx(node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
+    fn update_conductance(&mut self, dt: T) {
+        let two = T::from(2.0).unwrap();
+
+        let r_step = (two * self.inductance) / dt;
+
+        let total_imp = self.series_resistance + r_step;
+
+        // Guard against zero impedance
+        self.g_eq = if total_imp.abs() < T::from(1e-12).unwrap() {
+            T::from(1.0e12).unwrap()
+        } else {
+            T::one() / total_imp
+        };
     }
 
     /// Helper to read voltage from solution vector.
     fn get_voltage_diff(&self, solution: &ColRef<T>) -> T {
-        let v1 = if let Some(idx) = Self::get_matrix_idx(self.nodes[0]) {
+        let v1 = if let Some(idx) = self.cached_idx_a {
             solution[idx]
         } else {
             T::zero()
         };
 
-        let v2 = if let Some(idx) = Self::get_matrix_idx(self.nodes[1]) {
+        let v2 = if let Some(idx) = self.cached_idx_b {
             solution[idx]
         } else {
             T::zero()
         };
 
         v1 - v2
+    }
+
+    fn calculate_history_current(&self) -> T {
+        let two = T::from(2.0).unwrap();
+
+        // The voltage drop due to the resistor in the previous step needs to be accounted for
+        // in the history term derivation for RL branches.
+        let resistive_drop_term = two * self.series_resistance * self.prev_current;
+
+        self.prev_current + (self.g_eq * (self.prev_voltage - resistive_drop_term))
     }
 }
 
@@ -61,19 +88,40 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         ComponentLinearity::LinearDynamic
     }
 
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        self.cached_idx_a = if self.node_a.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_a).unwrap())
+        };
+        self.cached_idx_b = if self.node_b.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_b).unwrap())
+        };
+    }
+
     fn ports(&self) -> Vec<NodeId> {
-        self.nodes.to_vec()
+        vec![self.node_a, self.node_b]
     }
 
     fn auxiliary_row_count(&self) -> usize {
         0
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>) {
-        let g = self.g_eq;
+    fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
+        let g = if ctx.is_dc_analysis {
+            if self.series_resistance.abs() < T::from(1e-12).unwrap() {
+                T::from(1.0e12).unwrap() // Finite short approximation
+            } else {
+                T::one() / self.series_resistance
+            }
+        } else {
+            self.g_eq
+        };
 
-        let idx_a = Self::get_matrix_idx(self.nodes[0]);
-        let idx_b = Self::get_matrix_idx(self.nodes[1]);
+        let idx_a = self.cached_idx_a;
+        let idx_b = self.cached_idx_b;
 
         // Diagonal A
         if let Some(i) = idx_a {
@@ -96,78 +144,123 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         &mut self,
         _prev_node_voltages: &ColRef<T>,
         rhs: &mut ColMut<T>,
-        _ctx: &SimulationContext<T>,
+        ctx: &SimulationContext<T>,
     ) {
-        // Calculate the "memory" current source equivalent
-        // I_equiv = i[n-1] + G_eq * v[n-1]
-        // KCL Equation at node: G_eq * v[n] = i[n] - I_equiv
-        let i_source = self.prev_current + (self.g_eq * self.prev_voltage);
+        if ctx.is_dc_analysis {
+            return;
+        }
 
-        if let Some(idx) = Self::get_matrix_idx(self.nodes[0]) {
+        let i_source = self.calculate_history_current();
+
+        if let Some(idx) = self.cached_idx_a {
             rhs[idx] = rhs[idx] - i_source;
         }
-        if let Some(idx) = Self::get_matrix_idx(self.nodes[1]) {
+        if let Some(idx) = self.cached_idx_b {
             rhs[idx] = rhs[idx] + i_source;
         }
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
         let v_new = self.get_voltage_diff(current_node_voltages);
 
-        // Calculate current using the discretized Trapezoidal equation
-        // i[n] = G_eq * v[n] + (i[n-1] + G_eq * v[n-1])
-        let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
-        let i_new = (self.g_eq * v_new) + i_history_term;
+        if ctx.is_dc_analysis {
+            // Calculate DC Current: I = V / R_series
+            let g_dc = if self.series_resistance.abs() < T::from(1e-12).unwrap() {
+                T::from(1.0e12).unwrap()
+            } else {
+                T::one() / self.series_resistance
+            };
 
-        self.prev_voltage = v_new;
-        self.prev_current = i_new;
+            let i_dc = v_new * g_dc;
+
+            // Initialize history with DC Operating Point
+            self.prev_voltage = v_new;
+            self.prev_current = i_dc;
+        } else {
+            // Transient update
+            let i_history_term = self.calculate_history_current();
+            let i_new = (self.g_eq * v_new) + i_history_term;
+
+            self.prev_voltage = v_new;
+            self.prev_current = i_new;
+        }
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "Voltage".to_string(), unit: "V".to_string() },
-            ComponentProbe { name: "Current".to_string(), unit: "A".to_string() },
+            ComponentProbe {
+                name: "Voltage".to_string(),
+                unit: "V".to_string(),
+            },
+            ComponentProbe {
+                name: "Current".to_string(),
+                unit: "A".to_string(),
+            },
+            ComponentProbe {
+                name: "Power".to_string(),
+                unit: "W".to_string(),
+            },
         ]
     }
 
     fn calculate_observables(
         &self,
         node_voltages: &ColRef<T>,
-        _ctx: &SimulationContext<T>,
+        ctx: &SimulationContext<T>,
     ) -> Vec<T> {
         let v_new = self.get_voltage_diff(node_voltages);
 
-        let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
-        let i_new = (self.g_eq * v_new) + i_history_term;
+        let i_new = if ctx.is_dc_analysis {
+            let g_dc = if self.series_resistance.abs() < T::from(1e-12).unwrap() {
+                T::from(1.0e12).unwrap()
+            } else {
+                T::one() / self.series_resistance
+            };
+            v_new * g_dc
+        } else {
+            let i_history_term = self.calculate_history_current();
+            (self.g_eq * v_new) + i_history_term
+        };
 
-        vec![v_new, i_new]
+        let p_new = v_new * i_new;
+        vec![v_new, i_new, p_new]
     }
 
-    fn terminal_currents(
-        &self,
-        node_voltages: &ColRef<T>,
-        _ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
         let v_new = self.get_voltage_diff(node_voltages);
 
-        let i_history_term = self.prev_current + (self.g_eq * self.prev_voltage);
-        let i_flow = (self.g_eq * v_new) + i_history_term;
+        let i_flow = if ctx.is_dc_analysis {
+            // DC Mode: Calculate current based on Series Resistance
+            // (I = V / R)
+            let g_dc = if self.series_resistance.abs() < T::from(1e-12).unwrap() {
+                T::from(1.0e12).unwrap() // Finite short approximation
+            } else {
+                T::one() / self.series_resistance
+            };
+            v_new * g_dc
+        } else {
+            // Transient Mode: Calculate current based on discretized companion model
+            // (I = G_eq * V + I_history)
+            let i_history_term = self.calculate_history_current();
+            (self.g_eq * v_new) + i_history_term
+        };
 
         vec![i_flow, -i_flow]
     }
 
     fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
-        if name == "inductance" {
-            self.inductance = value;
-
-            // Recalculate G_eq = dt / (2L)
-            if self.inductance.abs() > T::from(1e-15).unwrap() {
-                self.g_eq = ctx.dt / (T::from(2.0).unwrap() * self.inductance);
-            } else {
-                self.g_eq = T::from(1.0e12).unwrap();
+        match name {
+            "inductance" => {
+                self.inductance = value;
+                self.update_conductance(ctx.dt);
+                true
             }
-            return true;
+            "resistance" | "esr" => {
+                self.series_resistance = value;
+                self.update_conductance(ctx.dt);
+                true
+            }
+            _ => false,
         }
-        false
     }
 }

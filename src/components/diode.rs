@@ -1,4 +1,6 @@
-use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{
+    CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
+};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -30,7 +32,7 @@ impl DiodeModel {
                 let m = T::from(0.4).unwrap(); // Grading coefficient | typical 0.4
                 let tt = T::from(20e-9).unwrap(); // Transit time | typical 20ns
                 let bv = T::from(75.0).unwrap(); // breakdown voltage
-                let ibv = T::from(5.0e-6).unwrap() ; // breakdown current at BV | typical 5µA
+                let ibv = T::from(5.0e-6).unwrap(); // breakdown current at BV | typical 5µA
                 (is, n, rs, cjo, m, tt, bv, ibv)
             }
         }
@@ -45,6 +47,10 @@ impl DiodeModel {
 pub struct Diode<T: CircuitScalar> {
     pub node_a: NodeId,
     pub node_b: NodeId,
+
+    // Cached matrix indices (populated in bake_indices)
+    cached_idx_a: Option<usize>,
+    cached_idx_b: Option<usize>,
 
     pub saturation_current: T,   // Is
     pub emission_coefficient: T, // N
@@ -77,7 +83,18 @@ pub struct Diode<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> Diode<T> {
-    pub fn new(node_a: NodeId, node_b: NodeId, is: T, n: T, rs: T, cjo: T, m: T, tt: T, bv: T, ibv: T) -> Self {
+    pub fn new(
+        node_a: NodeId,
+        node_b: NodeId,
+        is: T,
+        n: T,
+        rs: T,
+        cjo: T,
+        m: T,
+        tt: T,
+        bv: T,
+        ibv: T,
+    ) -> Self {
         let vt = T::from(0.02585).unwrap(); // ~300K thermal voltage at room temp (kT/q)
         // TODO: calculate the temperature dynamically based on the environment or allow user to set it, and calculate vt = kT/q accordingly
 
@@ -91,6 +108,8 @@ impl<T: CircuitScalar> Diode<T> {
         Self {
             node_a,
             node_b,
+            cached_idx_a: None,
+            cached_idx_b: None,
             saturation_current: is,
             emission_coefficient: n,
             series_resistance: rs,
@@ -120,24 +139,26 @@ impl<T: CircuitScalar> Diode<T> {
         }
     }
 
-    fn get_matrix_idx(node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
-    }
-
     /// Determines the index of the Anode of the *Intrinsic* diode.
-    fn get_intrinsic_anode_idx(&self) -> Option<usize> {
+    fn get_intrinsic_anode_idx(&self, offset: usize) -> (Option<usize>, usize) {
         if self.series_resistance > T::epsilon() {
-            self.internal_node_idx
+            (self.internal_node_idx, offset)
         } else {
-            Self::get_matrix_idx(self.node_a)
+            (self.cached_idx_a, offset)
         }
     }
 
     /// Gets Vd (Anode - Cathode) based on the current solver vector
     fn get_intrinsic_voltage(&self, solution: &ColRef<T>) -> T {
-        let idx_p = self.get_intrinsic_anode_idx();
-        let idx_k = Self::get_matrix_idx(self.node_b);
+        let idx_p = if self.series_resistance > T::epsilon() {
+            self.internal_node_idx
+        } else {
+            self.cached_idx_a
+        };
 
+        let idx_k = self.cached_idx_b;
+
+        // Read directly from solution using global indices
         let v_p = idx_p.map(|i| solution[i]).unwrap_or(T::zero());
         let v_k = idx_k.map(|i| solution[i]).unwrap_or(T::zero());
 
@@ -219,7 +240,8 @@ impl<T: CircuitScalar> Diode<T> {
         // G = Is/(nVt) * e^(V/nVt)
         let mut g_dc = (self.saturation_current / vt_n) * evd + self.g_min;
 
-        let v_breakdown_onset = -self.bv + (self.emission_coefficient * self.vt * T::from(50.0).unwrap());
+        let v_breakdown_onset =
+            -self.bv + (self.emission_coefficient * self.vt * T::from(50.0).unwrap());
 
         // Handle breakdown
         // for performacne and floating point safety, only compute when necessary, as it is negligible otherwise
@@ -316,18 +338,48 @@ impl<T: CircuitScalar> Diode<T> {
         }
     }
 
+    /// Stamp G into Matrix A
+    fn stamp_conductance_nonlinear(
+        matrix: &mut MatMut<T>,
+        idx_a: Option<usize>,
+        idx_b: Option<usize>,
+        g: T,
+        offset: usize,
+        a_offset: usize,
+    ) {
+        if let Some(i) = idx_a {
+            let local_i = i - a_offset;
+            matrix[(local_i, local_i)] = matrix[(local_i, local_i)] + g;
+        }
+        if let Some(j) = idx_b {
+            let local_j = j - offset;
+            matrix[(local_j, local_j)] = matrix[(local_j, local_j)] + g;
+        }
+
+        if let (Some(i), Some(j)) = (idx_a, idx_b) {
+            let local_i = i - a_offset;
+            let local_j = j - offset;
+            matrix[(local_i, local_j)] = matrix[(local_i, local_j)] - g;
+            matrix[(local_j, local_i)] = matrix[(local_j, local_i)] - g;
+        }
+    }
+
     /// Stamp Current J into RHS Vector b (J flows A -> B)
     fn stamp_current_source(
         rhs: &mut ColMut<T>,
         idx_a: Option<usize>,
         idx_b: Option<usize>,
         val: T,
+        offset: usize,
+        a_offset: usize,
     ) {
         if let Some(i) = idx_a {
-            rhs[i] = rhs[i] - val;
+            let local_i = i - a_offset;
+            rhs[local_i] = rhs[local_i] - val;
         }
         if let Some(j) = idx_b {
-            rhs[j] = rhs[j] + val;
+            let local_j = j - offset;
+            rhs[local_j] = rhs[local_j] + val;
         }
     }
 
@@ -355,6 +407,20 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         vec![self.node_a, self.node_b]
     }
 
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        // Map global node indices to local matrix indices
+        self.cached_idx_a = if self.node_a.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_a).unwrap())
+        };
+        self.cached_idx_b = if self.node_b.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_b).unwrap())
+        };
+    }
+
     fn auxiliary_row_count(&self) -> usize {
         if self.series_resistance > T::epsilon() {
             1
@@ -371,8 +437,8 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         }
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>) {
-        let idx_a = Self::get_matrix_idx(self.node_a);
+    fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
+        let idx_a = self.cached_idx_a;
 
         if let Some(r_idx) = self.internal_node_idx {
             let g_s = T::one() / self.series_resistance;
@@ -386,14 +452,14 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         matrix: &mut MatMut<T>,
         rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
+        l_size: usize,
     ) {
         let mut state_guard = self.iter_state.lock().unwrap();
         let v_old_iter = state_guard.last_iter_voltage;
 
         let v_d_input = self.get_intrinsic_voltage(current_node_voltages);
 
-        // SPICE Voltage Limiting (pnjlim)
-        // This improves convergence by preventing massive exponential jumps
+        // pnjlim
         let v_d = self.limit_voltage(v_d_input, v_old_iter);
 
         state_guard.last_iter_voltage = v_d;
@@ -415,11 +481,11 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         // Newton-Raphson Source: J = I_eq - G_eq * V_op
         let i_rhs = i_total_flowing - (g_total * v_d);
 
-        let idx_p = self.get_intrinsic_anode_idx();
-        let idx_k = Self::get_matrix_idx(self.node_b);
+        let (idx_p, a_offset) = self.get_intrinsic_anode_idx(l_size);
+        let idx_k = self.cached_idx_b;
 
-        Self::stamp_conductance(matrix, idx_p, idx_k, g_total);
-        Self::stamp_current_source(rhs, idx_p, idx_k, i_rhs);
+        Self::stamp_conductance_nonlinear(matrix, idx_p, idx_k, g_total, l_size, a_offset);
+        Self::stamp_current_source(rhs, idx_p, idx_k, i_rhs, l_size, a_offset);
 
         let current_diff = (i_total_flowing - state_guard.last_iter_current).abs();
 
@@ -433,6 +499,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         state_guard.last_iter_current = i_total_flowing;
         state_guard.is_converged = v_converged && i_converged;
+
         drop(state_guard);
     }
 
@@ -457,23 +524,27 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         state_guard.last_iter_current = T::zero();
     }
 
-
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "Voltage".to_string(), unit: "V".to_string() },
-            ComponentProbe { name: "Current".to_string(), unit: "A".to_string() },
-            ComponentProbe { name: "Power".to_string(), unit: "W".to_string() },
+            ComponentProbe {
+                name: "Voltage".to_string(),
+                unit: "V".to_string(),
+            },
+            ComponentProbe {
+                name: "Current".to_string(),
+                unit: "A".to_string(),
+            },
+            ComponentProbe {
+                name: "Power".to_string(),
+                unit: "W".to_string(),
+            },
         ]
     }
 
-    fn calculate_observables(
-        &self,
-        solution: &ColRef<T>,
-        ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
-        // Calculate external voltage (Node A - Node B)
-        let v_a = if self.node_a.0 == 0 { T::zero() } else { solution[self.node_a.0 - 1] };
-        let v_b = if self.node_b.0 == 0 { T::zero() } else { solution[self.node_b.0 - 1] };
+    fn calculate_observables(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+        // Calculate external voltage (Node A - Node B) using cached indices
+        let v_a = self.cached_idx_a.map(|i| solution[i]).unwrap_or(T::zero());
+        let v_b = self.cached_idx_b.map(|i| solution[i]).unwrap_or(T::zero());
         let v_total = v_a - v_b;
 
         let i_total = self.compute_total_current(solution, ctx.dt);
@@ -481,11 +552,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         vec![v_total, i_total, v_total * i_total]
     }
 
-    fn terminal_currents(
-        &self,
-        solution: &ColRef<T>,
-        ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
+    fn terminal_currents(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
         let i_flow = self.compute_total_current(solution, ctx.dt);
         // Current flows into Anode, out of Cathode
         vec![i_flow, -i_flow]

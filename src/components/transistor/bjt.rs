@@ -1,8 +1,9 @@
-use crate::model::{CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext};
+use crate::model::{
+    CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
+};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
-use log::info;
 
 /// Internal state for the BJT during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +65,10 @@ pub struct Bjt<T: CircuitScalar> {
     pub node_b: NodeId,
     pub node_e: NodeId,
 
+    pub cached_idx_c: Option<usize>,
+    pub cached_idx_b: Option<usize>,
+    pub cached_idx_e: Option<usize>,
+
     // Static Parameters
     pub saturation_current: T,
     pub beta_f: T,
@@ -88,7 +93,21 @@ pub struct Bjt<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> Bjt<T> {
-    pub fn new(node_c: NodeId, node_b: NodeId, node_e: NodeId, is: T, bf: T, br: T, vt: T, vaf: T, var: T, rc: T, rb: T, re: T, polarity: bool) -> Self {
+    pub fn new(
+        node_c: NodeId,
+        node_b: NodeId,
+        node_e: NodeId,
+        is: T,
+        bf: T,
+        br: T,
+        vt: T,
+        vaf: T,
+        var: T,
+        rc: T,
+        rb: T,
+        re: T,
+        polarity: bool,
+    ) -> Self {
         let sqrt_2 = T::from(2.0).unwrap().sqrt();
         let is_be = is / bf;
         let v_crit_be = vt * T::from(vt / (is_be * sqrt_2)).unwrap().ln();
@@ -99,7 +118,12 @@ impl<T: CircuitScalar> Bjt<T> {
         let polarity = if polarity { T::one() } else { -T::one() };
 
         Self {
-            node_c, node_b, node_e,
+            node_c,
+            node_b,
+            node_e,
+            cached_idx_c: None,
+            cached_idx_b: None,
+            cached_idx_e: None,
             saturation_current: is,
             beta_f: bf,
             beta_r: br,
@@ -107,7 +131,9 @@ impl<T: CircuitScalar> Bjt<T> {
             polarity,
             v_af: vaf,
             v_ar: var,
-            rc, rb, re,
+            rc,
+            rb,
+            re,
             g_min: T::from(1.0e-12).unwrap(),
             v_crit_be,
             v_crit_bc,
@@ -137,10 +163,6 @@ impl<T: CircuitScalar> Bjt<T> {
         }
     }
 
-    fn get_matrix_idx(node: NodeId) -> Option<usize> {
-        if node.0 == 0 { None } else { Some(node.0 - 1) }
-    }
-
     fn exp_safe(x: T) -> T {
         let max_arg = T::from(80.).unwrap();
         if x > max_arg {
@@ -151,7 +173,8 @@ impl<T: CircuitScalar> Bjt<T> {
         }
     }
 
-    fn exp_safe_deriv(x: T) -> (T, T) { // Returns (Value, Derivative)
+    fn exp_safe_deriv(x: T) -> (T, T) {
+        // Returns (Value, Derivative)
         let max_arg = T::from(80.).unwrap();
         if x > max_arg {
             let exp_max = max_arg.exp();
@@ -172,12 +195,36 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         vec![self.node_c, self.node_b, self.node_e]
     }
 
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+        self.cached_idx_c = if self.node_c.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_c).unwrap())
+        };
+        self.cached_idx_b = if self.node_b.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_b).unwrap())
+        };
+        self.cached_idx_e = if self.node_e.0 == 0 {
+            None
+        } else {
+            Some(ctx.map_index(self.node_e).unwrap())
+        };
+    }
+
     fn auxiliary_row_count(&self) -> usize {
         // We need an auxiliary row for each terminal that has non-zero parasitic resistance
         let mut count = 0;
-        if self.rc > T::zero() { count += 1; }
-        if self.rb > T::zero() { count += 1; }
-        if self.re > T::zero() { count += 1; }
+        if self.rc > T::zero() {
+            count += 1;
+        }
+        if self.rb > T::zero() {
+            count += 1;
+        }
+        if self.re > T::zero() {
+            count += 1;
+        }
         count
     }
 
@@ -191,11 +238,12 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         matrix: &mut MatMut<T>,
         rhs: &mut ColMut<T>,
         _ctx: &SimulationContext<T>,
+        l_size: usize,
     ) {
         let mut state_guard = self.iter_state.lock().unwrap();
-        let idx_c_ext = Self::get_matrix_idx(self.node_c);
-        let idx_b_ext = Self::get_matrix_idx(self.node_b);
-        let idx_e_ext = Self::get_matrix_idx(self.node_e);
+        let idx_c_ext = self.cached_idx_c;
+        let idx_b_ext = self.cached_idx_b;
+        let idx_e_ext = self.cached_idx_e;
 
         let mut current_aux = self.aux_start_index.unwrap_or(0);
         let mut resolve_internal = |idx_ext: Option<usize>, r_val: T| -> (Option<usize>, T) {
@@ -217,13 +265,17 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         // Helper for Matrix Stamping
         let mut stamp = |r: Option<usize>, c: Option<usize>, val: T| {
             if let (Some(row), Some(col)) = (r, c) {
-                matrix[(row, col)] = matrix[(row,col)] + val;
+                let local_r = row - l_size;
+                let local_c = col - l_size;
+
+                matrix[(local_r, local_c)] = matrix[(local_r, local_c)] + val;
             }
         };
 
         let mut stamp_rhs = |r: Option<usize>, val: T| {
             if let Some(row) = r {
-                rhs[row] = rhs[row] + val;
+                let local_r = row - l_size;
+                rhs[local_r] = rhs[local_r] + val;
             }
         };
 
@@ -259,8 +311,18 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let v_bc_raw = self.polarity * (vb - vc);
 
         // Limiting and Convergence
-        let v_be = Self::limit_junction_voltage(v_be_raw, state_guard.v_be_limited, self.vt, self.v_crit_be);
-        let v_bc = Self::limit_junction_voltage(v_bc_raw, state_guard.v_bc_limited, self.vt, self.v_crit_bc);
+        let v_be = Self::limit_junction_voltage(
+            v_be_raw,
+            state_guard.v_be_limited,
+            self.vt,
+            self.v_crit_be,
+        );
+        let v_bc = Self::limit_junction_voltage(
+            v_bc_raw,
+            state_guard.v_bc_limited,
+            self.vt,
+            self.v_crit_bc,
+        );
 
         // Ebers-Moll with Early Effect
         let vt = self.vt;
@@ -271,7 +333,11 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let evbc = Self::exp_safe(v_bc / vt);
 
         let early_denom = T::one() + (v_bc / self.v_af) + (v_be / self.v_ar);
-        let early_denom = if early_denom < T::from(0.01).unwrap() { T::from(0.01).unwrap() } else { early_denom };
+        let early_denom = if early_denom < T::from(0.01).unwrap() {
+            T::from(0.01).unwrap()
+        } else {
+            early_denom
+        };
         let q1 = T::one() / early_denom;
 
         // Derivatives of q1
@@ -359,9 +425,9 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
     fn is_converged(&self, current_node_voltages: &ColRef<T>) -> bool {
         let state = self.iter_state.lock().unwrap();
 
-        let idx_c_ext = Self::get_matrix_idx(self.node_c);
-        let idx_b_ext = Self::get_matrix_idx(self.node_b);
-        let idx_e_ext = Self::get_matrix_idx(self.node_e);
+        let idx_c_ext = self.cached_idx_c;
+        let idx_b_ext = self.cached_idx_b;
+        let idx_e_ext = self.cached_idx_e;
 
         let mut current_aux = self.aux_start_index.unwrap_or(0);
         let mut resolve_int = |idx_ext: Option<usize>, r: T| {
@@ -378,7 +444,13 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_int = resolve_int(idx_b_ext, self.rb);
         let idx_e_int = resolve_int(idx_e_ext, self.re);
 
-        let get_v = |i: Option<usize>| if let Some(x) = i { current_node_voltages[x] } else { T::zero() };
+        let get_v = |i: Option<usize>| {
+            if let Some(x) = i {
+                current_node_voltages[x]
+            } else {
+                T::zero()
+            }
+        };
         let vc = get_v(idx_c_int);
         let vb = get_v(idx_b_int);
         let ve = get_v(idx_e_int);
@@ -393,10 +465,22 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_be".into(), unit: "V".into() },
-            ComponentProbe { name: "V_ce".into(), unit: "V".into() },
-            ComponentProbe { name: "I_c".into(), unit: "A".into() },
-            ComponentProbe { name: "I_b".into(), unit: "A".into() },
+            ComponentProbe {
+                name: "V_be".into(),
+                unit: "V".into(),
+            },
+            ComponentProbe {
+                name: "V_ce".into(),
+                unit: "V".into(),
+            },
+            ComponentProbe {
+                name: "I_c".into(),
+                unit: "A".into(),
+            },
+            ComponentProbe {
+                name: "I_b".into(),
+                unit: "A".into(),
+            },
         ]
     }
 
@@ -410,11 +494,17 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let i_b = currents[1];
 
         // Re-calculate voltages logic locally for V_be/V_ce
-        let idx_c_ext = Self::get_matrix_idx(self.node_c);
-        let idx_b_ext = Self::get_matrix_idx(self.node_b);
-        let idx_e_ext = Self::get_matrix_idx(self.node_e);
+        let idx_c_ext = self.cached_idx_c;
+        let idx_b_ext = self.cached_idx_b;
+        let idx_e_ext = self.cached_idx_e;
 
-        let get_v = |i: Option<usize>| if let Some(x) = i { node_voltages[x] } else { T::zero() };
+        let get_v = |i: Option<usize>| {
+            if let Some(x) = i {
+                node_voltages[x]
+            } else {
+                T::zero()
+            }
+        };
 
         let vc_ext = get_v(idx_c_ext);
         let vb_ext = get_v(idx_b_ext);
@@ -426,15 +516,11 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         vec![v_be, v_ce, i_c, i_b]
     }
 
-    fn terminal_currents(
-        &self,
-        node_voltages: &ColRef<T>,
-        _ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) -> Vec<T> {
         // 1. Resolve Internal Nodes
-        let idx_c_ext = Self::get_matrix_idx(self.node_c);
-        let idx_b_ext = Self::get_matrix_idx(self.node_b);
-        let idx_e_ext = Self::get_matrix_idx(self.node_e);
+        let idx_c_ext = self.cached_idx_c;
+        let idx_b_ext = self.cached_idx_b;
+        let idx_e_ext = self.cached_idx_e;
 
         let mut current_aux = self.aux_start_index.unwrap_or(0);
         let mut resolve_int = |idx_ext: Option<usize>, r: T| {
@@ -451,7 +537,13 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_int = resolve_int(idx_b_ext, self.rb);
         let idx_e_int = resolve_int(idx_e_ext, self.re);
 
-        let get_v = |i: Option<usize>| if let Some(x) = i { node_voltages[x] } else { T::zero() };
+        let get_v = |i: Option<usize>| {
+            if let Some(x) = i {
+                node_voltages[x]
+            } else {
+                T::zero()
+            }
+        };
         let vc = get_v(idx_c_int);
         let vb = get_v(idx_b_int);
         let ve = get_v(idx_e_int);
@@ -467,7 +559,11 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
 
         // Early Effect
         let early_denom = T::one() + (v_bc / self.v_af) + (v_be / self.v_ar);
-        let early_denom = if early_denom < T::from(0.01).unwrap() { T::from(0.01).unwrap() } else { early_denom };
+        let early_denom = if early_denom < T::from(0.01).unwrap() {
+            T::from(0.01).unwrap()
+        } else {
+            early_denom
+        };
         let q1 = T::one() / early_denom;
 
         let i_trans_ideal = is * (evbe - evbc);
