@@ -8,7 +8,7 @@ Please read through this brief guide to understand how we manage contributions, 
 
 ---
 
-## The Dual-License Model & CLA
+## The Dual-License Model
 
 To ensure the long-term sustainability of Copperhead, the project operates under a **Dual-License Model**:
 * **Open Source:** The engine is freely available under the **GPLv3** for open-source projects and hobbyists.
