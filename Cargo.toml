@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-faer = "0.23.2"
+faer = "0.24.0"
 egui = "0.33.3"
 serde = "1.0.228"
 hound = "3.5.1"
