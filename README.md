@@ -61,7 +61,7 @@ The core simulation engine is dual-licensed:
 * **Indie Commercial (Free)**: If you are an independent creator or small business generating less than €50,000 EUR/year in gross revenue, you may use this engine in closed-source commercial software plugins for free. Please contact us so we can keep track of projects that depend on us :).
 * **Enterprise & Hardware (Paid)**: If your revenue exceeds €50,000 EUR/year, or if you intend to use the engine in commercial hardware products, reach out to us to negotiate terms.
 
-**Models / Schematics**
+### Models / Schematics
 
 The ability to create and sell your own compiled schematics is completely unrestricted. You own your data.
 
