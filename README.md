@@ -62,6 +62,7 @@ The core simulation engine is dual-licensed:
 * **Enterprise & Hardware (Paid)**: If your revenue exceeds €50,000 EUR/year, or if you intend to use the engine in commercial hardware products, reach out to us to negotiate terms.
 
 **Models / Schematics**
+
 The ability to create and sell your own compiled schematics is completely unrestricted. You own your data.
 
 However, the pre-built schematics included in this repository are licensed under **CC BY-NC 4.0**. You may not sell or commercially distribute the built-in schematics without explicit written permission.
