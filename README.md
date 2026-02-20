@@ -32,26 +32,36 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 *   **Component Library:** A suite of prebuilt basic components and common audio circuit blocks.
 *   **Data Export:** Export voltage readings and simulation data to text files.
 
-### Running for Performance
+### Installation & Usage
+Clone the repository and run the simulator:
+```bash
+git clone https://github.com/CyCodeDE/Copperhead.git
+cd Copperhead
+cargo run --profile release-performance
+```
 
+### Increasing Performance
 For development iteration, the standard `cargo run` is sufficient. However, simulation performance *might* be improved by using the custom profile configured in `Cargo.toml`.
-
-To run the simulator with Fat LTO (Link Time Optimization) and reduced codegen units:
 
 ```bash
 cargo run --profile release-performance
 ```
 
-This profile is optimized for solver speed compared to the default release or dev builds.
+The `--profile release-performance` flag optimizes for solver speed using Fat Link Time Optimization and reduced codegen units compared to the default release or dev builds.
 
-## License
+## Contributing
+We welcome community contributions! Because Copperhead operates on a dual-licensing model to ensure long-term sustainability, all contributors are required to sign a quick COntributor License Agreement (CLA) via the automated GitHub bot.
 
-Copperhead is licensed under [MIT](https://github.com/CyCodeDE/Copperhead/blob/main/LICENSE)
+Please read the [CONTRIBUTING.md](CONTRIBUTING.md) file for detailed guidelines on how to contribute, including coding standards, testing procedures, and the CLA process.
 
+## License & Commercial Use
 
+The core simulation engine is dual-licensed:
+* **Open Source**: Available under the **GPL-3.0** license for free, open-source projects.
+* **Indie Commercial (Free)**: If you are an independent creator or small business generating less than €20,000 EUR/year in gross revenue, you may use this engine in closed-source commercial software plugins for free. Please contact me to register your indie License.
+* **Enterprise & Hardware (Paid)**: If your revenue exceeds €20,000 EUR/year, or if you intend to use the engine in commercial hardware products, reach out to cycode@cycode.eu to negotiate terms.
 
+**Models / Schematics**
+The ability to create and sell your own compiled schematics is completely unrestricted. You own your data.
 
-
-
-
-
+However, the pre-built schematics included in this repository are licensed under **CC BY-NC 4.0**. You may not sell or commercially distribute the built-in schematics without explicit written permission.
