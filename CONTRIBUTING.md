@@ -32,7 +32,7 @@ Copperhead is written in Rust. We ask that you adhere to standard Rust formattin
 * Use `cargo fmt` to format your code.
 * Use `cargo clippy` to check for common mistakes and improve code quality.
 * If you are adding a new solver optimization or component, please ensure you test it against standard circuit behaviours (e.g. by simulating the same circuit in LTspice and comparing results).
-* If you are modifying the core solver, please ensure that it still converges correctly on a variety of test circuits, including non-linear ones and that try to not allocate memory during loop when not necessary.
+* If you are modifying the core solver, please ensure that it still converges correctly on a variety of test circuits, including non-linear ones and that you try to not allocate memory during loop when not necessary.
 * In the future we will add unit tests for components and solvers, but for now, manual testing and validation is sufficient.
 
 ### 3. Open a Pull Request
