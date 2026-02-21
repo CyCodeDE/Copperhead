@@ -2,7 +2,7 @@
 
 > **Note:** Copperhead is currently in a **pre-alpha** state. It is currently not recommended for general use. The software is under active development and currently tested on Linux only.
 
-Copperhead is a circuit simulator written in Rust, designed specifically for modeling guitar amplifiers and effects pedals. It aims to provide a more intuitive user experience than traditional tools like LTspice by focusing on audio electronics.
+Copperhead is a circuit simulator written in Rust, designed specifically for modeling guitar amplifiers and effects pedals. It aims to provide a more intuitive user experience and better inference performance than traditional tools like LTspice by focusing on audio electronics and heavily optimizing for them.
 
 ## Goals
 
@@ -31,6 +31,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 *   **Audio I/O:** Support for reading voltage sources from WAV files and rendering simulation output to WAV.
 *   **Component Library:** A suite of prebuilt basic components and common audio circuit blocks.
 *   **Data Export:** Export voltage readings and simulation data to text files.
+*   **Audio Plugin:** Take your DI input, run it through the plugin, and the voltage at a specific node will be the output waveform! All in real-time.
 
 ### Installation & Usage
 Clone the repository and run the simulator:
@@ -64,5 +65,6 @@ The core simulation engine is dual-licensed:
 ### Models / Schematics
 
 The ability to create and sell your own compiled schematics is completely unrestricted. You own your data.
+
 
 However, the pre-built schematics included in this repository are licensed under **CC BY-NC 4.0**. You may not sell or commercially distribute the built-in schematics without explicit written permission.
