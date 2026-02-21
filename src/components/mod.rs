@@ -22,7 +22,7 @@ use crate::components::diode::Diode;
 use crate::components::resistor::Resistor;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
-use crate::signals::{ConstantSignal, SineSignal};
+use crate::signals::{ConstantSignal, SignalType, SineSignal};
 
 pub mod capacitor;
 pub mod diode;
@@ -112,7 +112,7 @@ impl ComponentDescriptor {
                 circuit.add_component(comp);
             }
             ComponentDescriptor::DCSource { pos, neg, volts } => {
-                let signal = Box::new(ConstantSignal {
+                let signal = SignalType::Constant(ConstantSignal {
                     voltage: num_traits::cast(volts)
                         .expect("Failed to cast voltage to circuit scalar type"),
                 });
@@ -125,12 +125,17 @@ impl ComponentDescriptor {
                 amp,
                 freq,
             } => {
-                let signal = Box::new(SineSignal {
+                let freq = num_traits::cast(freq)
+                    .expect("Failed to cast frequency to circuit scalar type");
+
+                let signal = SignalType::Sine(SineSignal {
                     amplitude: num_traits::cast(amp)
                         .expect("Failed to cast amplitude to circuit scalar type"),
-                    frequency: num_traits::cast(freq)
-                        .expect("Failed to cast frequency to circuit scalar type"),
+                    frequency: freq,
                     phase: T::zero(),
+                    omega: num_traits::cast(T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * freq)
+                        .expect("Failed to cast angular frequency to circuit scalar type"),
+
                 });
                 let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
                 circuit.add_component(comp);

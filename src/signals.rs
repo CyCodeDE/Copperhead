@@ -28,6 +28,32 @@ pub trait Signal<T: CircuitScalar>: Send + Sync {
     fn set_parameter(&mut self, _name: &str, _value: T) {}
 }
 
+pub enum SignalType<T> {
+    Constant(ConstantSignal<T>),
+    Sine(SineSignal<T>),
+    AudioBuffer(AudioBufferSignal<T>),
+}
+
+impl<T: CircuitScalar> SignalType<T> {
+    #[inline]
+    pub fn get_voltage(&self, time: T, is_dc_analysis: bool) -> T {
+        match self {
+            SignalType::Constant(s) => s.get_voltage(time, is_dc_analysis),
+            SignalType::Sine(s) => s.get_voltage(time, is_dc_analysis),
+            SignalType::AudioBuffer(s) => s.get_voltage(time, is_dc_analysis),
+        }
+    }
+
+    #[inline]
+    pub fn set_parameter(&mut self, name: &str, value: T) {
+        match self {
+            SignalType::Constant(s) => s.set_parameter(name, value),
+            SignalType::Sine(s) => s.set_parameter(name, value),
+            SignalType::AudioBuffer(s) => s.set_parameter(name, value),
+        }
+    }
+}
+
 /// Standard DC source
 pub struct ConstantSignal<T> {
     pub voltage: T,
@@ -49,6 +75,9 @@ pub struct SineSignal<T> {
     pub amplitude: T,
     pub frequency: T,
     pub phase: T,
+
+    // Precalculated: 2 * pi * freq
+    pub omega: T,
 }
 
 impl<T: CircuitScalar> Signal<T> for SineSignal<T> {
@@ -57,17 +86,18 @@ impl<T: CircuitScalar> Signal<T> for SineSignal<T> {
             return T::zero();
         }
 
-        let two = T::from(2.0).unwrap();
-        let pi = T::from(std::f64::consts::PI).unwrap();
         // V = A * sin(2 * pi * f * t + phase)
-        self.amplitude * (two * pi * self.frequency * time + self.phase).sin()
+        self.amplitude * (self.omega * time + self.phase).sin()
     }
 
     fn set_parameter(&mut self, name: &str, value: T) {
         match name {
             "amplitude" => self.amplitude = value,
             "frequency" => self.frequency = value,
-            "phase" => self.phase = value,
+            "phase" => {
+                self.omega = T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * self.frequency;
+                self.phase = value
+            },
             _ => {}
         }
     }

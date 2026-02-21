@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use std::cell::Cell;
 use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
@@ -107,7 +108,7 @@ pub struct Bjt<T: CircuitScalar> {
     v_crit_bc: T,
 
     // Simulation State
-    iter_state: Mutex<BjtIterationState<T>>,
+    iter_state: Cell<BjtIterationState<T>>,
     aux_start_index: Option<usize>, // Assigned by the system
 }
 
@@ -156,7 +157,7 @@ impl<T: CircuitScalar> Bjt<T> {
             g_min: T::from(1.0e-12).unwrap(),
             v_crit_be,
             v_crit_bc,
-            iter_state: Mutex::new(BjtIterationState {
+            iter_state: Cell::new(BjtIterationState {
                 is_converged: false,
                 v_bc_limited: T::zero(),
                 v_be_limited: T::zero(),
@@ -259,7 +260,7 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         _ctx: &SimulationContext<T>,
         l_size: usize,
     ) {
-        let mut state_guard = self.iter_state.lock().unwrap();
+        let mut state = self.iter_state.get();
         let idx_c_ext = self.cached_idx_c;
         let idx_b_ext = self.cached_idx_b;
         let idx_e_ext = self.cached_idx_e;
@@ -332,13 +333,13 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         // Limiting and Convergence
         let v_be = Self::limit_junction_voltage(
             v_be_raw,
-            state_guard.v_be_limited,
+            state.v_be_limited,
             self.vt,
             self.v_crit_be,
         );
         let v_bc = Self::limit_junction_voltage(
             v_bc_raw,
-            state_guard.v_bc_limited,
+            state.v_bc_limited,
             self.vt,
             self.v_crit_bc,
         );
@@ -433,16 +434,18 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         stamp_rhs(idx_e_int, g_dot_v_e - i_e_final);
 
         // Update State
-        state_guard.v_be_limited = v_be;
-        state_guard.v_bc_limited = v_bc;
+        state.v_be_limited = v_be;
+        state.v_bc_limited = v_bc;
 
         // Check convergence on the INPUT to the limiter vs previous OUTPUT
         let tol = T::from(1e-6).unwrap();
-        state_guard.is_converged = (v_be - v_be_raw).abs() < tol && (v_bc - v_bc_raw).abs() < tol;
+        state.is_converged = (v_be - v_be_raw).abs() < tol && (v_bc - v_bc_raw).abs() < tol;
+
+        self.iter_state.set(state);
     }
 
     fn is_converged(&self, current_node_voltages: &ColRef<T>) -> bool {
-        let state = self.iter_state.lock().unwrap();
+        let state = self.iter_state.get();
 
         let idx_c_ext = self.cached_idx_c;
         let idx_b_ext = self.cached_idx_b;
@@ -541,7 +544,7 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
     }
 
     fn terminal_currents(&self, node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>, out_currents: &mut [T]) {
-        // 1. Resolve Internal Nodes
+        // Resolve Internal Nodes
         let idx_c_ext = self.cached_idx_c;
         let idx_b_ext = self.cached_idx_b;
         let idx_e_ext = self.cached_idx_e;

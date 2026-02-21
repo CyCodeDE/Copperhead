@@ -197,8 +197,9 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>,
                 if current_step >= max_steps {
                     running = false;
                     state.send(StateUpdate::UpdateRunning(false));
-                    info!("Finished after: {:?}", current_start.elapsed());
-                    info!("Average time per step: {:?}", current_start.elapsed() / current_step as u32);
+                    let elapsed = current_start.elapsed();
+                    info!("Finished after: {:?}", elapsed);
+                    info!("Average time per step: {:?}", elapsed / current_step as u32);
                 }
             }
         } else {

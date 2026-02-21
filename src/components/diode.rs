@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use std::cell::Cell;
 use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
@@ -98,7 +99,7 @@ pub struct Diode<T: CircuitScalar> {
     // Critical voltage for breakdown limiting
     v_crit_bwd: T,
 
-    iter_state: Mutex<IterationState<T>>, // TODO: potential bottleneck, use atomic instead or let the solve loop handle state concurrency
+    iter_state: Cell<IterationState<T>>, // TODO: potential bottleneck, use atomic instead or let the solve loop handle state concurrency
 }
 
 impl<T: CircuitScalar> Diode<T> {
@@ -150,7 +151,7 @@ impl<T: CircuitScalar> Diode<T> {
             v_crit,
             v_crit_bwd,
 
-            iter_state: Mutex::new(IterationState {
+            iter_state: Cell::new(IterationState {
                 last_iter_voltage: T::zero(),
                 last_iter_current: T::zero(),
                 is_converged: false,
@@ -473,15 +474,15 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         ctx: &SimulationContext<T>,
         l_size: usize,
     ) {
-        let mut state_guard = self.iter_state.lock().unwrap();
-        let v_old_iter = state_guard.last_iter_voltage;
+        let mut state = self.iter_state.get();
+        let v_old_iter = state.last_iter_voltage;
 
         let v_d_input = self.get_intrinsic_voltage(current_node_voltages);
 
         // pnjlim
         let v_d = self.limit_voltage(v_d_input, v_old_iter);
 
-        state_guard.last_iter_voltage = v_d;
+        state.last_iter_voltage = v_d;
 
         // Calculate Physics
         let (i_dc, g_dc, q_tot, c_tot) = self.calculate_operating_point(v_d);
@@ -506,7 +507,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         Self::stamp_conductance_nonlinear(matrix, idx_p, idx_k, g_total, l_size, a_offset);
         Self::stamp_current_source(rhs, idx_p, idx_k, i_rhs, l_size, a_offset);
 
-        let current_diff = (i_total_flowing - state_guard.last_iter_current).abs();
+        let current_diff = (i_total_flowing - state.last_iter_current).abs();
 
         // Release lock early
         let abs_tol = T::from(1e-12).unwrap();
@@ -516,10 +517,10 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         let v_converged = voltage_diff < (self.vt * T::from(0.01).unwrap()); // Within a fraction of Vt
         let i_converged = current_diff < (abs_tol + rel_tol * i_total_flowing.abs());
 
-        state_guard.last_iter_current = i_total_flowing;
-        state_guard.is_converged = v_converged && i_converged;
+        state.last_iter_current = i_total_flowing;
+        state.is_converged = v_converged && i_converged;
 
-        drop(state_guard);
+        self.iter_state.set(state);
     }
 
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
@@ -538,9 +539,11 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         self.prev_charge = q_new;
         self.prev_cap_current = i_cap_new;
 
-        let mut state_guard = self.iter_state.lock().unwrap();
-        state_guard.last_iter_voltage = v_d;
-        state_guard.last_iter_current = T::zero();
+        let mut state = self.iter_state.get();
+        state.last_iter_voltage = v_d;
+        state.last_iter_current = T::zero();
+
+        self.iter_state.set(state);
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
@@ -616,6 +619,6 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
     }
 
     fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
-        self.iter_state.lock().unwrap().is_converged
+        self.iter_state.get().is_converged
     }
 }

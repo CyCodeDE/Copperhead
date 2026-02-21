@@ -370,7 +370,7 @@ define_circuit_components!(
 );
 
 /// The interface a component must implement.
-pub trait Component<T: CircuitScalar>: Send + Sync {
+pub trait Component<T: CircuitScalar> {
     /// Returns true if the component allows the matrix A to be pre-solved
     /// (e.g. Resistors, Capacitors, Inductors with fixed sample rate)
     /// Returns false for non-linear components (Diodes, Tubes, Transistors, etc.)

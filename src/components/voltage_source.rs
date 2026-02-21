@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
-use crate::signals::Signal;
+use crate::signals::{Signal, SignalType};
 use faer::{ColMut, ColRef, MatMut};
 
 /// Provides a constant voltage that never changes.
@@ -31,12 +31,14 @@ pub struct VoltageSource<T: CircuitScalar> {
     cached_idx_pos: Option<usize>,
     cached_idx_neg: Option<usize>,
 
-    pub signal: Box<dyn Signal<T>>,
+    pub signal: SignalType<T>,
     matrix_idx: Option<usize>,
+
+    current_voltage: T,
 }
 
 impl<T: CircuitScalar> VoltageSource<T> {
-    pub fn new(pos: NodeId, neg: NodeId, signal: Box<dyn Signal<T>>) -> Self {
+    pub fn new(pos: NodeId, neg: NodeId, signal: SignalType<T>) -> Self {
         Self {
             pos,
             neg,
@@ -44,6 +46,7 @@ impl<T: CircuitScalar> VoltageSource<T> {
             cached_idx_neg: None,
             signal,
             matrix_idx: None,
+            current_voltage: T::zero(),
         }
     }
 }
@@ -106,6 +109,7 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         let src_idx = self.matrix_idx.expect("Circuit not built yet!");
 
         let val = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
+        self.current_voltage = val;
 
         rhs[src_idx] = val;
     }
@@ -129,9 +133,8 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         ctx: &SimulationContext<T>,
         out_observables: &mut [T]
     ) {
-        let voltage = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
+        let voltage = self.current_voltage;
 
-        // In MNA, the current is the unknown variable at the auxiliary index
         let current = if let Some(idx) = self.matrix_idx {
             node_voltages[idx]
         } else {
@@ -143,15 +146,13 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
     }
 
     fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
-        // The variable solved at 'matrix_idx' represents the current flowing
-        // OUT of the positive node and INTO the negative node.
         let i_src = if let Some(idx) = self.matrix_idx {
             node_voltages[idx]
         } else {
             T::zero()
         };
 
-        // We return current flowing INTO the ports [Pos, Neg]
+        // We return current flowing INTO the ports
         out_currents[0] = -i_src; // Into Pos
         out_currents[1] = i_src;  // Into Neg
     }
