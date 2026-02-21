@@ -14,8 +14,6 @@ To ensure the long-term sustainability of Copperhead, the project operates under
 * **Open Source:** The engine is freely available under the **GPLv3** for open-source projects and hobbyists.
 * **Commercial:** We offer commercial licenses for companies embedding the engine into closed-source software or physical hardware.
 
----
-
 ## How to Contribute
 
 We use a standard GitHub flow for contributions.
