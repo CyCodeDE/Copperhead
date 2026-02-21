@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
@@ -214,21 +214,21 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         vec![self.node_c, self.node_b, self.node_e]
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         self.cached_idx_c = if self.node_c.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_c).unwrap())
+            Some(node_map.get(&self.node_c).copied().unwrap())
         };
         self.cached_idx_b = if self.node_b.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_b).unwrap())
+            Some(node_map.get(&self.node_b).copied().unwrap())
         };
         self.cached_idx_e = if self.node_e.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_e).unwrap())
+            Some(node_map.get(&self.node_e).copied().unwrap())
         };
     }
 
@@ -507,8 +507,10 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         &self,
         node_voltages: &ColRef<T>,
         _ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
-        let currents = self.terminal_currents(node_voltages, _ctx);
+        out_observables: &mut [T]
+    ) {
+        let mut currents = [T::zero(); 3];
+        self.terminal_currents(node_voltages, _ctx, &mut currents);
         let i_c = currents[0];
         let i_b = currents[1];
 
@@ -532,10 +534,13 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let v_be = self.polarity * (vb_ext - ve_ext);
         let v_ce = self.polarity * (vc_ext - ve_ext);
 
-        vec![v_be, v_ce, i_c, i_b]
+        out_observables[0] = v_be;
+        out_observables[1] = v_ce;
+        out_observables[2] = i_c;
+        out_observables[3] = i_b;
     }
 
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) -> Vec<T> {
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>, out_currents: &mut [T]) {
         // 1. Resolve Internal Nodes
         let idx_c_ext = self.cached_idx_c;
         let idx_b_ext = self.cached_idx_b;
@@ -598,7 +603,9 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         // Apply Polarity
         let p = self.polarity;
 
-        vec![i_c_mag * p, i_b_mag * p, i_e_mag * p]
+        out_currents[0] = i_c_mag * p;
+        out_currents[1] = i_b_mag * p;
+        out_currents[2] = i_e_mag * p;
     }
 
     // NEW

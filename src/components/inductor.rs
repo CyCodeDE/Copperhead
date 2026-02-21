@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
@@ -107,16 +107,16 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         ComponentLinearity::LinearDynamic
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         self.cached_idx_a = if self.node_a.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_a).unwrap())
+            Some(node_map.get(&self.node_a).copied().unwrap())
         };
         self.cached_idx_b = if self.node_b.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_b).unwrap())
+            Some(node_map.get(&self.node_b).copied().unwrap())
         };
     }
 
@@ -226,7 +226,8 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
+        out_observables: &mut [T]
+    ) {
         let v_new = self.get_voltage_diff(node_voltages);
 
         let i_new = if ctx.is_dc_analysis {
@@ -242,10 +243,12 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         };
 
         let p_new = v_new * i_new;
-        vec![v_new, i_new, p_new]
+        out_observables[0] = v_new;
+        out_observables[1] = i_new;
+        out_observables[2] = p_new;
     }
 
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
         let v_new = self.get_voltage_diff(node_voltages);
 
         let i_flow = if ctx.is_dc_analysis {
@@ -264,7 +267,8 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
             (self.g_eq * v_new) + i_history_term
         };
 
-        vec![i_flow, -i_flow]
+        out_currents[0] = i_flow;
+        out_currents[1] = -i_flow;
     }
 
     fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {

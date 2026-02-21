@@ -96,15 +96,7 @@ pub struct SimulationContext<T> {
     pub dt: T,
     pub time: T,
     pub step: usize,
-    pub node_map: HashMap<NodeId, usize>,
     pub is_dc_analysis: bool,
-}
-
-impl<T> SimulationContext<T> {
-    /// maps a global node id to the current solver matrix index
-    pub fn map_index(&self, node: NodeId) -> Option<usize> {
-        self.node_map.get(&node).copied()
-    }
 }
 
 pub trait InsertIntoSoA<T: CircuitScalar> {
@@ -141,10 +133,10 @@ macro_rules! define_circuit_components {
             }
 
             // Generate baking loop (called during prepare)
-            pub fn bake_all_indices(&mut self, ctx: &SimulationContext<T>) {
+            pub fn bake_all_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
                 $(
                     for comp in &mut self.$field {
-                        comp.bake_indices(ctx);
+                        comp.bake_indices(ctx, node_map);
                     }
                 )*
             }
@@ -234,12 +226,13 @@ macro_rules! define_circuit_components {
                 &self,
                 id: ComponentId,
                 current_sol: &ColRef<T>,
-                ctx: &SimulationContext<T>
-            ) -> Vec<T> {
+                ctx: &SimulationContext<T>,
+                out_currents: &mut [T],
+            ) {
                 match id {
                     $(
                         ComponentId::$comp_type(idx) => {
-                            self.$field[idx].terminal_currents(current_sol, ctx)
+                            self.$field[idx].terminal_currents(current_sol, ctx, out_currents);
                         }
                     )*
                 }
@@ -250,12 +243,13 @@ macro_rules! define_circuit_components {
                 &self,
                 id: ComponentId,
                 current_sol: &ColRef<T>,
-                ctx: &SimulationContext<T>
-            ) -> Vec<T> {
+                ctx: &SimulationContext<T>,
+                out_observables: &mut [T],
+            ) {
                 match id {
                     $(
                         ComponentId::$comp_type(idx) => {
-                            self.$field[idx].calculate_observables(current_sol, ctx)
+                            self.$field[idx].calculate_observables(current_sol, ctx, out_observables);
                         }
                     )*
                 }
@@ -387,7 +381,7 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
 
     /// Called after partitioning, but before solving
     /// Gives the component the ability to cache the matrix indices for ports and auxiliary rows
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {}
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {}
 
     /// How many extra rows/cols does this component add to the matrix?
     /// For example Resistors = 0, Voltage Sources = 1, ...
@@ -456,14 +450,13 @@ pub trait Component<T: CircuitScalar>: Send + Sync {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
-        vec![]
-    }
+        out_observables: &mut [T]
+    ) {}
 
     /// Calculates the exact current flowing INTO every port defined in `ports()`
     /// For example for a BJT with ports [C, B, E], this returns [I_C, I_B, I_E]
     /// KCL defines that theoretically the sums should be zero
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T>;
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]);
 
     /// Updates a parameter by name.
     /// Returns true if the static matrix needs to be rebuilt.

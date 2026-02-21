@@ -19,12 +19,11 @@
 
 use crate::circuit::{Circuit, CircuitElement};
 use crate::ui::app::StateUpdate;
-use crate::ui::{
-    CircuitMetadata, ComponentMetadata, SimCommand,
-};
+use crate::ui::{CircuitMetadata, ComponentMetadata, SimBatchData, SimCommand, SimStepData};
 use crossbeam::channel::{Receiver, Sender};
+use log::info;
 
-pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>) {
+pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>, recycled_rx: Receiver<SimBatchData>) {
     let mut realtime_mode = false;
     let sample_rate = 96000.0;
     let mut circuit: Option<Circuit<f64>> = None;
@@ -37,9 +36,10 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
 
     let mut current_step: usize = 0;
     let mut max_steps: usize = usize::MAX;
+    let mut current_start = std::time::Instant::now();
 
     // Buffer to accumulate data when UI is busy reading
-    let mut pending_data = Vec::with_capacity(steps_per_batch * 4);
+    let mut active_batch = SimBatchData::default();
 
     loop {
         while let Ok(cmd) = rx.try_recv() {
@@ -51,13 +51,13 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                 SimCommand::Resume => {
                     running = true;
                     state.send(StateUpdate::UpdateRunning(true));
+                    current_start = std::time::Instant::now();
                 }
                 SimCommand::LoadCircuit(netlist) => {
                     //let mut s = state.write();
                     state.send(StateUpdate::UpdateRunning(false));
                     running = false;
                     current_step = 0;
-                    pending_data.clear();
 
                     let mut new_ckt = Circuit::<f64>::new();
                     for instr in netlist.instructions {
@@ -97,6 +97,16 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                         components: comp_meta,
                     }));
 
+                    active_batch = SimBatchData {
+                        times: Vec::with_capacity(0),
+                        voltages: Vec::new(),
+                        currents: Vec::new(),
+                        observables: Vec::new(),
+                        nodes_per_step: new_ckt.num_nodes + 1,
+                        terminals_per_step: total_terminals,
+                        observables_per_step: total_observables,
+                    };
+
                     circuit = Some(new_ckt);
                 }
                 SimCommand::UpdateValue {
@@ -124,9 +134,11 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
 
         // Run Simulation Batch
         if running {
-            // clear pending data
-            pending_data.clear();
-            let batch_start = std::time::Instant::now();
+            let batch_start = if realtime_mode {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
 
             if current_step >= max_steps {
                 running = false;
@@ -141,27 +153,52 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
 
                 // Extract History
                 if steps_performed > 0 {
-                    let new_data = ckt.extract_history();
-                    pending_data.extend(new_data);
+                    ckt.extract_history(&mut active_batch);
                 }
 
                 // Try to flush to UI
-                if !pending_data.is_empty() {
-                    state.send(StateUpdate::SendHistory(pending_data.clone(), current_step));
+                if !active_batch.times.is_empty() {
+                    let nodes = active_batch.nodes_per_step;
+                    let terms = active_batch.terminals_per_step;
+                    let obs = active_batch.observables_per_step;
+
+                    let empty_recycled_batch = recycled_rx.try_recv()
+                        .map(|mut b| {
+                            b.clear_for_reuse();
+                            b
+                        })
+                        .unwrap_or_else(|_| {
+                            SimBatchData {
+                                times: Vec::with_capacity(steps_per_batch),
+                                voltages: Vec::with_capacity(steps_per_batch * nodes),
+                                currents: Vec::with_capacity(steps_per_batch * terms),
+                                observables: Vec::with_capacity(steps_per_batch * obs),
+                                nodes_per_step: nodes,
+                                terminals_per_step: terms,
+                                observables_per_step: obs,
+                            }
+                        });
+
+                    let data_to_send = std::mem::replace(&mut active_batch, empty_recycled_batch);
+                    state.send(StateUpdate::SendHistory(data_to_send, current_step));
                 }
 
                 if realtime_mode && steps_performed > 0 {
-                    let elapsed = batch_start.elapsed();
-                    let target_duration =
-                        std::time::Duration::from_secs_f64(steps_performed as f64 * dt);
-                    if target_duration > elapsed {
-                        std::thread::sleep(target_duration - elapsed);
+                    if let Some(start) = batch_start {
+                        let elapsed = start.elapsed();
+                        let target_duration =
+                            std::time::Duration::from_secs_f64(steps_performed as f64 * dt);
+                        if target_duration > elapsed {
+                            std::thread::sleep(target_duration - elapsed);
+                        }
                     }
                 }
 
                 if current_step >= max_steps {
                     running = false;
                     state.send(StateUpdate::UpdateRunning(false));
+                    info!("Finished after: {:?}", current_start.elapsed());
+                    info!("Average time per step: {:?}", current_start.elapsed() / current_step as u32);
                 }
             }
         } else {

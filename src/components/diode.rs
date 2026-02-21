@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
@@ -426,17 +426,17 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         vec![self.node_a, self.node_b]
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         // Map global node indices to local matrix indices
         self.cached_idx_a = if self.node_a.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_a).unwrap())
+            Some(node_map.get(&self.node_a).copied().unwrap())
         };
         self.cached_idx_b = if self.node_b.0 == 0 {
             None
         } else {
-            Some(ctx.map_index(self.node_b).unwrap())
+            Some(node_map.get(&self.node_b).copied().unwrap())
         };
     }
 
@@ -560,7 +560,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         ]
     }
 
-    fn calculate_observables(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+    fn calculate_observables(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>, out_observables: &mut [T]) {
         // Calculate external voltage (Node A - Node B) using cached indices
         let v_a = self.cached_idx_a.map(|i| solution[i]).unwrap_or(T::zero());
         let v_b = self.cached_idx_b.map(|i| solution[i]).unwrap_or(T::zero());
@@ -568,13 +568,16 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         let i_total = self.compute_total_current(solution, ctx.dt);
 
-        vec![v_total, i_total, v_total * i_total]
+        out_observables[0] = v_total;
+        out_observables[1] = i_total;
+        out_observables[2] = v_total * i_total;
     }
 
-    fn terminal_currents(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+    fn terminal_currents(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
         let i_flow = self.compute_total_current(solution, ctx.dt);
         // Current flows into Anode, out of Cathode
-        vec![i_flow, -i_flow]
+        out_currents[0] = i_flow;
+        out_currents[1] = -i_flow;
     }
 
     fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {

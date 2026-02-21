@@ -21,10 +21,7 @@ use crate::components::ComponentDescriptor;
 use crate::model::{GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{
-    CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimCommand, SimState, SimStepData,
-    VisualWire,
-};
+use crate::ui::{CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimBatchData, SimCommand, SimState, SimStepData, VisualWire};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
@@ -177,6 +174,7 @@ pub struct CircuitApp {
     //pub shared_state: Arc<RwLock<SimState>>,
     pub sim_state: SimState,
     pub state_receiver: Receiver<StateUpdate>,
+    pub recycle_tx: Sender<SimBatchData>,
 
     pub temp_state_snapshot: Option<ProjectState>,
     pub active_netlist: Option<Netlist>,
@@ -193,7 +191,7 @@ pub struct CircuitApp {
 
 pub enum StateUpdate {
     CircuitLoaded(CircuitMetadata),
-    SendHistory(Vec<SimStepData>, usize),
+    SendHistory(SimBatchData, usize),
     UpdateRunning(bool),
     ClearHistory,
 }
@@ -219,8 +217,10 @@ impl CircuitApp {
 
         // Spawn simulation thread
         let (state_sender, state_receiver) = unbounded();
+        let (recycle_tx, recycle_rx) = unbounded::<SimBatchData>();
+
         std::thread::spawn(move || {
-            run_simulation_loop(rx, state_sender);
+            run_simulation_loop(rx, state_sender, recycle_rx);
         });
 
         let theme = AppTheme::default_dark();
@@ -308,6 +308,7 @@ impl CircuitApp {
             tx_command: tx,
             sim_state: sim_state,
             state_receiver,
+            recycle_tx,
             active_netlist: None,
 
             keybinds_locked: false, // to prevent keybinds when typing in text fields

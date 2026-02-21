@@ -18,14 +18,18 @@
  */
 
 use crate::model::{CircuitScalar, Component, ComponentId, ComponentLinearity, InsertIntoSoA, NodeId, SimulationContext};
-use crate::ui::SimStepData;
+use crate::ui::{SimBatchData, SimStepData};
 use faer::linalg::solvers::PartialPivLu;
 use faer::prelude::Solve;
-use faer::{Accum, Col, Mat, Par};
+use faer::{Accum, Col, Conj, Mat, Par, Spec};
 use log::{debug, error, info, trace};
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::{EdgeRef, UnGraph};
 use std::collections::{HashMap, HashSet};
+use faer::dyn_stack::{MemBuffer, MemStack};
+use faer::linalg::lu::full_pivoting::factor::lu_in_place;
+use faer::matrix_free::LinOp;
+use faer::perm::{Perm, PermRef};
 use crate::components::capacitor::Capacitor;
 use crate::components::resistor::Resistor;
 use crate::model::CircuitComponents;
@@ -90,16 +94,15 @@ pub struct Circuit<T: CircuitScalar> {
     pub partition: Option<PartitionedCircuit>,
     /// Important for the UI to know the order of components for data collection
     pub component_order: Vec<NodeIndex>,
-    num_nodes: usize,
+    pub num_nodes: usize,
     pub solver_state: Option<SolverState<T>>,
 
+    pub batch_buffer: SimBatchData,
     previous_solution: Col<T>,
     current_solution: Col<T>,
 
     pub time: T,
     step_count: usize,
-
-    pub step_buffer: Vec<SimStepData>,
 
     pub total_terminals: usize,
     pub total_observables: usize,
@@ -146,6 +149,13 @@ pub struct SolverWorkspace<T: CircuitScalar> {
     pub next_x_n: Col<T>,
     pub diff: Col<T>,
     pub adjustment: Col<T>,
+    /// Buffer for querying terminal currents and observables
+    pub component_buffer: Vec<T>,
+
+    pub n_lu_mat: Mat<T>,
+    pub row_perm_fwd: Vec<usize>,
+    pub row_perm_inv: Vec<usize>,
+    pub lu_workspace_memory: MemBuffer,
 }
 
 impl<T: CircuitScalar> Circuit<T> {
@@ -155,6 +165,7 @@ impl<T: CircuitScalar> Circuit<T> {
             components: CircuitComponents::new(),
             net_lookup: HashMap::new(),
             component_order: Vec::new(),
+            batch_buffer: SimBatchData::default(),
             partition: None,
             num_nodes: 0,
             solver_state: None,
@@ -164,30 +175,21 @@ impl<T: CircuitScalar> Circuit<T> {
             step_count: 0,
             total_terminals: 0,
             total_observables: 0,
-
-            step_buffer: Vec::new(),
         }
     }
 
     pub fn add_component<C>(&mut self, component: C)
     where C: Component<T> + InsertIntoSoA<T>
     {
-        // 1. Extract necessary info before giving up ownership.
-        // Assuming `ports()` returns a slice `&[NodeId]`, we convert it to a Vec
-        // to hold onto the IDs after the component is moved.
         let ports = component.ports();
 
         self.total_observables += component.probe_definitions().len();
         self.total_terminals += ports.len();
 
-        // 2. Consume the component, inserting it into the SoA storage.
-        // This returns your new `ComponentId` (e.g., ComponentId::Resistor(0))
         let comp_id = component.insert_into(&mut self.components);
 
-        // 3. Add the lightweight ID to the graph instead of the Boxed trait object
         let comp_node_idx = self.graph.add_node(CircuitElement::Device(comp_id));
 
-        // 4. Link the ports to the nets in the graph exactly as you did before
         for (port_idx, node_id) in ports.into_iter().enumerate() {
             let net_node_idx = *self.net_lookup.entry(node_id).or_insert_with(|| {
                 self.num_nodes = self.num_nodes.max(node_id.0);
@@ -206,21 +208,17 @@ impl<T: CircuitScalar> Circuit<T> {
             dt,
             time: self.time,
             step: self.step_count,
-            node_map: partition.node_map.clone(),
             is_dc_analysis: is_dc,
         };
 
-        // Calculate starting indices for auxiliary assignments
         let l_aux_start = partition.num_l_nodes;
         let n_block_start = partition.num_l_nodes + partition.num_l_aux;
         let n_aux_start = n_block_start + partition.num_n_nodes;
 
-        // Recreate node_status quickly to pass into the assign method
         let mut node_status = HashMap::new();
         self.components.find_retained_nodes(&mut node_status);
 
-        // 1. Bake ports and assign auxiliary rows entirely via SoA
-        self.components.bake_all_indices(&ctx);
+        self.components.bake_all_indices(&ctx, &partition.node_map);
         self.components.assign_auxiliary_rows(&partition.node_map, n_block_start, l_aux_start, n_aux_start);
 
         let l_size = partition.num_l_nodes + partition.num_l_aux;
@@ -229,7 +227,6 @@ impl<T: CircuitScalar> Circuit<T> {
 
         let mut matrix_a = Mat::<T>::zeros(total_size, total_size);
 
-        // 2. Stamp purely static elements via SoA
         self.components.stamp_all_static(&mut matrix_a.as_mut(), &ctx);
 
         if is_dc {
@@ -240,7 +237,7 @@ impl<T: CircuitScalar> Circuit<T> {
             }
         }
 
-        // 3. Slice the matrix into quadrants
+        // Slice the matrix into quadrants
         let a_ll = matrix_a.subrows(0, l_size).subcols(0, l_size);
         let a_ln = matrix_a.subrows(0, l_size).subcols(l_size, n_size);
         let a_nl = matrix_a.subrows(l_size, n_size).subcols(0, l_size);
@@ -251,7 +248,7 @@ impl<T: CircuitScalar> Circuit<T> {
         let schur_gain = a_nl * &t_mat;
         let reduced_base_matrix = a_nn - &schur_gain;
 
-        // 4. Important for UI/Data collection
+        // Important for UI/Data collection
         self.component_order.clear();
         for node_idx in self.graph.node_indices() {
             if let CircuitElement::Device(_) = &self.graph[node_idx] {
@@ -263,7 +260,23 @@ impl<T: CircuitScalar> Circuit<T> {
         self.current_solution = Col::<T>::zeros(total_size);
         self.partition = Some(partition);
 
-        // 5. Build Workspace
+        let max_buffer_needed = self.total_terminals.max(self.total_observables);
+
+        let lu_memory = faer::linalg::lu::partial_pivoting::factor::lu_in_place_scratch::<usize, T>(
+            n_size,
+            n_size,
+            Par::Seq,
+            Default::default()
+        );
+        let solve_memory = faer::linalg::lu::partial_pivoting::solve::solve_in_place_scratch::<usize, T>(
+            n_size,
+            n_size,
+            Par::Seq,
+        );
+
+        let combined_req = lu_memory.or(solve_memory);
+        let lu_workspace_memory = MemBuffer::new(combined_req);
+
         self.solver_state = Some(SolverState {
             workspace: SolverWorkspace {
                 b_full: Col::<T>::zeros(total_size),
@@ -277,6 +290,12 @@ impl<T: CircuitScalar> Circuit<T> {
                 next_x_n: Col::<T>::zeros(n_size),
                 diff: Col::<T>::zeros(n_size),
                 adjustment: Col::<T>::zeros(l_size),
+                component_buffer: vec![T::zero(); max_buffer_needed],
+
+                n_lu_mat: Mat::<T>::zeros(n_size, n_size),
+                row_perm_fwd: vec![0usize; n_size],
+                row_perm_inv: vec![0usize; n_size],
+                lu_workspace_memory,
             },
             l_lu: l_block_lu,
             a_ln: a_ln.to_owned(),
@@ -287,21 +306,22 @@ impl<T: CircuitScalar> Circuit<T> {
             l_size,
             n_size,
         });
+
+        self.batch_buffer.nodes_per_step = self.num_nodes + 1;
+        self.batch_buffer.terminals_per_step = self.total_terminals;
+        self.batch_buffer.observables_per_step = self.total_observables;
     }
 
     pub fn partition(&self) -> PartitionedCircuit {
         let mut node_status = HashMap::new();
 
-        // 1. Identify Retained (Non-Linear) Nodes directly from SoA
         self.components.find_retained_nodes(&mut node_status);
 
-        // 2. Count Auxiliary Rows based on linearity and connectivity
         let (num_l_aux, num_n_aux) = self.components.count_auxiliary_rows(&node_status);
 
         let mut l_nodes = Vec::new();
         let mut n_nodes = Vec::new();
 
-        // 3. Separate structural Nets using the graph
         for node_idx in self.graph.node_indices() {
             if let CircuitElement::Net(node_id) = self.graph[node_idx] {
                 if node_id == NodeId(0) {
@@ -325,7 +345,6 @@ impl<T: CircuitScalar> Circuit<T> {
         }
         let num_l_nodes = idx_counter;
 
-        // Skip space for L-Aux rows (The N-Block must start after this entire block)
         idx_counter += num_l_aux;
 
         // Non-Linear Nodes
@@ -355,7 +374,6 @@ impl<T: CircuitScalar> Circuit<T> {
             dt, // Technically completely irrelevant for DC
             time: T::zero(),
             step: 0,
-            node_map: HashMap::new(), // Populated by prepare
             is_dc_analysis: true,
         };
 
@@ -373,11 +391,6 @@ impl<T: CircuitScalar> Circuit<T> {
 
         let mut b_full = Col::<T>::zeros(total_size);
         let empty_prev = Col::<T>::zeros(total_size);
-        /*for idx in self.graph.node_indices() {
-            if let Some(CircuitElement::Device(comp)) = self.graph.node_weight_mut(idx) {
-                comp.stamp_dynamic(&empty_prev.as_ref(), &mut b_full.as_mut(), &dc_ctx);
-            }
-        }*/
 
         self.components.stamp_all_dynamic(
             &empty_prev.as_ref(),
@@ -407,20 +420,6 @@ impl<T: CircuitScalar> Circuit<T> {
             let mut iter_rhs = b_n - &constant_coupling;
 
             // Stamp Non-Linear Jacobian and RHS corrections
-            /*for idx in self.graph.node_indices() {
-                if let CircuitElement::Device(comp) = &self.graph[idx] {
-                    if let ComponentLinearity::NonLinear = comp.linearity() {
-                        comp.stamp_nonlinear(
-                            &x.as_ref(),
-                            &mut iter_matrix.as_mut(),
-                            &mut iter_rhs.as_mut(),
-                            &state.ctx,
-                            state.l_size,
-                        );
-                    }
-                }
-            }*/
-
             self.components.stamp_all_nonlinear(
                 &x.as_ref(),
                 &mut iter_matrix.as_mut(),
@@ -460,16 +459,8 @@ impl<T: CircuitScalar> Circuit<T> {
             return Err("DC Operating Point failed to converge".to_string());
         }
 
-        // 6. Commit State
         self.current_solution = x.clone();
         self.previous_solution = x.clone();
-
-        // Final component update
-        /*for idx in self.graph.node_indices() {
-            if let CircuitElement::Device(comp) = &mut self.graph[idx] {
-                comp.update_state(&x.as_ref(), &state.ctx);
-            }
-        }*/
 
         self.components.update_all_states(
             &x.as_ref(),
@@ -483,8 +474,6 @@ impl<T: CircuitScalar> Circuit<T> {
     }
 
     pub fn solve_step(&mut self, dt: T) {
-        let start_time = std::time::Instant::now();
-
         let state = match &mut self.solver_state {
             Some(s) => s,
             None => panic!("Solver state not initialized!"),
@@ -510,7 +499,6 @@ impl<T: CircuitScalar> Circuit<T> {
             dt,
             time: self.time,
             step: self.step_count,
-            node_map: self.partition.as_ref().unwrap().node_map.clone(),
             is_dc_analysis: false,
         };
 
@@ -586,19 +574,40 @@ impl<T: CircuitScalar> Circuit<T> {
                     state.l_size,
                 );
 
-                let lu = state.workspace.iter_matrix.partial_piv_lu();
-                state
-                    .workspace
-                    .next_x_n
-                    .copy_from(&state.workspace.iter_rhs);
-                lu.solve_in_place(state.workspace.next_x_n.as_mut());
+                let stack = MemStack::new(&mut state.workspace.lu_workspace_memory);
 
-                // Element-wise diff and damped update without allocating new vectors
+                faer::linalg::lu::partial_pivoting::factor::lu_in_place(
+                    state.workspace.iter_matrix.as_mut(),
+                    &mut state.workspace.row_perm_fwd,
+                    &mut state.workspace.row_perm_inv,
+                    Par::Seq,
+                    stack,
+                    Spec::default(),
+                );
+
+                let perm = unsafe {
+                    PermRef::new_unchecked(
+                        &state.workspace.row_perm_fwd,
+                        &state.workspace.row_perm_inv,
+                        state.workspace.iter_matrix.nrows()
+                    )
+                };
+
+                faer::linalg::lu::partial_pivoting::solve::solve_in_place_with_conj(
+                    state.workspace.iter_matrix.as_ref(),
+                    state.workspace.iter_matrix.as_ref(),
+                    perm,
+                    Conj::No,
+                    state.workspace.iter_rhs.as_mat_mut(),
+                    Par::Seq,
+                    stack
+                );
+
+                // Element-wise diff and damped update
                 for i in 0..n_size {
-                    let d = state.workspace.next_x_n[i] - state.workspace.x_n[i];
+                    let d = state.workspace.iter_rhs[i] - state.workspace.x_n[i];
                     state.workspace.diff[i] = d;
 
-                    // Note: assuming damping_factor can be multiplied by T easily
                     let damped = T::from(damping_factor).unwrap() * d;
                     state.workspace.x_n[i] = state.workspace.x_n[i] + damped;
                 }
@@ -644,11 +653,9 @@ impl<T: CircuitScalar> Circuit<T> {
             Par::Seq,
         );
 
-        // Final merge into current_solution
         for i in 0..l_size {
             self.current_solution[i] = state.workspace.v_temp[i] - state.workspace.adjustment[i];
         }
-        // N-block is already in current_solution from the loop
 
         self.components.update_all_states(
             &self.current_solution.as_ref(),
@@ -658,29 +665,21 @@ impl<T: CircuitScalar> Circuit<T> {
         self.record_state(&ctx);
         self.previous_solution.copy_from(&self.current_solution);
         self.step_count += 1;
-
-        println!(
-            "Time step {} completed in {:?}",
-            self.step_count,
-            start_time.elapsed(),
-        );
     }
 
     pub fn record_state(&mut self, ctx: &SimulationContext<T>) {
-        // Data Collection
-        let mut voltages = vec![0.0; self.num_nodes + 1];
-        let mut currents = Vec::with_capacity(self.total_terminals);
-        let mut observables = Vec::with_capacity(self.total_observables);
+        let workspace = &mut self.solver_state.as_mut().unwrap().workspace;
+        self.batch_buffer.times.push(self.time.to_f64().unwrap());
+
+        let v_start = self.batch_buffer.voltages.len();
+        self.batch_buffer.voltages.resize(v_start + self.num_nodes + 1, 0.0);
 
         if let Some(partition) = &self.partition {
             for (node_id, &matrix_row_idx) in &partition.node_map {
-                // Ensure the solution has this row (it should, but safety first)
                 if matrix_row_idx < self.current_solution.nrows() {
                     let val = self.current_solution[matrix_row_idx].to_f64().unwrap();
-
-                    // Place the voltage at the index corresponding to the NodeId
-                    if node_id.0 < voltages.len() {
-                        voltages[node_id.0] = val;
+                    if node_id.0 < self.num_nodes + 1 {
+                        self.batch_buffer.voltages[v_start + node_id.0] = val;
                     }
                 }
             }
@@ -688,39 +687,44 @@ impl<T: CircuitScalar> Circuit<T> {
 
         for &graph_idx in &self.component_order {
             if let CircuitElement::Device(comp_id) = &self.graph[graph_idx] {
-                let term_currents: Vec<T> = self.components.get_terminal_currents(
+                let num_terminals = self.components.get_num_terminals(*comp_id);
+                let current_slice = &mut workspace.component_buffer[..num_terminals];
+
+                self.components.get_terminal_currents(
                     *comp_id,
                     &self.current_solution.as_ref(),
-                    ctx
+                    ctx,
+                    current_slice
                 );
 
-                for val in term_currents {
-                    currents.push(val.to_f64().unwrap());
+                for val in current_slice.iter() {
+                    self.batch_buffer.currents.push(val.to_f64().unwrap());
                 }
 
-                let obs_vals = self.components.get_observables(
+                let num_probes = self.components.get_probe_definitions(*comp_id).len();
+                let obs_slice = &mut workspace.component_buffer[..num_probes];
+
+                self.components.get_observables(
                     *comp_id,
                     &self.current_solution.as_ref(),
-                    ctx
+                    ctx,
+                    obs_slice
                 );
 
-                for val in obs_vals {
-                    observables.push(val.to_f64().unwrap());
+                for val in obs_slice.iter() {
+                    self.batch_buffer.observables.push(val.to_f64().unwrap());
                 }
             }
         }
-
-        self.step_buffer.push(SimStepData {
-            time: self.time.to_f64().unwrap(),
-            voltages,
-            currents,
-            observables,
-        });
     }
 
     /// Returns the accumulated history and clears the internal buffer
-    pub fn extract_history(&mut self) -> Vec<SimStepData> {
-        std::mem::take(&mut self.step_buffer)
+    pub fn extract_history(&mut self, dst: &mut SimBatchData) {
+        std::mem::swap(&mut self.batch_buffer, dst);
+
+        self.batch_buffer.nodes_per_step = self.num_nodes + 1;
+        self.batch_buffer.terminals_per_step = self.total_terminals;
+        self.batch_buffer.observables_per_step = self.total_observables;
     }
 
     /// Reads the voltage of a specific node from the current solution.
@@ -747,7 +751,7 @@ impl<T: CircuitScalar> Circuit<T> {
     }
 
     /// Read the terminal currents for a component at the current time step. The order of currents corresponds to the order of ports returned by `Component::ports()`.
-    pub fn get_terminal_current(&self, component_idx: usize, dt: T) -> Vec<T> {
+    pub fn get_terminal_current(&self, component_idx: usize, dt: T, dst: &mut [T]) {
         if let Some(graph_idx) = self.component_order.get(component_idx) {
             if let CircuitElement::Device(comp_id) = self.graph[*graph_idx] {
                 return self.components.get_terminal_currents(
@@ -757,15 +761,13 @@ impl<T: CircuitScalar> Circuit<T> {
                         dt,
                         time: self.time,
                         step: self.step_count,
-                        node_map: self.partition.as_ref().unwrap().node_map.clone(),
                         is_dc_analysis: false,
                         // TODO: we need to check if time step 0 and set to dc analysis or else the measurement won't be accurate for the first step
                     },
+                    dst,
                 );
             }
         }
-
-        vec![]
     }
 
     pub fn get_all_voltages_cloned(&self) -> Vec<T> {

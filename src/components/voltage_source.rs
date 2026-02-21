@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
@@ -53,9 +53,9 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         ComponentLinearity::LinearDynamic
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
-        let pos = ctx.map_index(self.pos);
-        let neg = ctx.map_index(self.neg);
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+        let pos = node_map.get(&self.pos).copied();
+        let neg = node_map.get(&self.neg).copied();
 
         if pos.is_none() {
             self.cached_idx_pos = None;
@@ -127,7 +127,8 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
+        out_observables: &mut [T]
+    ) {
         let voltage = self.signal.get_voltage(ctx.time, ctx.is_dc_analysis);
 
         // In MNA, the current is the unknown variable at the auxiliary index
@@ -137,10 +138,11 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
             T::zero()
         };
 
-        vec![voltage, current]
+        out_observables[0] = voltage;
+        out_observables[1] = current;
     }
 
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) -> Vec<T> {
+    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
         // The variable solved at 'matrix_idx' represents the current flowing
         // OUT of the positive node and INTO the negative node.
         let i_src = if let Some(idx) = self.matrix_idx {
@@ -150,10 +152,8 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         };
 
         // We return current flowing INTO the ports [Pos, Neg]
-        vec![
-            -i_src, // Into Pos
-            i_src,  // Into Neg
-        ]
+        out_currents[0] = -i_src; // Into Pos
+        out_currents[1] = i_src;  // Into Neg
     }
 
     fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {

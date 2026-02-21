@@ -351,6 +351,28 @@ pub struct SimStepData {
     pub observables: Vec<f64>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct SimBatchData {
+    pub times: Vec<f64>,
+    pub voltages: Vec<f64>,
+    pub currents: Vec<f64>,
+    pub observables: Vec<f64>,
+
+    // Metadata to help the UI reconstruct SimStepData
+    pub nodes_per_step: usize,
+    pub terminals_per_step: usize,
+    pub observables_per_step: usize,
+}
+
+impl SimBatchData {
+    pub fn clear_for_reuse(&mut self) {
+        self.times.clear();
+        self.voltages.clear();
+        self.currents.clear();
+        self.observables.clear();
+    }
+}
+
 pub struct SimState {
     pub history: Vec<SimStepData>,
     pub running: bool,

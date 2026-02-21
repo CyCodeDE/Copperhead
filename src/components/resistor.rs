@@ -16,11 +16,12 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
 use faer::ColRef;
+use crate::circuit::NodePartition;
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
@@ -66,9 +67,9 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         ComponentLinearity::LinearStatic
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>) {
-        let a = ctx.map_index(self.node_a);
-        let b = ctx.map_index(self.node_b);
+    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+        let a = node_map.get(&self.node_a).copied();
+        let b = node_map.get(&self.node_b).copied();
 
         if a.is_none() {
             self.cached_idx_a = None;
@@ -147,7 +148,8 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-    ) -> Vec<T> {
+        out_observables: &mut [T]
+    ) {
         let v_a = self.get_voltage(self.node_a, node_voltages);
         let v_b = self.get_voltage(self.node_b, node_voltages);
 
@@ -155,10 +157,12 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         let current = voltage_drop * self.conductance;
         let power = voltage_drop * current;
 
-        vec![voltage_drop, current, power]
+        out_observables[0] = voltage_drop;
+        out_observables[1] = current;
+        out_observables[2] = power;
     }
 
-    fn terminal_currents(&self, sol: &ColRef<T>, _ctx: &SimulationContext<T>) -> Vec<T> {
+    fn terminal_currents(&self, sol: &ColRef<T>, _ctx: &SimulationContext<T>, out_currents: &mut [T]) {
         let v_a = self.get_voltage(self.node_a, sol);
         let v_b = self.get_voltage(self.node_b, sol);
 
@@ -166,7 +170,8 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         let i_a = (v_a - v_b) * self.conductance;
         // Current flowing INTO Node B is negative of that
         let i_b = -i_a;
-
-        vec![i_a, i_b]
+        
+        out_currents[0] = i_a;
+        out_currents[1] = i_b;
     }
 }

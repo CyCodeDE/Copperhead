@@ -62,9 +62,26 @@ impl eframe::App for CircuitApp {
                 StateUpdate::UpdateRunning(is_running) => {
                     self.sim_state.running = is_running;
                 }
-                StateUpdate::SendHistory(new_data, current_sample) => {
-                    self.sim_state.history.extend(new_data);
+                StateUpdate::SendHistory(mut batch, current_sample) => {
+                    let nodes = batch.nodes_per_step;
+                    let terms = batch.terminals_per_step;
+                    let obs = batch.observables_per_step;
+
+                    // Reconstruct SimStepData
+                    for i in 0..batch.times.len() {
+                        let step = SimStepData {
+                            time: batch.times[i],
+                            voltages: batch.voltages[i * nodes .. (i + 1) * nodes].to_vec(),
+                            currents: batch.currents[i * terms .. (i + 1) * terms].to_vec(),
+                            observables: batch.observables[i * obs .. (i + 1) * obs].to_vec(),
+                        };
+                        self.sim_state.history.push(step);
+                    }
+
                     self.sim_state.current_sample = current_sample;
+
+                    batch.clear_for_reuse();
+                    let _ = self.recycle_tx.try_send(batch);
                 }
                 StateUpdate::ClearHistory => {
                     self.sim_state.history.clear();
@@ -812,7 +829,7 @@ impl eframe::App for CircuitApp {
                                             painter.text(
                                                 mouse_pos + Vec2::new(15.0, -15.0),
                                                 egui::Align2::LEFT_BOTTOM,
-                                                format!("Click to plot voltage at pin {} of {}", terminal_index, comp.name),
+                                                format!("Click to plot current at pin {} of {}", terminal_index, comp.name),
                                                 egui::FontId::monospace(14.0),
                                                 Color32::YELLOW,
                                             );
