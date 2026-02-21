@@ -1,3 +1,4 @@
+#![feature(path_is_empty)]
 /*
  * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
  *
@@ -24,6 +25,7 @@ mod signals;
 mod simulation;
 pub mod ui;
 mod util;
+mod audio;
 
 use crate::ui::app::CircuitApp;
 use egui::ViewportBuilder;

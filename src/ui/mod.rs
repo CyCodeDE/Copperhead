@@ -29,6 +29,7 @@ use crate::model::{CircuitScalar, ComponentProbe, GridPos, NodeId};
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
@@ -45,6 +46,9 @@ pub enum ComponentBuildData {
     ASource {
         amplitude: f64,
         frequency: f64,
+    },
+    AudioSource {
+        path: PathBuf,
     },
     Inductor {
         inductance: f64,
@@ -67,6 +71,7 @@ impl ComponentBuildData {
             Self::Capacitor { .. } => "C",
             Self::Inductor { .. } => "L",
             Self::DCSource { .. } | Self::ASource { .. } => "V",
+            Self::AudioSource { .. } => "WAV",
             Self::Diode { .. } => "D",
             Self::Bjt { .. } => "Q",
             Self::Label { .. } => "",
@@ -100,6 +105,7 @@ impl VisualComponent {
             ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
             ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
             ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
+            ComponentBuildData::AudioSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
             ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
             ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
             ComponentBuildData::Diode { .. } => vec![(-1, 0), (1, 0)], // 2 Pins (Anode, Cathode) -> A and B
@@ -459,7 +465,7 @@ impl SimState {
         // only if the component is not a voltage probe
         let loc: Option<&ComponentDataLocation> = self.lookup_map.get(&comp_id);
 
-        // 2. Iterate through history and grab the specific value
+        // Iterate through history and grab the specific value
         for step in &self.history {
             let value = match data_type {
                 CircuitSelection::Current => {
@@ -477,7 +483,7 @@ impl SimState {
                     step.observables.get(global_idx).copied().unwrap_or(0.0)
                 }
                 CircuitSelection::Voltage => {
-                    // For voltages, comp_id is actually the NodeID, so we use it directly
+                    // For voltages, comp_id is actually the NodeID
                     step.voltages.get(comp_id).copied().unwrap_or(0.0)
                 }
             };

@@ -31,16 +31,12 @@ use crate::ui::{
 };
 use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
-use egui::{
-    Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon,
-    Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter,
-    Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat,
-    TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText,
-};
+use egui::{vec2, Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon, Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat, TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText};
 use egui_plot::{Line, Plot, PlotPoints};
 use faer::prelude::default;
 use log::{debug, info};
 use std::ops::Add;
+use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
@@ -98,7 +94,7 @@ impl eframe::App for CircuitApp {
         if let Ok(result) = self.file_receiver.try_recv() {
             if let Some(path) = result {
                 match self.file_dialog_state {
-                    FileDialogState::Load => {
+                    FileDialogState::LoadSchem => {
                         self.load_from_path(path);
                         self.active_netlist = None;
                         self.undo_stack.clear();
@@ -111,8 +107,11 @@ impl eframe::App for CircuitApp {
                             None => "Copperhead - Untitled".to_string(),
                         }));
                     }
-                    FileDialogState::Save => {
+                    FileDialogState::SaveSchem => {
                         self.save_to_path(path);
+                    }
+                    FileDialogState::LoadAudio => {
+                        self.audio_source_path = Some(path);
                     }
                     _ => {}
                 }
@@ -178,7 +177,7 @@ impl eframe::App for CircuitApp {
                             {
                                 let default_path = get_default_path();
 
-                                self.file_dialog_state = FileDialogState::Load;
+                                self.file_dialog_state = FileDialogState::LoadSchem;
                                 let tx = self.file_sender.clone();
                                 let ctx_clone = ctx.clone();
 
@@ -200,7 +199,7 @@ impl eframe::App for CircuitApp {
                             {
                                 let default_path = get_default_path();
 
-                                self.file_dialog_state = FileDialogState::Save;
+                                self.file_dialog_state = FileDialogState::SaveSchem;
                                 let tx = self.file_sender.clone();
                                 let ctx_clone = ctx.clone();
 
@@ -441,6 +440,10 @@ impl eframe::App for CircuitApp {
                         frequency: 60.0,
                     }); // 5V, 60Hz default
                 }
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioSource { path: _ })), Button::new("Audio Source")).clicked()
+                {
+                    self.selected_tool = Tool::PlaceComponent(ComponentBuildData::AudioSource { path: PathBuf::new() });
+                }
                 if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Ground)), Button::new("Ground (G)")).clicked()
                     || (ui.input(|i| i.key_pressed(Key::G)) && ui.input(|i| i.modifiers.is_none()) && !self.keybinds_locked)
                 {
@@ -656,9 +659,12 @@ impl eframe::App for CircuitApp {
                                 ComponentBuildData::Inductor { .. } |
                                 ComponentBuildData::Diode { .. } |
                                 ComponentBuildData::DCSource { .. } |
-                                ComponentBuildData::ASource { .. } => GridPos { x: 2, y: 1 },
+                                ComponentBuildData::ASource { .. } |
+                                ComponentBuildData::AudioSource { .. } => GridPos { x: 2, y: 1 },
+
                                 ComponentBuildData::Ground |
                                 ComponentBuildData::Label => GridPos { x: 1, y: 1 },
+
                                 ComponentBuildData::Bjt { .. } => GridPos { x: 2, y: 2}, // a bjt has pins at these positions: vec![(1, 1), (-1, 0), (1, -1)]
                             };
 
@@ -1079,6 +1085,7 @@ impl eframe::App for CircuitApp {
                                         ComponentBuildData::Capacitor { .. } => "Capacitor",
                                         ComponentBuildData::DCSource { .. } => "DC Source",
                                         ComponentBuildData::ASource { .. } => "AC Source",
+                                        ComponentBuildData::AudioSource { .. } => "Audio Source",
                                         ComponentBuildData::Inductor { .. } => "Inductor",
                                         ComponentBuildData::Diode { .. } => "Diode",
                                         ComponentBuildData::Bjt { .. } => "Bipolar Junction Transistor",
@@ -1172,13 +1179,75 @@ impl eframe::App for CircuitApp {
                                             });
                                             ui.horizontal(|ui| {
                                                 ui.label("Frequency:");
-                                                ui.add(egui::DragValue::new(frequency).speed(1.0).range(0.0..=f64::INFINITY).suffix("Hz")
-                                                    .custom_formatter(|val, _range| {
-                                                        format_si_single(val, 3)
-                                                    })
-                                                    .custom_parser(|text| {
-                                                        parse_si(text)
-                                                    }));
+
+                                            });
+                                        }
+                                        ComponentBuildData::AudioSource { path } => {
+                                            if let Some(new_path) = self.audio_source_path.take() {
+                                                *path = new_path;
+                                            }
+
+                                            ui.label("Select input file:");
+
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                Vec2::new(ui.available_width() / 2., 20.0f32),
+                                                Sense::click()
+                                            );
+                                            let is_hovered = response.hovered();
+                                            let has_dragged_files = !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
+                                            let is_dragged_over = is_hovered && has_dragged_files;
+
+                                            // 3. Draw the background and border
+                                            let visuals = ui.style().interact(&response);
+                                            let fill_color = if is_dragged_over {
+                                                ui.visuals().selection.bg_fill // Highlight color when dragging a file over
+                                            } else {
+                                                visuals.bg_fill // Normal button color
+                                            };
+
+                                            ui.painter().rect(
+                                                rect,
+                                                6.0,
+                                                fill_color,
+                                                visuals.bg_stroke,
+                                                StrokeKind::Inside
+                                            );
+                                            let display_text = if !path.is_empty() {
+                                                format!("🎵 {}", path.file_name().unwrap_or_default().to_string_lossy())
+                                            } else {
+                                                "Select File".to_string()
+                                            };
+
+                                            ui.painter().text(
+                                                rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                display_text,
+                                                egui::FontId::proportional(14.0),
+                                                visuals.text_color(),
+                                            );
+
+                                            if response.clicked() && self.file_dialog_state == FileDialogState::Closed {
+                                                self.file_dialog_state = FileDialogState::LoadAudio;
+                                                let tx = self.file_sender.clone();
+                                                let ctx_clone = ui.ctx().clone();
+
+                                                // Spawn RFD thread
+                                                std::thread::spawn(move || {
+                                                    let file = rfd::FileDialog::new().add_filter("Audio", &["wav", "mp3", "flac"]).pick_file();
+                                                    let _ = tx.send(file);
+                                                    ctx_clone.request_repaint();
+                                                });
+                                            }
+
+                                            ui.ctx().input(|i| {
+                                                if is_hovered && !i.raw.dropped_files.is_empty() {
+                                                    if let Some(dropped_file) = i.raw.dropped_files.first() {
+                                                        if let Some(dropped_path) = &dropped_file.path {
+                                                            // Update the source of truth directly!
+                                                            *path = dropped_path.clone();
+                                                        }
+                                                    }
+                                                }
                                             });
                                         }
                                         ComponentBuildData::Ground => {

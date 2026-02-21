@@ -189,6 +189,7 @@ pub struct CircuitApp {
     pub file_sender: Sender<Option<PathBuf>>,
     pub file_dialog_state: FileDialogState,
     pub current_file: Option<PathBuf>,
+    pub audio_source_path: Option<PathBuf>,
     pub wire_color_cache: HashMap<NodeId, Color32>,
 }
 
@@ -201,8 +202,9 @@ pub enum StateUpdate {
 
 #[derive(PartialEq)]
 pub enum FileDialogState {
-    Save,
-    Load,
+    SaveSchem,
+    LoadSchem,
+    LoadAudio,
     Closed,
 }
 
@@ -319,6 +321,7 @@ impl CircuitApp {
             file_sender,
             file_dialog_state: FileDialogState::Closed,
             current_file: None,
+            audio_source_path: None,
             wire_color_cache: HashMap::new(),
         }
     }
@@ -495,7 +498,7 @@ impl CircuitApp {
             let (a, b) = (node_a.0, node_b.0);
             let c = node_c.map(|n| n.0);
 
-            let descriptor = match comp.component {
+            let descriptor = match comp.component.clone() {
                 ComponentBuildData::Resistor { resistance } => ComponentDescriptor::Resistor {
                     a,
                     b,
@@ -514,6 +517,13 @@ impl CircuitApp {
                     neg: b,
                     amp: amplitude,
                     freq: frequency,
+                },
+                ComponentBuildData::AudioSource {
+                    path,
+                } => ComponentDescriptor::AudioSource {
+                    pos: a,
+                    neg: b,
+                    file_path: path,
                 },
                 ComponentBuildData::Capacitor { capacitance, esr } => {
                     ComponentDescriptor::Capacitor {

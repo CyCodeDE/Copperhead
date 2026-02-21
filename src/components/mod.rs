@@ -16,13 +16,16 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use std::path::PathBuf;
+use portable_atomic::AtomicUsize;
+use crate::audio::load_and_resample_audio;
 use crate::circuit::Circuit;
 use crate::components::ComponentDescriptor::Bjt;
 use crate::components::diode::Diode;
 use crate::components::resistor::Resistor;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
-use crate::signals::{ConstantSignal, SignalType, SineSignal};
+use crate::signals::{AudioBufferSignal, ConstantSignal, SignalType, SineSignal};
 
 pub mod capacitor;
 pub mod diode;
@@ -49,6 +52,11 @@ pub enum ComponentDescriptor {
         neg: usize,
         amp: f64,
         freq: f64,
+    },
+    AudioSource {
+        pos: usize,
+        neg: usize,
+        file_path: PathBuf,
     },
     Capacitor {
         a: usize,
@@ -139,6 +147,24 @@ impl ComponentDescriptor {
                     )
                     .expect("Failed to cast angular frequency to circuit scalar type"),
                 });
+                let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
+                circuit.add_component(comp);
+            }
+            ComponentDescriptor::AudioSource {
+                pos,
+                neg,
+                file_path
+            } => {
+                let target_sample_rate = (T::from(1.0).unwrap() / dt).round().to_u32().expect("Failed to convert target sample rate to u32");
+                let samples: Vec<T> = load_and_resample_audio(&file_path, target_sample_rate);
+
+                let signal = SignalType::AudioBuffer(AudioBufferSignal {
+                    samples,
+                    sample_rate: num_traits::cast(target_sample_rate)
+                        .expect("Failed to cast sample rate"),
+                    cursor: AtomicUsize::new(0),
+                });
+
                 let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
                 circuit.add_component(comp);
             }
