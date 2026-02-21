@@ -23,7 +23,11 @@ use crate::ui::{CircuitMetadata, ComponentMetadata, SimBatchData, SimCommand, Si
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
 
-pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>, recycled_rx: Receiver<SimBatchData>) {
+pub fn run_simulation_loop(
+    rx: Receiver<SimCommand>,
+    state: Sender<StateUpdate>,
+    recycled_rx: Receiver<SimBatchData>,
+) {
     let mut realtime_mode = false;
     let sample_rate = 96000.0;
     let mut circuit: Option<Circuit<f64>> = None;
@@ -162,21 +166,20 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>,
                     let terms = active_batch.terminals_per_step;
                     let obs = active_batch.observables_per_step;
 
-                    let empty_recycled_batch = recycled_rx.try_recv()
+                    let empty_recycled_batch = recycled_rx
+                        .try_recv()
                         .map(|mut b| {
                             b.clear_for_reuse();
                             b
                         })
-                        .unwrap_or_else(|_| {
-                            SimBatchData {
-                                times: Vec::with_capacity(steps_per_batch),
-                                voltages: Vec::with_capacity(steps_per_batch * nodes),
-                                currents: Vec::with_capacity(steps_per_batch * terms),
-                                observables: Vec::with_capacity(steps_per_batch * obs),
-                                nodes_per_step: nodes,
-                                terminals_per_step: terms,
-                                observables_per_step: obs,
-                            }
+                        .unwrap_or_else(|_| SimBatchData {
+                            times: Vec::with_capacity(steps_per_batch),
+                            voltages: Vec::with_capacity(steps_per_batch * nodes),
+                            currents: Vec::with_capacity(steps_per_batch * terms),
+                            observables: Vec::with_capacity(steps_per_batch * obs),
+                            nodes_per_step: nodes,
+                            terminals_per_step: terms,
+                            observables_per_step: obs,
                         });
 
                     let data_to_send = std::mem::replace(&mut active_batch, empty_recycled_batch);
@@ -198,8 +201,8 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>,
                     running = false;
                     state.send(StateUpdate::UpdateRunning(false));
                     let elapsed = current_start.elapsed();
-                    info!("Finished after: {:?}", elapsed);
-                    info!("Average time per step: {:?}", elapsed / current_step as u32);
+                    println!("Finished after: {:?}", elapsed);
+                    println!("Average time per step: {:?}", elapsed / current_step as u32);
                 }
             }
         } else {

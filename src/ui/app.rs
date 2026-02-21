@@ -21,8 +21,11 @@ use crate::components::ComponentDescriptor;
 use crate::model::{GridPos, NodeId};
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimBatchData, SimCommand, SimState, SimStepData, VisualWire};
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crate::ui::{
+    CircuitMetadata, ComponentBuildData, Netlist, Schematic, SimBatchData, SimCommand, SimState,
+    SimStepData, VisualWire,
+};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
 use faer::prelude::default;

@@ -16,11 +16,11 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
 use faer::{ColMut, ColRef, MatMut};
+use std::collections::HashMap;
 
 pub struct Capacitor<T: CircuitScalar> {
     node_a: NodeId,
@@ -193,7 +193,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-        out_observables: &mut [T]
+        out_observables: &mut [T],
     ) {
         let v = self.get_voltage_diff(node_voltages);
 
@@ -204,13 +204,18 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         };
 
         let p = v * i;
-        
+
         out_observables[0] = v;
         out_observables[1] = i;
         out_observables[2] = p;
     }
 
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+        out_currents: &mut [T],
+    ) {
         let v = self.get_voltage_diff(node_voltages);
 
         let i_flow = if ctx.is_dc_analysis {
@@ -218,7 +223,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         } else {
             (v * self.conductance) + self.eq_current
         };
-        
+
         out_currents[0] = i_flow; // Current flowing INTO Node A
         out_currents[1] = -i_flow; // Current flowing INTO Node B is
     }

@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::cell::Cell;
-use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 /// Internal state used only during the Newton-Raphson iteration loop.
@@ -484,21 +484,23 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         state.last_iter_voltage = v_d;
 
-        // Calculate Physics
         let (i_dc, g_dc, q_tot, c_tot) = self.calculate_operating_point(v_d);
 
-        // I_cap = (2/dt)*(Q_n - Q_n-1) - I_cap_n-1
-        // G_dyn = 2*C / dt
-        let dt = ctx.dt;
-        let ag = T::from(2.0).unwrap() / dt; // Alpha-G
+        let (g_total, i_total_flowing);
 
-        let g_dyn = ag * c_tot;
-        let i_cap = ag * (q_tot - self.prev_charge) - self.prev_cap_current;
+        if ctx.is_dc_analysis {
+            g_total = g_dc;
+            i_total_flowing = i_dc;
+        } else {
+            let dt = ctx.dt;
+            let ag = T::from(2.0).unwrap() / dt;
+            let g_dyn = ag * c_tot;
+            let i_cap = ag * (q_tot - self.prev_charge) - self.prev_cap_current;
 
-        let g_total = g_dc + g_dyn;
-        let i_total_flowing = i_dc + i_cap;
+            g_total = g_dc + g_dyn;
+            i_total_flowing = i_dc + i_cap;
+        }
 
-        // Newton-Raphson Source: J = I_eq - G_eq * V_op
         let i_rhs = i_total_flowing - (g_total * v_d);
 
         let (idx_p, a_offset) = self.get_intrinsic_anode_idx(l_size);
@@ -509,12 +511,11 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         let current_diff = (i_total_flowing - state.last_iter_current).abs();
 
-        // Release lock early
         let abs_tol = T::from(1e-12).unwrap();
         let rel_tol = T::from(1e-3).unwrap();
 
         let voltage_diff = (v_d - v_d_input).abs();
-        let v_converged = voltage_diff < (self.vt * T::from(0.01).unwrap()); // Within a fraction of Vt
+        let v_converged = voltage_diff < (self.vt * T::from(0.01).unwrap());
         let i_converged = current_diff < (abs_tol + rel_tol * i_total_flowing.abs());
 
         state.last_iter_current = i_total_flowing;
@@ -528,16 +529,19 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         let v_d = self.get_intrinsic_voltage(current_node_voltages);
         let (_, _, q_new, _) = self.calculate_operating_point(v_d);
 
-        let dt = ctx.dt;
-        let ag = T::from(2.0).unwrap() / dt;
+        if ctx.is_dc_analysis {
+            self.prev_voltage = v_d;
+            self.prev_charge = q_new;
+            self.prev_cap_current = T::zero();
+        } else {
+            let dt = ctx.dt;
+            let ag = T::from(2.).unwrap() / dt;
+            let i_cap_new = ag * (q_new - self.prev_charge) - self.prev_cap_current;
 
-        // Calculate capacitor current for history
-        let i_cap_new = ag * (q_new - self.prev_charge) - self.prev_cap_current;
-
-        // Update History
-        self.prev_voltage = v_d;
-        self.prev_charge = q_new;
-        self.prev_cap_current = i_cap_new;
+            self.prev_voltage = v_d;
+            self.prev_charge = q_new;
+            self.prev_cap_current = i_cap_new;
+        }
 
         let mut state = self.iter_state.get();
         state.last_iter_voltage = v_d;
@@ -563,7 +567,12 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         ]
     }
 
-    fn calculate_observables(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>, out_observables: &mut [T]) {
+    fn calculate_observables(
+        &self,
+        solution: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+        out_observables: &mut [T],
+    ) {
         // Calculate external voltage (Node A - Node B) using cached indices
         let v_a = self.cached_idx_a.map(|i| solution[i]).unwrap_or(T::zero());
         let v_b = self.cached_idx_b.map(|i| solution[i]).unwrap_or(T::zero());
@@ -576,7 +585,12 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         out_observables[2] = v_total * i_total;
     }
 
-    fn terminal_currents(&self, solution: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
+    fn terminal_currents(
+        &self,
+        solution: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+        out_currents: &mut [T],
+    ) {
         let i_flow = self.compute_total_current(solution, ctx.dt);
         // Current flows into Anode, out of Cathode
         out_currents[0] = i_flow;

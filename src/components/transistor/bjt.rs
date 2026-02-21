@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::cell::Cell;
-use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 /// Internal state for the BJT during Newton-Raphson iterations.
@@ -331,18 +331,10 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let v_bc_raw = self.polarity * (vb - vc);
 
         // Limiting and Convergence
-        let v_be = Self::limit_junction_voltage(
-            v_be_raw,
-            state.v_be_limited,
-            self.vt,
-            self.v_crit_be,
-        );
-        let v_bc = Self::limit_junction_voltage(
-            v_bc_raw,
-            state.v_bc_limited,
-            self.vt,
-            self.v_crit_bc,
-        );
+        let v_be =
+            Self::limit_junction_voltage(v_be_raw, state.v_be_limited, self.vt, self.v_crit_be);
+        let v_bc =
+            Self::limit_junction_voltage(v_bc_raw, state.v_bc_limited, self.vt, self.v_crit_bc);
 
         // Ebers-Moll with Early Effect
         let vt = self.vt;
@@ -361,8 +353,8 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let q1 = T::one() / early_denom;
 
         // Derivatives of q1
-        let dq1_dvbc = (q1 * q1) / self.v_af;
-        let dq1_dvbe = (q1 * q1) / self.v_ar;
+        let dq1_dvbc = -(q1 * q1) / self.v_af;
+        let dq1_dvbe = -(q1 * q1) / self.v_ar;
 
         let i_trans_ideal = is * (evbe - evbc);
         let i_transport = i_trans_ideal * q1;
@@ -510,7 +502,7 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         &self,
         node_voltages: &ColRef<T>,
         _ctx: &SimulationContext<T>,
-        out_observables: &mut [T]
+        out_observables: &mut [T],
     ) {
         let mut currents = [T::zero(); 3];
         self.terminal_currents(node_voltages, _ctx, &mut currents);
@@ -543,7 +535,12 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         out_observables[3] = i_b;
     }
 
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>, out_currents: &mut [T]) {
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+        out_currents: &mut [T],
+    ) {
         // Resolve Internal Nodes
         let idx_c_ext = self.cached_idx_c;
         let idx_b_ext = self.cached_idx_b;

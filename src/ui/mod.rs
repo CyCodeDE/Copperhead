@@ -22,9 +22,9 @@ mod components;
 mod drawing;
 pub mod ui;
 
+use crate::components::ComponentDescriptor;
 use crate::components::diode::DiodeModel;
 use crate::components::transistor::bjt::BjtModel;
-use crate::components::ComponentDescriptor;
 use crate::model::{CircuitScalar, ComponentProbe, GridPos, NodeId};
 use egui::Color32;
 use serde::{Deserialize, Serialize};

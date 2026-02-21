@@ -106,7 +106,8 @@ impl ComponentDescriptor {
                 let comp = Resistor::new(
                     NodeId(a),
                     NodeId(b),
-                    num_traits::cast(ohms).expect("Failed to cast resistance to circuit scalar type"),
+                    num_traits::cast(ohms)
+                        .expect("Failed to cast resistance to circuit scalar type"),
                 );
 
                 circuit.add_component(comp);
@@ -133,9 +134,10 @@ impl ComponentDescriptor {
                         .expect("Failed to cast amplitude to circuit scalar type"),
                     frequency: freq,
                     phase: T::zero(),
-                    omega: num_traits::cast(T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * freq)
-                        .expect("Failed to cast angular frequency to circuit scalar type"),
-
+                    omega: num_traits::cast(
+                        T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * freq,
+                    )
+                    .expect("Failed to cast angular frequency to circuit scalar type"),
                 });
                 let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
                 circuit.add_component(comp);
@@ -194,8 +196,9 @@ impl ComponentDescriptor {
                         .expect("Failed to cast emission coefficient to circuit scalar type"),
                     num_traits::cast(series_resistance)
                         .expect("Failed to cast series resistance to circuit scalar type"),
-                    num_traits::cast(cjo)
-                        .expect("Failed to cast zero-bias junction capacitance to circuit scalar type"),
+                    num_traits::cast(cjo).expect(
+                        "Failed to cast zero-bias junction capacitance to circuit scalar type",
+                    ),
                     num_traits::cast(m)
                         .expect("Failed to cast grading coefficient to circuit scalar type"),
                     num_traits::cast(transit_time)
@@ -247,7 +250,7 @@ impl ComponentDescriptor {
                     polarity,
                 );
                 circuit.add_component(comp);
-            },
+            }
         }
     }
 }

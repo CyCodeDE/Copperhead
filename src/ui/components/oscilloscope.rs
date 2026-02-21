@@ -21,8 +21,8 @@ use crate::ui::{SimState, SimStepData};
 use crate::util::{format_si, format_si_single};
 use egui::epaint::PathShape;
 use egui::{
-    pos2, vec2, Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response,
-    Sense, Stroke, StrokeKind, Ui, Vec2,
+    Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
+    StrokeKind, Ui, Vec2, pos2, vec2,
 };
 
 #[derive(Debug, Clone)]

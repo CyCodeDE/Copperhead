@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::collections::HashMap;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
 use crate::signals::{Signal, SignalType};
 use faer::{ColMut, ColRef, MatMut};
+use std::collections::HashMap;
 
 /// Provides a constant voltage that never changes.
 pub struct VoltageSource<T: CircuitScalar> {
@@ -131,7 +131,7 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-        out_observables: &mut [T]
+        out_observables: &mut [T],
     ) {
         let voltage = self.current_voltage;
 
@@ -145,7 +145,12 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         out_observables[1] = current;
     }
 
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]) {
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+        out_currents: &mut [T],
+    ) {
         let i_src = if let Some(idx) = self.matrix_idx {
             node_voltages[idx]
         } else {
@@ -154,7 +159,7 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
 
         // We return current flowing INTO the ports
         out_currents[0] = -i_src; // Into Pos
-        out_currents[1] = i_src;  // Into Neg
+        out_currents[1] = i_src; // Into Neg
     }
 
     fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {

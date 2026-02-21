@@ -26,8 +26,8 @@ use crate::ui::drawing::{
     check_line_rect_intersection, draw_component, draw_component_labels, draw_grid,
 };
 use crate::ui::{
-    handle_circuit_loaded, lerp_color, CircuitSelection, ComponentBuildData, SimCommand, SimStepData,
-    VisualComponent, VisualWire,
+    CircuitSelection, ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire,
+    handle_circuit_loaded, lerp_color,
 };
 use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
@@ -71,9 +71,9 @@ impl eframe::App for CircuitApp {
                     for i in 0..batch.times.len() {
                         let step = SimStepData {
                             time: batch.times[i],
-                            voltages: batch.voltages[i * nodes .. (i + 1) * nodes].to_vec(),
-                            currents: batch.currents[i * terms .. (i + 1) * terms].to_vec(),
-                            observables: batch.observables[i * obs .. (i + 1) * obs].to_vec(),
+                            voltages: batch.voltages[i * nodes..(i + 1) * nodes].to_vec(),
+                            currents: batch.currents[i * terms..(i + 1) * terms].to_vec(),
+                            observables: batch.observables[i * obs..(i + 1) * obs].to_vec(),
                         };
                         self.sim_state.history.push(step);
                     }

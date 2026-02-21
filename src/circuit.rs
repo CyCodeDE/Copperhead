@@ -17,22 +17,25 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::model::{CircuitScalar, Component, ComponentId, ComponentLinearity, InsertIntoSoA, NodeId, SimulationContext};
+use crate::components::capacitor::Capacitor;
+use crate::components::resistor::Resistor;
+use crate::model::CircuitComponents;
+use crate::model::{
+    CircuitScalar, Component, ComponentId, ComponentLinearity, InsertIntoSoA, NodeId,
+    SimulationContext,
+};
 use crate::ui::{SimBatchData, SimStepData};
+use faer::dyn_stack::{MemBuffer, MemStack};
+use faer::linalg::lu::full_pivoting::factor::lu_in_place;
 use faer::linalg::solvers::PartialPivLu;
+use faer::matrix_free::LinOp;
+use faer::perm::{Perm, PermRef};
 use faer::prelude::Solve;
 use faer::{Accum, Col, Conj, Mat, Par, Spec};
 use log::{debug, error, info, trace};
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::{EdgeRef, UnGraph};
 use std::collections::{HashMap, HashSet};
-use faer::dyn_stack::{MemBuffer, MemStack};
-use faer::linalg::lu::full_pivoting::factor::lu_in_place;
-use faer::matrix_free::LinOp;
-use faer::perm::{Perm, PermRef};
-use crate::components::capacitor::Capacitor;
-use crate::components::resistor::Resistor;
-use crate::model::CircuitComponents;
 
 const GMIN: f64 = 1e-12;
 const MAX_NR_ITERATIONS: usize = 50;
@@ -99,6 +102,7 @@ pub struct Circuit<T: CircuitScalar> {
 
     pub batch_buffer: SimBatchData,
     previous_solution: Col<T>,
+    prev_prev_solution: Col<T>,
     current_solution: Col<T>,
 
     pub time: T,
@@ -170,6 +174,7 @@ impl<T: CircuitScalar> Circuit<T> {
             num_nodes: 0,
             solver_state: None,
             previous_solution: Col::<T>::zeros(0),
+            prev_prev_solution: Col::<T>::zeros(0),
             current_solution: Col::<T>::zeros(0),
             time: T::zero(),
             step_count: 0,
@@ -179,7 +184,8 @@ impl<T: CircuitScalar> Circuit<T> {
     }
 
     pub fn add_component<C>(&mut self, component: C)
-    where C: Component<T> + InsertIntoSoA<T>
+    where
+        C: Component<T> + InsertIntoSoA<T>,
     {
         let ports = component.ports();
 
@@ -219,7 +225,12 @@ impl<T: CircuitScalar> Circuit<T> {
         self.components.find_retained_nodes(&mut node_status);
 
         self.components.bake_all_indices(&ctx, &partition.node_map);
-        self.components.assign_auxiliary_rows(&partition.node_map, n_block_start, l_aux_start, n_aux_start);
+        self.components.assign_auxiliary_rows(
+            &partition.node_map,
+            n_block_start,
+            l_aux_start,
+            n_aux_start,
+        );
 
         let l_size = partition.num_l_nodes + partition.num_l_aux;
         let n_size = partition.num_n_nodes + partition.num_n_aux;
@@ -227,7 +238,8 @@ impl<T: CircuitScalar> Circuit<T> {
 
         let mut matrix_a = Mat::<T>::zeros(total_size, total_size);
 
-        self.components.stamp_all_static(&mut matrix_a.as_mut(), &ctx);
+        self.components
+            .stamp_all_static(&mut matrix_a.as_mut(), &ctx);
 
         if is_dc {
             let gmin = T::from(GMIN).unwrap();
@@ -257,6 +269,7 @@ impl<T: CircuitScalar> Circuit<T> {
         }
 
         self.previous_solution = Col::<T>::zeros(total_size);
+        self.prev_prev_solution = Col::<T>::zeros(total_size);
         self.current_solution = Col::<T>::zeros(total_size);
         self.partition = Some(partition);
 
@@ -266,13 +279,12 @@ impl<T: CircuitScalar> Circuit<T> {
             n_size,
             n_size,
             Par::Seq,
-            Default::default()
+            Default::default(),
         );
-        let solve_memory = faer::linalg::lu::partial_pivoting::solve::solve_in_place_scratch::<usize, T>(
-            n_size,
-            n_size,
-            Par::Seq,
-        );
+        let solve_memory = faer::linalg::lu::partial_pivoting::solve::solve_in_place_scratch::<
+            usize,
+            T,
+        >(n_size, n_size, Par::Seq);
 
         let combined_req = lu_memory.or(solve_memory);
         let lu_workspace_memory = MemBuffer::new(combined_req);
@@ -328,7 +340,10 @@ impl<T: CircuitScalar> Circuit<T> {
                     continue; // Skip Ground
                 }
 
-                match node_status.get(&node_id).unwrap_or(&NodePartition::Eliminated) {
+                match node_status
+                    .get(&node_id)
+                    .unwrap_or(&NodePartition::Eliminated)
+                {
                     NodePartition::Eliminated => l_nodes.push(node_id),
                     NodePartition::Retained => n_nodes.push(node_id),
                 }
@@ -392,11 +407,8 @@ impl<T: CircuitScalar> Circuit<T> {
         let mut b_full = Col::<T>::zeros(total_size);
         let empty_prev = Col::<T>::zeros(total_size);
 
-        self.components.stamp_all_dynamic(
-            &empty_prev.as_ref(),
-            &mut b_full.as_mut(),
-            &dc_ctx,
-        );
+        self.components
+            .stamp_all_dynamic(&empty_prev.as_ref(), &mut b_full.as_mut(), &dc_ctx);
 
         let b_l = b_full.subrows(0, state.l_size);
         let b_n = b_full.subrows(state.l_size, state.n_size);
@@ -462,10 +474,7 @@ impl<T: CircuitScalar> Circuit<T> {
         self.current_solution = x.clone();
         self.previous_solution = x.clone();
 
-        self.components.update_all_states(
-            &x.as_ref(),
-            &dc_ctx,
-        );
+        self.components.update_all_states(&x.as_ref(), &dc_ctx);
 
         self.record_state(&dc_ctx);
         self.step_count += 1;
@@ -489,7 +498,16 @@ impl<T: CircuitScalar> Circuit<T> {
         // A good guess is the solution from the previous time step.
         // If we don't do this, the diodes for example starts at 0V (off) every step,
         if self.previous_solution.nrows() == total_size {
-            self.current_solution.copy_from(&self.previous_solution);
+            if self.step_count > 1 {
+                // First-order linear extrapolation
+                for i in 0..total_size {
+                    // x_n = x_{n-1} + (x_{n-1} - x_{n-2})
+                    self.current_solution[i] = self.previous_solution[i]
+                        + (self.previous_solution[i] - self.prev_prev_solution[i]);
+                }
+            } else {
+                self.current_solution.copy_from(&self.previous_solution);
+            }
         } else {
             // First run or resize
             self.current_solution = Col::<T>::zeros(total_size);
@@ -589,7 +607,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     PermRef::new_unchecked(
                         &state.workspace.row_perm_fwd,
                         &state.workspace.row_perm_inv,
-                        state.workspace.iter_matrix.nrows()
+                        state.workspace.iter_matrix.nrows(),
                     )
                 };
 
@@ -600,7 +618,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     Conj::No,
                     state.workspace.iter_rhs.as_mat_mut(),
                     Par::Seq,
-                    stack
+                    stack,
                 );
 
                 // Element-wise diff and damped update
@@ -657,12 +675,11 @@ impl<T: CircuitScalar> Circuit<T> {
             self.current_solution[i] = state.workspace.v_temp[i] - state.workspace.adjustment[i];
         }
 
-        self.components.update_all_states(
-            &self.current_solution.as_ref(),
-            &ctx,
-        );
+        self.components
+            .update_all_states(&self.current_solution.as_ref(), &ctx);
 
         self.record_state(&ctx);
+        self.prev_prev_solution.copy_from(&self.previous_solution);
         self.previous_solution.copy_from(&self.current_solution);
         self.step_count += 1;
     }
@@ -672,7 +689,9 @@ impl<T: CircuitScalar> Circuit<T> {
         self.batch_buffer.times.push(self.time.to_f64().unwrap());
 
         let v_start = self.batch_buffer.voltages.len();
-        self.batch_buffer.voltages.resize(v_start + self.num_nodes + 1, 0.0);
+        self.batch_buffer
+            .voltages
+            .resize(v_start + self.num_nodes + 1, 0.0);
 
         if let Some(partition) = &self.partition {
             for (node_id, &matrix_row_idx) in &partition.node_map {
@@ -694,7 +713,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     *comp_id,
                     &self.current_solution.as_ref(),
                     ctx,
-                    current_slice
+                    current_slice,
                 );
 
                 for val in current_slice.iter() {
@@ -708,7 +727,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     *comp_id,
                     &self.current_solution.as_ref(),
                     ctx,
-                    obs_slice
+                    obs_slice,
                 );
 
                 for val in obs_slice.iter() {

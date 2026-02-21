@@ -17,13 +17,6 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use egui::{Pos2, Vec2};
-use faer::traits::ComplexField;
-use faer::{ColMut, ColRef, MatMut};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::ops::{Add, Sub};
 use crate::circuit::NodePartition;
 use crate::components::capacitor::Capacitor;
 use crate::components::diode::Diode;
@@ -31,6 +24,13 @@ use crate::components::inductor::Inductor;
 use crate::components::resistor::Resistor;
 use crate::components::transistor::bjt::Bjt;
 use crate::components::voltage_source::VoltageSource;
+use egui::{Pos2, Vec2};
+use faer::traits::ComplexField;
+use faer::{ColMut, ColRef, MatMut};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::ops::{Add, Sub};
 
 /// The numerical trait.
 /// For inference: T = f32
@@ -212,7 +212,9 @@ macro_rules! define_circuit_components {
                         ComponentLinearity::TimeVariant | ComponentLinearity::NonLinear => {
                             // Assuming your components have a method to return their connected NodeIds
                             for node_id in comp.ports() {
-                                node_status.insert(node_id, NodePartition::Retained);
+                                if node_id != NodeId(0) {
+                                    node_status.insert(node_id, NodePartition::Retained);
+                                }
                             }
                         }
                         _ => {}
@@ -450,13 +452,19 @@ pub trait Component<T: CircuitScalar> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-        out_observables: &mut [T]
-    ) {}
+        out_observables: &mut [T],
+    ) {
+    }
 
     /// Calculates the exact current flowing INTO every port defined in `ports()`
     /// For example for a BJT with ports [C, B, E], this returns [I_C, I_B, I_E]
     /// KCL defines that theoretically the sums should be zero
-    fn terminal_currents(&self, node_voltages: &ColRef<T>, ctx: &SimulationContext<T>, out_currents: &mut [T]);
+    fn terminal_currents(
+        &self,
+        node_voltages: &ColRef<T>,
+        ctx: &SimulationContext<T>,
+        out_currents: &mut [T],
+    );
 
     /// Updates a parameter by name.
     /// Returns true if the static matrix needs to be rebuilt.

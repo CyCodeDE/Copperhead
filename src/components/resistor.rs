@@ -16,12 +16,12 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::collections::HashMap;
+use crate::circuit::NodePartition;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
 use faer::ColRef;
-use crate::circuit::NodePartition;
+use std::collections::HashMap;
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
@@ -148,7 +148,7 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         &self,
         node_voltages: &ColRef<T>,
         ctx: &SimulationContext<T>,
-        out_observables: &mut [T]
+        out_observables: &mut [T],
     ) {
         let v_a = self.get_voltage(self.node_a, node_voltages);
         let v_b = self.get_voltage(self.node_b, node_voltages);
@@ -162,7 +162,12 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         out_observables[2] = power;
     }
 
-    fn terminal_currents(&self, sol: &ColRef<T>, _ctx: &SimulationContext<T>, out_currents: &mut [T]) {
+    fn terminal_currents(
+        &self,
+        sol: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+        out_currents: &mut [T],
+    ) {
         let v_a = self.get_voltage(self.node_a, sol);
         let v_b = self.get_voltage(self.node_b, sol);
 
@@ -170,7 +175,7 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         let i_a = (v_a - v_b) * self.conductance;
         // Current flowing INTO Node B is negative of that
         let i_b = -i_a;
-        
+
         out_currents[0] = i_a;
         out_currents[1] = i_b;
     }
