@@ -189,7 +189,7 @@ pub struct CircuitApp {
     pub file_sender: Sender<Option<PathBuf>>,
     pub file_dialog_state: FileDialogState,
     pub current_file: Option<PathBuf>,
-    pub audio_source_path: Option<PathBuf>,
+    pub temp_audio_path: Option<PathBuf>,
     pub wire_color_cache: HashMap<NodeId, Color32>,
 }
 
@@ -205,6 +205,7 @@ pub enum FileDialogState {
     SaveSchem,
     LoadSchem,
     LoadAudio,
+    SaveAudio,
     Closed,
 }
 
@@ -321,7 +322,7 @@ impl CircuitApp {
             file_sender,
             file_dialog_state: FileDialogState::Closed,
             current_file: None,
-            audio_source_path: None,
+            temp_audio_path: None,
             wire_color_cache: HashMap::new(),
         }
     }
@@ -487,48 +488,42 @@ impl CircuitApp {
             }
 
             let pins = comp.get_pin_locations();
-            if pins.len() < 2 {
-                continue;
-            }
 
-            let node_a = *final_node_map.get(&pins[0]).expect("Pin not mapped");
-            let node_b = *final_node_map.get(&pins[1]).expect("Pin not mapped");
+            let node_a = pins.get(0).and_then(|p| final_node_map.get(p)).cloned();
+            let node_b = pins.get(1).and_then(|p| final_node_map.get(p)).cloned();
             let node_c = pins.get(2).and_then(|p| final_node_map.get(p)).cloned();
 
-            let (a, b) = (node_a.0, node_b.0);
             let c = node_c.map(|n| n.0);
 
             let descriptor = match comp.component.clone() {
                 ComponentBuildData::Resistor { resistance } => ComponentDescriptor::Resistor {
-                    a,
-                    b,
+                    a: node_a.expect("A is not mapped").0,
+                    b: node_b.expect("B is not mapped").0,
                     ohms: resistance,
                 },
                 ComponentBuildData::DCSource { voltage } => ComponentDescriptor::DCSource {
-                    pos: a,
-                    neg: b,
+                    pos: node_a.expect("A is not mapped").0,
+                    neg: node_b.expect("B is not mapped").0,
                     volts: voltage,
                 },
                 ComponentBuildData::ASource {
                     amplitude,
                     frequency,
                 } => ComponentDescriptor::ASource {
-                    pos: a,
-                    neg: b,
+                    pos: node_a.expect("A is not mapped").0,
+                    neg: node_b.expect("B is not mapped").0,
                     amp: amplitude,
                     freq: frequency,
                 },
-                ComponentBuildData::AudioSource {
-                    path,
-                } => ComponentDescriptor::AudioSource {
-                    pos: a,
-                    neg: b,
+                ComponentBuildData::AudioSource { path } => ComponentDescriptor::AudioSource {
+                    pos: node_a.expect("A is not mapped").0,
+                    neg: node_b.expect("B is not mapped").0,
                     file_path: path,
                 },
                 ComponentBuildData::Capacitor { capacitance, esr } => {
                     ComponentDescriptor::Capacitor {
-                        a,
-                        b,
+                        a: node_a.expect("A is not mapped").0,
+                        b: node_b.expect("B is not mapped").0,
                         capacitance,
                         esr,
                     }
@@ -537,8 +532,8 @@ impl CircuitApp {
                     inductance,
                     series_resistance,
                 } => ComponentDescriptor::Inductor {
-                    a,
-                    b,
+                    a: node_a.expect("A is not mapped").0,
+                    b: node_b.expect("B is not mapped").0,
                     inductance,
                     series_resistance,
                 },
@@ -555,8 +550,8 @@ impl CircuitApp {
                     ) = model.parameters();
 
                     ComponentDescriptor::Diode {
-                        a,
-                        b,
+                        a: node_a.expect("A is not mapped").0,
+                        b: node_b.expect("B is not mapped").0,
                         saturation_current,
                         emission_coefficient,
                         series_resistance,
@@ -572,8 +567,8 @@ impl CircuitApp {
                     let (is, bf, br, vt, vaf, var, rc, rb, re, polarity) = model.parameters();
 
                     ComponentDescriptor::Bjt {
-                        c: a,
-                        b,
+                        c: node_a.expect("A is not mapped").0,
+                        b: node_b.expect("B is not mapped").0,
                         e: c.unwrap(),
                         saturation_current: is,
                         beta_f: bf,
@@ -587,6 +582,10 @@ impl CircuitApp {
                         polarity,
                     }
                 }
+                ComponentBuildData::AudioProbe { path } => ComponentDescriptor::AudioProbe {
+                    file_path: path,
+                    node: node_a.expect("A is not mapped").0,
+                },
                 _ => continue,
             };
 

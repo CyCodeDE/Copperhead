@@ -18,6 +18,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+mod audio;
 pub(crate) mod circuit;
 pub(crate) mod components;
 pub(crate) mod model;
@@ -25,7 +26,6 @@ mod signals;
 mod simulation;
 pub mod ui;
 mod util;
-mod audio;
 
 use crate::ui::app::CircuitApp;
 use egui::ViewportBuilder;

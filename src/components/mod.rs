@@ -16,17 +16,18 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::path::PathBuf;
-use portable_atomic::AtomicUsize;
 use crate::audio::load_and_resample_audio;
 use crate::circuit::Circuit;
-use crate::components::ComponentDescriptor::Bjt;
+use crate::components::audio_probe::AudioProbe;
 use crate::components::diode::Diode;
 use crate::components::resistor::Resistor;
 use crate::components::voltage_source::VoltageSource;
-use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, NodeId};
 use crate::signals::{AudioBufferSignal, ConstantSignal, SignalType, SineSignal};
+use portable_atomic::AtomicUsize;
+use std::path::PathBuf;
 
+pub mod audio_probe;
 pub mod capacitor;
 pub mod diode;
 pub mod inductor;
@@ -105,6 +106,10 @@ pub enum ComponentDescriptor {
         re: f64,
         polarity: bool,
     },
+    AudioProbe {
+        node: usize,
+        file_path: PathBuf,
+    },
 }
 
 impl ComponentDescriptor {
@@ -153,9 +158,12 @@ impl ComponentDescriptor {
             ComponentDescriptor::AudioSource {
                 pos,
                 neg,
-                file_path
+                file_path,
             } => {
-                let target_sample_rate = (T::from(1.0).unwrap() / dt).round().to_u32().expect("Failed to convert target sample rate to u32");
+                let target_sample_rate = (T::from(1.0).unwrap() / dt)
+                    .round()
+                    .to_u32()
+                    .expect("Failed to convert target sample rate to u32");
                 let samples: Vec<T> = load_and_resample_audio(&file_path, target_sample_rate);
 
                 let signal = SignalType::AudioBuffer(AudioBufferSignal {
@@ -277,6 +285,28 @@ impl ComponentDescriptor {
                 );
                 circuit.add_component(comp);
             }
+            _ => { /* Probes require the simulation length for allocation */ }
         }
+    }
+}
+
+pub fn add_probe_to_circuit<T: CircuitScalar>(
+    component: ComponentDescriptor,
+    dt: T,
+    circuit: &mut Circuit<T>,
+    max_steps: usize,
+) {
+    println!("MAX STEPS: {}", max_steps);
+
+    match component {
+        ComponentDescriptor::AudioProbe { node, file_path } => {
+            let target_sample_rate = (T::from(1.0).unwrap() / dt)
+                .round()
+                .to_u32()
+                .expect("Failed to convert target sample rate to u32");
+            let comp = AudioProbe::new(NodeId(node), file_path, max_steps, target_sample_rate);
+            circuit.add_component(comp);
+        }
+        _ => {}
     }
 }

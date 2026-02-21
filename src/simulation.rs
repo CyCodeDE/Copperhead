@@ -17,7 +17,9 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::audio::write_to_wav;
 use crate::circuit::{Circuit, CircuitElement};
+use crate::components::{ComponentDescriptor, add_probe_to_circuit};
 use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentMetadata, SimBatchData, SimCommand, SimStepData};
 use crossbeam::channel::{Receiver, Sender};
@@ -58,6 +60,11 @@ pub fn run_simulation_loop(
                     current_start = std::time::Instant::now();
                 }
                 SimCommand::LoadCircuit(netlist) => {
+                    assert_ne!(
+                        max_steps,
+                        usize::MAX,
+                        "usize overflow protection: Did you forget to set the maximum run time before loading the circuit?"
+                    );
                     //let mut s = state.write();
                     state.send(StateUpdate::UpdateRunning(false));
                     running = false;
@@ -65,8 +72,12 @@ pub fn run_simulation_loop(
 
                     let mut new_ckt = Circuit::<f64>::new();
                     for instr in netlist.instructions {
-                        //new_ckt.add_component(instr.build(dt));
-                        instr.add_to_circuit(dt, &mut new_ckt);
+                        if matches!(instr, ComponentDescriptor::AudioProbe { .. }) {
+                            println!("MATCHES");
+                            add_probe_to_circuit(instr, dt, &mut new_ckt, max_steps);
+                        } else {
+                            instr.add_to_circuit(dt, &mut new_ckt);
+                        }
                     }
 
                     match new_ckt.calculate_dc_operating_point(1e-6, 100, dt) {
@@ -201,8 +212,22 @@ pub fn run_simulation_loop(
                     running = false;
                     state.send(StateUpdate::UpdateRunning(false));
                     let elapsed = current_start.elapsed();
-                    println!("Finished after: {:?}", elapsed);
-                    println!("Average time per step: {:?}", elapsed / current_step as u32);
+                    info!("Finished after: {:?}", elapsed);
+                    info!("Average time per step: {:?}", elapsed / current_step as u32);
+
+                    for probe in &ckt.components.audio_probes {
+                        if probe.buffer.is_empty() || probe.filepath.is_empty() {
+                            info!(
+                                "Skipping WAV export for probe due to empty buffer or filepath"
+                            );
+                            continue;
+                        }
+                        write_to_wav(
+                            probe.filepath.clone(),
+                            &probe.buffer.as_slice(),
+                            probe.target_sample_rate,
+                        );
+                    }
                 }
             }
         } else {

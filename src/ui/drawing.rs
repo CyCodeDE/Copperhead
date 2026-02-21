@@ -86,6 +86,9 @@ pub fn draw_component<F>(
         ComponentBuildData::ASource { .. } => {
             draw_ac_source(painter, center, rotation, zoom, fill_color, stroke_color);
         }
+        ComponentBuildData::AudioSource { .. } => {
+            draw_audio_source(painter, center, rotation, zoom, fill_color, stroke_color);
+        }
         ComponentBuildData::Ground => {
             draw_ground(painter, center, rotation, zoom, stroke_color);
         }
@@ -345,6 +348,50 @@ fn draw_ac_source(
         stroke,
     );
     painter.add(bezier);
+}
+
+fn draw_audio_source(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let radius = 0.4;
+    let stroke = Stroke::new(2.0, stroke_color);
+
+    // Draw the source body
+    painter.circle(center, radius * zoom, fill_color, stroke);
+
+    // Draw the top pin
+    let top_pin = rotate_vec(Vec2::new(0.0, -1.0) * zoom, rotation);
+    let top_circle = rotate_vec(Vec2::new(0.0, -radius) * zoom, rotation);
+    painter.line_segment([center + top_pin, center + top_circle], stroke);
+
+    // Draw the bottom pin
+    let bot_pin = rotate_vec(Vec2::new(0.0, 1.0) * zoom, rotation);
+    let bot_circle = rotate_vec(Vec2::new(0.0, radius) * zoom, rotation);
+    painter.line_segment([center + bot_pin, center + bot_circle], stroke);
+
+    // Draw an irregular, jagged waveform to represent arbitrary audio samples
+    let wave_points = vec![
+        Vec2::new(-0.25, 0.0),
+        Vec2::new(-0.15, -0.15),
+        Vec2::new(-0.05, 0.20),
+        Vec2::new(0.05, -0.20),
+        Vec2::new(0.15, 0.10),
+        Vec2::new(0.25, 0.0),
+    ];
+
+    // Transform points based on position, zoom, and rotation
+    let transformed_points: Vec<Pos2> = wave_points
+        .into_iter()
+        .map(|p| center + rotate_vec(p * zoom, rotation))
+        .collect();
+
+    // Draw the continuous jagged line
+    painter.add(egui::epaint::PathShape::line(transformed_points, stroke));
 }
 
 fn draw_ground(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, stroke_color: Color32) {
@@ -799,7 +846,9 @@ pub fn draw_component_labels(
             };
             (label_pos, Vec2::ZERO)
         }
-        ComponentBuildData::DCSource { .. } | ComponentBuildData::ASource { .. } => {
+        ComponentBuildData::DCSource { .. }
+        | ComponentBuildData::ASource { .. }
+        | ComponentBuildData::AudioSource { .. } => {
             // Place label below for vertical, right for horizontal
             let label_pos = match rotation {
                 0 | 2 => Vec2::new(0.7 * zoom, -0.62 * zoom), // Below
@@ -909,6 +958,18 @@ pub fn draw_component_labels(
     let value = match &component.component {
         ComponentBuildData::Diode { model } => model.format_name().to_string(),
         ComponentBuildData::Bjt { model } => model.format_name().to_string(),
+        ComponentBuildData::AudioSource { path } => {
+            // format the pathbuf to include just the file name and extension, not the full path
+            if let Some(file_name) = path.file_name() {
+                if let Some(file_str) = file_name.to_str() {
+                    file_str.to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        }
         _ => format_si(mapping.as_slice(), 0.1, 2),
     };
 

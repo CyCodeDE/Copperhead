@@ -17,13 +17,14 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use audioadapter_buffers::direct::InterleavedSlice;
+use hound::{SampleFormat, WavSpec, WavWriter};
 use num_traits::NumCast;
+use rubato::{Fft, FixedSync, Indexing, Resampler};
 use std::fs::File;
 use std::path::PathBuf;
-use audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Fft, FixedSync, Resampler};
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -31,17 +32,19 @@ use symphonia::core::probe::Hint;
 
 /// Reads an audio file (WAV, MP3, FLAC), converts to mono f32,
 /// and resamples to the target simulation sample rate.
-pub fn load_and_resample_audio<T: NumCast>(
-    file_path: &PathBuf,
-    target_sample_rate: u32,
-) -> Vec<T> {
+pub fn load_and_resample_audio<T: NumCast>(file_path: &PathBuf, target_sample_rate: u32) -> Vec<T> {
     // Open file and probe format
     let src = File::open(file_path).expect("Failed to open audio file");
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
     let hint = Hint::new();
 
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .expect("Unsupported audio format");
 
     let mut format = probed.format;
@@ -70,10 +73,8 @@ pub fn load_and_resample_audio<T: NumCast>(
         }
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
-                let mut sample_buf = SampleBuffer::<f32>::new(
-                    audio_buf.capacity() as u64,
-                    *audio_buf.spec(),
-                );
+                let mut sample_buf =
+                    SampleBuffer::<f32>::new(audio_buf.capacity() as u64, *audio_buf.spec());
                 sample_buf.copy_interleaved_ref(audio_buf);
 
                 // Convert to mono by taking the first channel (e.g., Left) if multiple channels exist
@@ -82,28 +83,59 @@ pub fn load_and_resample_audio<T: NumCast>(
                 }
             }
             Err(symphonia::core::errors::Error::DecodeError(_)) => (), // Skip bad packets
-            Err(_) => break, // EOF or fatal error
+            Err(_) => break,                                           // EOF or fatal error
         }
     }
 
     // Resample if sample rates differ
     let final_f32_samples = if source_sample_rate != target_sample_rate {
-        println!("Resampling from {} Hz to {} Hz...", source_sample_rate, target_sample_rate);
+        println!(
+            "Resampling from {} Hz to {} Hz...",
+            source_sample_rate, target_sample_rate
+        );
 
         let mut resampler = Fft::<f32>::new(
             source_sample_rate as usize,
             target_sample_rate as usize,
-            raw_samples_f32.len(),
+            1024,
             1,
             1, // mono
-            FixedSync::Input
-        ).expect("Failed to initialize resampler");
+            FixedSync::Input,
+        )
+        .expect("Failed to initialize resampler");
 
-        let input_buffers = InterleavedSlice::new(&raw_samples_f32, channels, raw_samples_f32.len()).expect("Failed to interlain raw samples");
-        let output_buffers = resampler.process(&input_buffers, 0, None)
-            .expect("Failed to resample audio");
+        let input_adapter =
+            InterleavedSlice::new(&raw_samples_f32, channels, raw_samples_f32.len())
+                .expect("Failed to interlain raw samples");
+        let output_capacity = ((raw_samples_f32.len() as f64)
+            * (target_sample_rate as f64 / source_sample_rate as f64))
+            .ceil() as usize;
+        let mut output_buffer_vec = vec![0.0f32; output_capacity];
+        let mut output_adapter =
+            InterleavedSlice::new_mut(&mut output_buffer_vec, channels, output_capacity).unwrap();
 
-        output_buffers.take_data()
+        let mut indexing = Indexing {
+            input_offset: 0,
+            output_offset: 0,
+            active_channels_mask: None,
+            partial_len: None,
+        };
+
+        let mut input_frames_left = raw_samples_f32.len();
+        let mut input_frames_next = resampler.input_frames_next();
+
+        while input_frames_left >= input_frames_next {
+            let (frames_read, frames_written) = resampler
+                .process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))
+                .unwrap();
+
+            indexing.input_offset += frames_read;
+            indexing.output_offset += frames_written;
+            input_frames_left -= frames_read;
+            input_frames_next = resampler.input_frames_next();
+        }
+
+        output_buffer_vec
     } else {
         raw_samples_f32
     };
@@ -114,4 +146,35 @@ pub fn load_and_resample_audio<T: NumCast>(
         .into_iter()
         .map(|s| num_traits::cast(s).expect("Failed to cast audio sample to circuit scalar"))
         .collect()
+}
+
+/// Writes a slice of simulation voltages to a 32-bit float WAV file.
+pub fn write_to_wav<T: NumCast + Copy>(file_path: PathBuf, samples: &[T], sample_rate: u32) {
+    // f32 to avoid clipping
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 32,
+        sample_format: SampleFormat::Float,
+    };
+
+    let mut writer = WavWriter::create(&file_path, spec)
+        .unwrap_or_else(|_| panic!("Failed to create WAV writer at {:?}", file_path));
+
+    for &sample in samples {
+        let sample_f32: f32 =
+            num_traits::cast(sample).expect("Failed to cast circuit scalar to f32");
+
+        writer
+            .write_sample(sample_f32)
+            .expect("Failed to write sample to WAV file");
+    }
+
+    writer.finalize().expect("Failed to finalize WAV file");
+
+    println!(
+        "Successfully wrote {} samples to {:?}",
+        samples.len(),
+        file_path
+    );
 }

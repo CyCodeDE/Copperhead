@@ -31,7 +31,12 @@ use crate::ui::{
 };
 use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
-use egui::{vec2, Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon, Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter, Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat, TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText};
+use egui::{
+    Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon,
+    Direction, FontSelection, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Painter,
+    Pos2, Rect, RichText, Sense, Separator, Shape, Stroke, StrokeKind, Style, TextEdit, TextFormat,
+    TopBottomPanel, UiBuilder, Vec2, Vec2b, ViewportCommand, WidgetText, vec2,
+};
 use egui_plot::{Line, Plot, PlotPoints};
 use faer::prelude::default;
 use log::{debug, info};
@@ -111,7 +116,10 @@ impl eframe::App for CircuitApp {
                         self.save_to_path(path);
                     }
                     FileDialogState::LoadAudio => {
-                        self.audio_source_path = Some(path);
+                        self.temp_audio_path = Some(path);
+                    }
+                    FileDialogState::SaveAudio => {
+                        self.temp_audio_path = Some(path);
                     }
                     _ => {}
                 }
@@ -341,10 +349,10 @@ impl eframe::App for CircuitApp {
                                 debug!("Compiled Netlist: {:?}", netlist);
 
                                 self.tx_command
-                                    .send(SimCommand::LoadCircuit(netlist))
+                                    .send(SimCommand::SetRunTime(self.state.simulation_time))
                                     .unwrap();
                                 self.tx_command
-                                    .send(SimCommand::SetRunTime(self.state.simulation_time))
+                                    .send(SimCommand::LoadCircuit(netlist))
                                     .unwrap();
                                 self.tx_command.send(SimCommand::Resume).unwrap();
                             }
@@ -459,6 +467,11 @@ impl eframe::App for CircuitApp {
                 if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Bjt { model: _ })), Button::new("Bjt")).clicked()
                 {
                     self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Bjt { model: BjtModel::GenericNPN });
+                }
+                ui.separator();
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: _ })), Button::new("Audio Probe")).clicked()
+                {
+                    self.selected_tool = Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: PathBuf::new() });
                 }
 
                 ui.separator();
@@ -663,7 +676,8 @@ impl eframe::App for CircuitApp {
                                 ComponentBuildData::AudioSource { .. } => GridPos { x: 2, y: 1 },
 
                                 ComponentBuildData::Ground |
-                                ComponentBuildData::Label => GridPos { x: 1, y: 1 },
+                                ComponentBuildData::Label |
+                                ComponentBuildData::AudioProbe { .. } => GridPos { x: 1, y: 1 },
 
                                 ComponentBuildData::Bjt { .. } => GridPos { x: 2, y: 2}, // a bjt has pins at these positions: vec![(1, 1), (-1, 0), (1, -1)]
                             };
@@ -1183,7 +1197,7 @@ impl eframe::App for CircuitApp {
                                             });
                                         }
                                         ComponentBuildData::AudioSource { path } => {
-                                            if let Some(new_path) = self.audio_source_path.take() {
+                                            if let Some(new_path) = self.temp_audio_path.take() {
                                                 *path = new_path;
                                             }
 
@@ -1197,12 +1211,11 @@ impl eframe::App for CircuitApp {
                                             let has_dragged_files = !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
                                             let is_dragged_over = is_hovered && has_dragged_files;
 
-                                            // 3. Draw the background and border
                                             let visuals = ui.style().interact(&response);
                                             let fill_color = if is_dragged_over {
-                                                ui.visuals().selection.bg_fill // Highlight color when dragging a file over
+                                                ui.visuals().selection.bg_fill
                                             } else {
-                                                visuals.bg_fill // Normal button color
+                                                visuals.bg_fill
                                             };
 
                                             ui.painter().rect(
@@ -1234,6 +1247,72 @@ impl eframe::App for CircuitApp {
                                                 // Spawn RFD thread
                                                 std::thread::spawn(move || {
                                                     let file = rfd::FileDialog::new().add_filter("Audio", &["wav", "mp3", "flac"]).pick_file();
+                                                    let _ = tx.send(file);
+                                                    ctx_clone.request_repaint();
+                                                });
+                                            }
+
+                                            ui.ctx().input(|i| {
+                                                if is_hovered && !i.raw.dropped_files.is_empty() {
+                                                    if let Some(dropped_file) = i.raw.dropped_files.first() {
+                                                        if let Some(dropped_path) = &dropped_file.path {
+                                                            *path = dropped_path.clone();
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }
+                                        ComponentBuildData::AudioProbe { path } => {
+                                            if let Some(new_path) = self.temp_audio_path.take() {
+                                                *path = new_path;
+                                            }
+
+                                            ui.label("Select output path:");
+
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                Vec2::new(ui.available_width() / 2., 20.0f32),
+                                                Sense::click()
+                                            );
+                                            let is_hovered = response.hovered();
+                                            let has_dragged_files = !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
+                                            let is_dragged_over = is_hovered && has_dragged_files;
+
+                                            let visuals = ui.style().interact(&response);
+                                            let fill_color = if is_dragged_over {
+                                                ui.visuals().selection.bg_fill // Highlight color when dragging a file over
+                                            } else {
+                                                visuals.bg_fill // Normal button color
+                                            };
+
+                                            ui.painter().rect(
+                                                rect,
+                                                6.0,
+                                                fill_color,
+                                                visuals.bg_stroke,
+                                                StrokeKind::Inside
+                                            );
+                                            let display_text = if !path.is_empty() {
+                                                format!("🎵 {}", path.file_name().unwrap_or_default().to_string_lossy())
+                                            } else {
+                                                "Select File".to_string()
+                                            };
+
+                                            ui.painter().text(
+                                                rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                display_text,
+                                                egui::FontId::proportional(14.0),
+                                                visuals.text_color(),
+                                            );
+
+                                            if response.clicked() && self.file_dialog_state == FileDialogState::Closed {
+                                                self.file_dialog_state = FileDialogState::SaveAudio;
+                                                let tx = self.file_sender.clone();
+                                                let ctx_clone = ui.ctx().clone();
+
+                                                // Spawn RFD thread
+                                                std::thread::spawn(move || {
+                                                    let file = rfd::FileDialog::new().add_filter("Audio", &["wav"]).save_file();
                                                     let _ = tx.send(file);
                                                     ctx_clone.request_repaint();
                                                 });

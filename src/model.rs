@@ -18,6 +18,7 @@
  */
 
 use crate::circuit::NodePartition;
+use crate::components::audio_probe::AudioProbe;
 use crate::components::capacitor::Capacitor;
 use crate::components::diode::Diode;
 use crate::components::inductor::Inductor;
@@ -369,6 +370,7 @@ define_circuit_components!(
     voltage_sources: VoltageSource,
     diodes: Diode,
     bjts: Bjt,
+    audio_probes: AudioProbe,
 );
 
 /// The interface a component must implement.

@@ -60,6 +60,9 @@ pub enum ComponentBuildData {
     Bjt {
         model: BjtModel,
     },
+    AudioProbe {
+        path: PathBuf,
+    },
     Label,
     Ground,
 }
@@ -74,6 +77,7 @@ impl ComponentBuildData {
             Self::AudioSource { .. } => "WAV",
             Self::Diode { .. } => "D",
             Self::Bjt { .. } => "Q",
+            Self::AudioProbe { .. } => "Probe",
             Self::Label { .. } => "",
             Self::Ground => "",
         }
@@ -102,12 +106,13 @@ impl VisualComponent {
         let local_pins = match &self.component {
             ComponentBuildData::Ground => vec![(0, 0)],       // 1 Pin
             ComponentBuildData::Label { .. } => vec![(0, 0)], // 1 Pin (for positioning)
+            ComponentBuildData::AudioProbe { .. } => vec![(0, 0)], // 1 Pin (for positioning)
             ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
             ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
             ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
             ComponentBuildData::AudioSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
-            ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
-            ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
+            ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)],   // 2 Pins -> A and B
+            ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)],    // 2 Pins -> A and B
             ComponentBuildData::Diode { .. } => vec![(-1, 0), (1, 0)], // 2 Pins (Anode, Cathode) -> A and B
             ComponentBuildData::Bjt { model } => match model.polarity() {
                 true => vec![(1, -1), (-1, 0), (1, 1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E   | NPN
