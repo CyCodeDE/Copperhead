@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026-2026 Patrice Wehnemann and the Copperhead contributors
+ * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
  *
  * This file is part of Copperhead.
  *
@@ -62,7 +62,7 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                     let mut new_ckt = Circuit::<f64>::new();
                     for instr in netlist.instructions {
                         //new_ckt.add_component(instr.build(dt));
-                        new_ckt.add_component(instr.build(dt));
+                        instr.add_to_circuit(dt, &mut new_ckt);
                     }
 
                     match new_ckt.calculate_dc_operating_point(1e-6, 100, dt) {
@@ -77,9 +77,9 @@ pub fn run_simulation_loop(rx: Receiver<SimCommand>, state: Sender<StateUpdate>)
                     let mut total_observables = 0;
 
                     for (ui_idx, &graph_idx) in new_ckt.component_order.iter().enumerate() {
-                        if let CircuitElement::Device(comp) = &new_ckt.graph[graph_idx] {
-                            let probes = comp.probe_definitions();
-                            let num_terms = comp.ports().len();
+                        if let CircuitElement::Device(comp_id) = &new_ckt.graph[graph_idx] {
+                            let probes = new_ckt.components.get_probe_definitions(*comp_id);
+                            let num_terms = new_ckt.components.get_num_terminals(*comp_id);
 
                             total_observables += probes.len();
                             total_terminals += num_terms;

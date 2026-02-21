@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026-2026 Patrice Wehnemann and the Copperhead contributors
+ * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
  *
  * This file is part of Copperhead.
  *
@@ -29,6 +29,8 @@ use crate::ui::app::CircuitApp;
 use egui::ViewportBuilder;
 
 fn main() -> eframe::Result {
+    env_logger::init();
+
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default(),
         ..Default::default()

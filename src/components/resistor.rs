@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026-2026 Patrice Wehnemann and the Copperhead contributors
+ * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
  *
  * This file is part of Copperhead.
  *

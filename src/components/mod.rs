@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026-2026 Patrice Wehnemann and the Copperhead contributors
+ * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
  *
  * This file is part of Copperhead.
  *
@@ -16,8 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
+use crate::circuit::Circuit;
 use crate::components::ComponentDescriptor::Bjt;
+use crate::components::diode::Diode;
 use crate::components::resistor::Resistor;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, Component, NodeId, SimulationContext};
@@ -99,19 +100,24 @@ pub enum ComponentDescriptor {
 }
 
 impl ComponentDescriptor {
-    pub fn build<T: CircuitScalar>(self, dt: T) -> Box<dyn Component<T>> {
+    pub fn add_to_circuit<T: CircuitScalar>(self, dt: T, circuit: &mut Circuit<T>) {
         match self {
-            ComponentDescriptor::Resistor { a, b, ohms } => Box::new(Resistor::new(
-                NodeId(a),
-                NodeId(b),
-                num_traits::cast(ohms).expect("Failed to cast resistance to circuit scalar type"),
-            )),
+            ComponentDescriptor::Resistor { a, b, ohms } => {
+                let comp = Resistor::new(
+                    NodeId(a),
+                    NodeId(b),
+                    num_traits::cast(ohms).expect("Failed to cast resistance to circuit scalar type"),
+                );
+
+                circuit.add_component(comp);
+            }
             ComponentDescriptor::DCSource { pos, neg, volts } => {
                 let signal = Box::new(ConstantSignal {
                     voltage: num_traits::cast(volts)
                         .expect("Failed to cast voltage to circuit scalar type"),
                 });
-                Box::new(VoltageSource::new(NodeId(pos), NodeId(neg), signal))
+                let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
+                circuit.add_component(comp);
             }
             ComponentDescriptor::ASource {
                 pos,
@@ -126,35 +132,42 @@ impl ComponentDescriptor {
                         .expect("Failed to cast frequency to circuit scalar type"),
                     phase: T::zero(),
                 });
-                Box::new(VoltageSource::new(NodeId(pos), NodeId(neg), signal))
+                let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
+                circuit.add_component(comp);
             }
             ComponentDescriptor::Capacitor {
                 a,
                 b,
                 capacitance,
                 esr,
-            } => Box::new(capacitor::Capacitor::new(
-                NodeId(a),
-                NodeId(b),
-                num_traits::cast(capacitance)
-                    .expect("Failed to cast capacitance to circuit scalar type"),
-                num_traits::cast(esr).expect("Failed to cast ESR to circuit scalar type"),
-                dt,
-            )),
+            } => {
+                let comp = capacitor::Capacitor::new(
+                    NodeId(a),
+                    NodeId(b),
+                    num_traits::cast(capacitance)
+                        .expect("Failed to cast capacitance to circuit scalar type"),
+                    num_traits::cast(esr).expect("Failed to cast ESR to circuit scalar type"),
+                    dt,
+                );
+                circuit.add_component(comp);
+            }
             ComponentDescriptor::Inductor {
                 a,
                 b,
                 inductance,
                 series_resistance,
-            } => Box::new(inductor::Inductor::new(
-                NodeId(a),
-                NodeId(b),
-                num_traits::cast(inductance)
-                    .expect("Failed to cast inductance to circuit scalar type"),
-                num_traits::cast(series_resistance)
-                    .expect("Failed to cast series resistance to circuit scalar type"),
-                dt,
-            )),
+            } => {
+                let comp = inductor::Inductor::new(
+                    NodeId(a),
+                    NodeId(b),
+                    num_traits::cast(inductance)
+                        .expect("Failed to cast inductance to circuit scalar type"),
+                    num_traits::cast(series_resistance)
+                        .expect("Failed to cast series resistance to circuit scalar type"),
+                    dt,
+                );
+                circuit.add_component(comp);
+            }
             ComponentDescriptor::Diode {
                 a,
                 b,
@@ -166,26 +179,29 @@ impl ComponentDescriptor {
                 transit_time,
                 breakdown_voltage,
                 breakdown_current,
-            } => Box::new(diode::Diode::new(
-                NodeId(a),
-                NodeId(b),
-                num_traits::cast(saturation_current)
-                    .expect("Failed to cast saturation current to circuit scalar type"),
-                num_traits::cast(emission_coefficient)
-                    .expect("Failed to cast emission coefficient to circuit scalar type"),
-                num_traits::cast(series_resistance)
-                    .expect("Failed to cast series resistance to circuit scalar type"),
-                num_traits::cast(cjo)
-                    .expect("Failed to cast zero-bias junction capacitance to circuit scalar type"),
-                num_traits::cast(m)
-                    .expect("Failed to cast grading coefficient to circuit scalar type"),
-                num_traits::cast(transit_time)
-                    .expect("Failed to cast transit time to circuit scalar type"),
-                num_traits::cast(breakdown_voltage)
-                    .expect("Failed to cast breakdown voltage to circuit scalar type"),
-                num_traits::cast(breakdown_current)
-                    .expect("Failed to cast breakdown current to circuit scalar type"),
-            )),
+            } => {
+                let comp = Diode::new(
+                    NodeId(a),
+                    NodeId(b),
+                    num_traits::cast(saturation_current)
+                        .expect("Failed to cast saturation current to circuit scalar type"),
+                    num_traits::cast(emission_coefficient)
+                        .expect("Failed to cast emission coefficient to circuit scalar type"),
+                    num_traits::cast(series_resistance)
+                        .expect("Failed to cast series resistance to circuit scalar type"),
+                    num_traits::cast(cjo)
+                        .expect("Failed to cast zero-bias junction capacitance to circuit scalar type"),
+                    num_traits::cast(m)
+                        .expect("Failed to cast grading coefficient to circuit scalar type"),
+                    num_traits::cast(transit_time)
+                        .expect("Failed to cast transit time to circuit scalar type"),
+                    num_traits::cast(breakdown_voltage)
+                        .expect("Failed to cast breakdown voltage to circuit scalar type"),
+                    num_traits::cast(breakdown_current)
+                        .expect("Failed to cast breakdown current to circuit scalar type"),
+                );
+                circuit.add_component(comp);
+            }
             ComponentDescriptor::Bjt {
                 c,
                 b,
@@ -200,30 +216,33 @@ impl ComponentDescriptor {
                 rb,
                 re,
                 polarity,
-            } => Box::new(transistor::bjt::Bjt::new(
-                NodeId(c),
-                NodeId(b),
-                NodeId(e),
-                num_traits::cast(saturation_current)
-                    .expect("Failed to cast saturation current to circuit scalar type"),
-                num_traits::cast(beta_f)
-                    .expect("Failed to cast forward beta to circuit scalar type"),
-                num_traits::cast(beta_r)
-                    .expect("Failed to cast reverse beta to circuit scalar type"),
-                num_traits::cast(vt)
-                    .expect("Failed to cast thermal voltage to circuit scalar type"),
-                num_traits::cast(vaf)
-                    .expect("Failed to cast forward Early voltage to circuit scalar type"),
-                num_traits::cast(var)
-                    .expect("Failed to cast reverse Early voltage to circuit scalar type"),
-                num_traits::cast(rc)
-                    .expect("Failed to cast collector resistance to circuit scalar type"),
-                num_traits::cast(rb)
-                    .expect("Failed to cast base resistance to circuit scalar type"),
-                num_traits::cast(re)
-                    .expect("Failed to cast emitter resistance to circuit scalar type"),
-                polarity,
-            )),
+            } => {
+                let comp = transistor::bjt::Bjt::new(
+                    NodeId(c),
+                    NodeId(b),
+                    NodeId(e),
+                    num_traits::cast(saturation_current)
+                        .expect("Failed to cast saturation current to circuit scalar type"),
+                    num_traits::cast(beta_f)
+                        .expect("Failed to cast forward beta to circuit scalar type"),
+                    num_traits::cast(beta_r)
+                        .expect("Failed to cast reverse beta to circuit scalar type"),
+                    num_traits::cast(vt)
+                        .expect("Failed to cast thermal voltage to circuit scalar type"),
+                    num_traits::cast(vaf)
+                        .expect("Failed to cast forward Early voltage to circuit scalar type"),
+                    num_traits::cast(var)
+                        .expect("Failed to cast reverse Early voltage to circuit scalar type"),
+                    num_traits::cast(rc)
+                        .expect("Failed to cast collector resistance to circuit scalar type"),
+                    num_traits::cast(rb)
+                        .expect("Failed to cast base resistance to circuit scalar type"),
+                    num_traits::cast(re)
+                        .expect("Failed to cast emitter resistance to circuit scalar type"),
+                    polarity,
+                );
+                circuit.add_component(comp);
+            },
         }
     }
 }

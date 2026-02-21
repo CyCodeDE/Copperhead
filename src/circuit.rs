@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026-2026 Patrice Wehnemann and the Copperhead contributors
+ * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
  *
  * This file is part of Copperhead.
  *
@@ -17,29 +17,32 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::model::{CircuitScalar, Component, ComponentLinearity, NodeId, SimulationContext};
+use crate::model::{CircuitScalar, Component, ComponentId, ComponentLinearity, InsertIntoSoA, NodeId, SimulationContext};
 use crate::ui::SimStepData;
 use faer::linalg::solvers::PartialPivLu;
 use faer::prelude::Solve;
 use faer::{Accum, Col, Mat, Par};
-use log::{debug, error, trace};
+use log::{debug, error, info, trace};
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::{EdgeRef, UnGraph};
 use std::collections::{HashMap, HashSet};
+use crate::components::capacitor::Capacitor;
+use crate::components::resistor::Resistor;
+use crate::model::CircuitComponents;
 
 const GMIN: f64 = 1e-12;
 const MAX_NR_ITERATIONS: usize = 50;
 const NR_TOLERANCE: f64 = 1e-6;
 
-pub enum CircuitElement<T> {
+pub enum CircuitElement {
     Net(NodeId),
-    Device(Box<dyn Component<T>>),
+    Device(ComponentId),
 }
 
 pub type Terminal = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum NodePartition {
+pub enum NodePartition {
     Eliminated,
     Retained,
 }
@@ -79,8 +82,9 @@ impl PartitionedCircuit {
 }
 
 pub struct Circuit<T: CircuitScalar> {
+    pub components: CircuitComponents<T>,
     /// Holds components and nets
-    pub graph: UnGraph<CircuitElement<T>, Terminal>,
+    pub graph: UnGraph<CircuitElement, Terminal>,
     /// Fast lookup to find existing nodes in the graph
     pub net_lookup: HashMap<NodeId, NodeIndex>,
     pub partition: Option<PartitionedCircuit>,
@@ -147,7 +151,8 @@ pub struct SolverWorkspace<T: CircuitScalar> {
 impl<T: CircuitScalar> Circuit<T> {
     pub fn new() -> Self {
         Self {
-            graph: UnGraph::<CircuitElement<T>, Terminal>::default(),
+            graph: UnGraph::<CircuitElement, Terminal>::default(),
+            components: CircuitComponents::new(),
             net_lookup: HashMap::new(),
             component_order: Vec::new(),
             partition: None,
@@ -164,16 +169,29 @@ impl<T: CircuitScalar> Circuit<T> {
         }
     }
 
-    pub fn add_component(&mut self, component: Box<dyn Component<T>>) {
+    pub fn add_component<C>(&mut self, component: C)
+    where C: Component<T> + InsertIntoSoA<T>
+    {
+        // 1. Extract necessary info before giving up ownership.
+        // Assuming `ports()` returns a slice `&[NodeId]`, we convert it to a Vec
+        // to hold onto the IDs after the component is moved.
         let ports = component.ports();
-        self.total_observables += component.probe_definitions().len();
-        self.total_terminals += component.ports().len();
-        let comp_node_idx = self.graph.add_node(CircuitElement::Device(component));
 
-        for (port_idx, node_id) in ports.iter().enumerate() {
-            let net_node_idx = *self.net_lookup.entry(*node_id).or_insert_with(|| {
+        self.total_observables += component.probe_definitions().len();
+        self.total_terminals += ports.len();
+
+        // 2. Consume the component, inserting it into the SoA storage.
+        // This returns your new `ComponentId` (e.g., ComponentId::Resistor(0))
+        let comp_id = component.insert_into(&mut self.components);
+
+        // 3. Add the lightweight ID to the graph instead of the Boxed trait object
+        let comp_node_idx = self.graph.add_node(CircuitElement::Device(comp_id));
+
+        // 4. Link the ports to the nets in the graph exactly as you did before
+        for (port_idx, node_id) in ports.into_iter().enumerate() {
+            let net_node_idx = *self.net_lookup.entry(node_id).or_insert_with(|| {
                 self.num_nodes = self.num_nodes.max(node_id.0);
-                self.graph.add_node(CircuitElement::Net(*node_id))
+                self.graph.add_node(CircuitElement::Net(node_id))
             });
 
             self.graph.add_edge(comp_node_idx, net_node_idx, port_idx);
@@ -192,69 +210,18 @@ impl<T: CircuitScalar> Circuit<T> {
             is_dc_analysis: is_dc,
         };
 
+        // Calculate starting indices for auxiliary assignments
         let l_aux_start = partition.num_l_nodes;
-        let mut current_l_aux = 0;
-
-        // N-Block starts after all L-Nodes and L-Aux rows
         let n_block_start = partition.num_l_nodes + partition.num_l_aux;
         let n_aux_start = n_block_start + partition.num_n_nodes;
-        let mut current_n_aux = 0;
 
-        // Identify components that touch Non-Linear (Retained) nodes.
-        let mut connected_to_nonlinear = HashSet::new();
+        // Recreate node_status quickly to pass into the assign method
+        let mut node_status = HashMap::new();
+        self.components.find_retained_nodes(&mut node_status);
 
-        for node_idx in self.graph.node_indices() {
-            // We only care about Devices (Components)
-            if let CircuitElement::Device(_) = self.graph[node_idx] {
-                let mut touches_nonlinear = false;
-
-                for edge in self.graph.edges(node_idx) {
-                    let target = edge.target();
-                    if let CircuitElement::Net(net_id) = self.graph[target] {
-                        // Check if this Net is mapped to the Non-Linear block.
-                        // In your partition scheme, N-Nodes start at index (num_l_nodes + num_l_aux).
-                        if let Some(&matrix_row_idx) = partition.node_map.get(&net_id) {
-                            if matrix_row_idx >= n_block_start {
-                                touches_nonlinear = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if touches_nonlinear {
-                    connected_to_nonlinear.insert(node_idx);
-                }
-            }
-        }
-
-        for node_idx in self.graph.node_indices() {
-            if let CircuitElement::Device(ref mut comp) = self.graph[node_idx] {
-                // Bake ports first
-                comp.bake_indices(&ctx);
-
-                // Assign Aux Row Indices
-                let needed = comp.auxiliary_row_count();
-                if needed > 0 {
-                    let is_dirty = connected_to_nonlinear.contains(&node_idx);
-
-                    match comp.linearity() {
-                        // Only purely linear components that DO NOT touch non-linear nodes stay in L-Block
-                        ComponentLinearity::LinearStatic | ComponentLinearity::LinearDynamic
-                            if !is_dirty =>
-                        {
-                            comp.set_auxiliary_index(l_aux_start + current_l_aux);
-                            current_l_aux += needed;
-                        }
-                        // Everything else (NonLinear OR Linear-touching-NonLinear) goes to N-Block
-                        _ => {
-                            comp.set_auxiliary_index(n_aux_start + current_n_aux);
-                            current_n_aux += needed;
-                        }
-                    }
-                }
-            }
-        }
+        // 1. Bake ports and assign auxiliary rows entirely via SoA
+        self.components.bake_all_indices(&ctx);
+        self.components.assign_auxiliary_rows(&partition.node_map, n_block_start, l_aux_start, n_aux_start);
 
         let l_size = partition.num_l_nodes + partition.num_l_aux;
         let n_size = partition.num_n_nodes + partition.num_n_aux;
@@ -262,22 +229,18 @@ impl<T: CircuitScalar> Circuit<T> {
 
         let mut matrix_a = Mat::<T>::zeros(total_size, total_size);
 
-        for node_idx in self.graph.node_indices() {
-            if let CircuitElement::Device(ref comp) = self.graph[node_idx] {
-                comp.stamp_static(&mut matrix_a.as_mut(), &ctx);
-            }
-        }
+        // 2. Stamp purely static elements via SoA
+        self.components.stamp_all_static(&mut matrix_a.as_mut(), &ctx);
 
         if is_dc {
             let gmin = T::from(GMIN).unwrap();
-
             // Only apply to actual VOLTAGE nodes, not auxiliary current rows
             for i in 0..partition.num_l_nodes {
                 matrix_a[(i, i)] = matrix_a[(i, i)] + gmin;
             }
         }
 
-        // Slice the matrix into quadrants
+        // 3. Slice the matrix into quadrants
         let a_ll = matrix_a.subrows(0, l_size).subcols(0, l_size);
         let a_ln = matrix_a.subrows(0, l_size).subcols(l_size, n_size);
         let a_nl = matrix_a.subrows(l_size, n_size).subcols(0, l_size);
@@ -285,11 +248,10 @@ impl<T: CircuitScalar> Circuit<T> {
 
         let l_block_lu = a_ll.partial_piv_lu();
         let t_mat = l_block_lu.solve(a_ln);
-
         let schur_gain = a_nl * &t_mat;
-
         let reduced_base_matrix = a_nn - &schur_gain;
 
+        // 4. Important for UI/Data collection
         self.component_order.clear();
         for node_idx in self.graph.node_indices() {
             if let CircuitElement::Device(_) = &self.graph[node_idx] {
@@ -297,12 +259,11 @@ impl<T: CircuitScalar> Circuit<T> {
             }
         }
 
-        // TODO: run a DC operating point to populate initial conditions
         self.previous_solution = Col::<T>::zeros(total_size);
         self.current_solution = Col::<T>::zeros(total_size);
-
         self.partition = Some(partition);
 
+        // 5. Build Workspace
         self.solver_state = Some(SolverState {
             workspace: SolverWorkspace {
                 b_full: Col::<T>::zeros(total_size),
@@ -331,72 +292,23 @@ impl<T: CircuitScalar> Circuit<T> {
     pub fn partition(&self) -> PartitionedCircuit {
         let mut node_status = HashMap::new();
 
-        let mut num_l_aux = 0;
-        let mut num_n_aux = 0;
+        // 1. Identify Retained (Non-Linear) Nodes directly from SoA
+        self.components.find_retained_nodes(&mut node_status);
 
-        // Analyze Connectivity & Component Requirements
-        for node_idx in self.graph.node_indices() {
-            if let CircuitElement::Device(ref comp) = self.graph[node_idx] {
-                // 1. Check Linearity to propagate "Retained" status to nodes
-                match comp.linearity() {
-                    ComponentLinearity::TimeVariant | ComponentLinearity::NonLinear => {
-                        for edge in self.graph.edges(node_idx) {
-                            let target_node_idx = edge.target();
-                            if let CircuitElement::Net(net_id) = self.graph[target_node_idx] {
-                                node_status.insert(net_id, NodePartition::Retained);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        for node_idx in self.graph.node_indices() {
-            if let CircuitElement::Device(ref comp) = self.graph[node_idx] {
-                let aux_count = comp.auxiliary_row_count();
-                if aux_count > 0 {
-                    // Check if this component touches ANY Retained (Non-Linear) node
-                    let mut touches_nonlinear = false;
-                    for edge in self.graph.edges(node_idx) {
-                        if let CircuitElement::Net(net_id) = self.graph[edge.target()] {
-                            if let Some(&NodePartition::Retained) = node_status.get(&net_id) {
-                                touches_nonlinear = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    match comp.linearity() {
-                        // ONLY purely linear components touching ONLY linear nodes stay in L-Block
-                        ComponentLinearity::LinearStatic | ComponentLinearity::LinearDynamic
-                            if !touches_nonlinear =>
-                        {
-                            num_l_aux += aux_count;
-                        }
-                        // Otherwise (NonLinear OR Linear-touching-NonLinear), go to N-Block
-                        _ => {
-                            num_n_aux += aux_count;
-                        }
-                    }
-                }
-            }
-        }
+        // 2. Count Auxiliary Rows based on linearity and connectivity
+        let (num_l_aux, num_n_aux) = self.components.count_auxiliary_rows(&node_status);
 
         let mut l_nodes = Vec::new();
         let mut n_nodes = Vec::new();
 
+        // 3. Separate structural Nets using the graph
         for node_idx in self.graph.node_indices() {
             if let CircuitElement::Net(node_id) = self.graph[node_idx] {
                 if node_id == NodeId(0) {
-                    continue;
-                } // Skip Ground
+                    continue; // Skip Ground
+                }
 
-                // Default to Eliminated (Linear) unless marked Retained
-                match node_status
-                    .get(&node_id)
-                    .unwrap_or(&NodePartition::Eliminated)
-                {
+                match node_status.get(&node_id).unwrap_or(&NodePartition::Eliminated) {
                     NodePartition::Eliminated => l_nodes.push(node_id),
                     NodePartition::Retained => n_nodes.push(node_id),
                 }
@@ -404,20 +316,19 @@ impl<T: CircuitScalar> Circuit<T> {
         }
 
         let mut map = HashMap::new();
-
         let mut idx_counter = 0;
+
+        // Linear Nodes
         for node_id in l_nodes {
             map.insert(node_id, idx_counter);
             idx_counter += 1;
         }
         let num_l_nodes = idx_counter;
 
-        // Skip space for L-Aux rows
-        // The L-Block size is (num_l_nodes + num_l_aux).
-        // The N-Block must start after this entire block.
+        // Skip space for L-Aux rows (The N-Block must start after this entire block)
         idx_counter += num_l_aux;
 
-        // N-Nodes start after L-Block
+        // Non-Linear Nodes
         let n_start_offset = idx_counter;
         for node_id in n_nodes {
             map.insert(node_id, idx_counter);
@@ -462,11 +373,17 @@ impl<T: CircuitScalar> Circuit<T> {
 
         let mut b_full = Col::<T>::zeros(total_size);
         let empty_prev = Col::<T>::zeros(total_size);
-        for idx in self.graph.node_indices() {
+        /*for idx in self.graph.node_indices() {
             if let Some(CircuitElement::Device(comp)) = self.graph.node_weight_mut(idx) {
                 comp.stamp_dynamic(&empty_prev.as_ref(), &mut b_full.as_mut(), &dc_ctx);
             }
-        }
+        }*/
+
+        self.components.stamp_all_dynamic(
+            &empty_prev.as_ref(),
+            &mut b_full.as_mut(),
+            &dc_ctx,
+        );
 
         let b_l = b_full.subrows(0, state.l_size);
         let b_n = b_full.subrows(state.l_size, state.n_size);
@@ -490,7 +407,7 @@ impl<T: CircuitScalar> Circuit<T> {
             let mut iter_rhs = b_n - &constant_coupling;
 
             // Stamp Non-Linear Jacobian and RHS corrections
-            for idx in self.graph.node_indices() {
+            /*for idx in self.graph.node_indices() {
                 if let CircuitElement::Device(comp) = &self.graph[idx] {
                     if let ComponentLinearity::NonLinear = comp.linearity() {
                         comp.stamp_nonlinear(
@@ -502,7 +419,15 @@ impl<T: CircuitScalar> Circuit<T> {
                         );
                     }
                 }
-            }
+            }*/
+
+            self.components.stamp_all_nonlinear(
+                &x.as_ref(),
+                &mut iter_matrix.as_mut(),
+                &mut iter_rhs.as_mut(),
+                &state.ctx,
+                state.l_size,
+            );
 
             let lu = iter_matrix.partial_piv_lu();
             let target_x_n = lu.solve(&iter_rhs);
@@ -540,11 +465,16 @@ impl<T: CircuitScalar> Circuit<T> {
         self.previous_solution = x.clone();
 
         // Final component update
-        for idx in self.graph.node_indices() {
+        /*for idx in self.graph.node_indices() {
             if let CircuitElement::Device(comp) = &mut self.graph[idx] {
                 comp.update_state(&x.as_ref(), &state.ctx);
             }
-        }
+        }*/
+
+        self.components.update_all_states(
+            &x.as_ref(),
+            &dc_ctx,
+        );
 
         self.record_state(&dc_ctx);
         self.step_count += 1;
@@ -590,15 +520,11 @@ impl<T: CircuitScalar> Circuit<T> {
 
         // Stamp Dynamic (Capacitor/Inductor history)
         // dynamic history depends on t-1
-        for idx in &mut self.graph.node_indices() {
-            if let CircuitElement::Device(ref mut comp) = self.graph[idx] {
-                comp.stamp_dynamic(
-                    &self.previous_solution.as_ref(),
-                    &mut state.workspace.b_full.as_mut(),
-                    &ctx,
-                );
-            }
-        }
+        self.components.stamp_all_dynamic(
+            &self.previous_solution.as_ref(),
+            &mut state.workspace.b_full.as_mut(),
+            &ctx,
+        );
 
         state
             .workspace
@@ -652,26 +578,13 @@ impl<T: CircuitScalar> Circuit<T> {
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
 
-                for idx in &mut self.graph.node_indices() {
-                    if let CircuitElement::Device(ref mut comp) = self.graph[idx] {
-                        match comp.linearity() {
-                            ComponentLinearity::NonLinear => comp.stamp_nonlinear(
-                                &self.current_solution.as_ref(),
-                                &mut state.workspace.iter_matrix.as_mut(),
-                                &mut state.workspace.iter_rhs.as_mut(),
-                                &ctx,
-                                state.l_size,
-                            ),
-                            ComponentLinearity::TimeVariant => {
-                                comp.stamp_time_variant(
-                                    &mut state.workspace.iter_matrix.as_mut(),
-                                    &ctx,
-                                );
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                self.components.stamp_all_dynamic_and_nonlinear(
+                    &self.current_solution.as_ref(),
+                    &mut state.workspace.iter_matrix.as_mut(),
+                    &mut state.workspace.iter_rhs.as_mut(),
+                    &ctx,
+                    state.l_size,
+                );
 
                 let lu = state.workspace.iter_matrix.partial_piv_lu();
                 state
@@ -708,7 +621,7 @@ impl<T: CircuitScalar> Circuit<T> {
             // Reduce damping factor and try again
             // This helps with convergence in tough non-linear cases but slows down the simulation.
             damping_factor *= 0.5;
-            log::debug!(
+            log::warn!(
                 "Reducing damping factor to {} for better convergence",
                 damping_factor
             );
@@ -737,21 +650,19 @@ impl<T: CircuitScalar> Circuit<T> {
         }
         // N-block is already in current_solution from the loop
 
-        for idx in &mut self.graph.node_indices() {
-            if let CircuitElement::Device(ref mut comp) = self.graph[idx] {
-                comp.update_state(&self.current_solution.as_ref(), &ctx);
-            }
-        }
+        self.components.update_all_states(
+            &self.current_solution.as_ref(),
+            &ctx,
+        );
 
         self.record_state(&ctx);
         self.previous_solution.copy_from(&self.current_solution);
         self.step_count += 1;
 
-        debug!(
-            "Time step {} completed in {:?} (Converged: {})",
+        println!(
+            "Time step {} completed in {:?}",
             self.step_count,
             start_time.elapsed(),
-            converged
         );
     }
 
@@ -776,13 +687,23 @@ impl<T: CircuitScalar> Circuit<T> {
         }
 
         for &graph_idx in &self.component_order {
-            if let CircuitElement::Device(comp) = &self.graph[graph_idx] {
-                let term_currents = comp.terminal_currents(&self.current_solution.as_ref(), &ctx);
+            if let CircuitElement::Device(comp_id) = &self.graph[graph_idx] {
+                let term_currents: Vec<T> = self.components.get_terminal_currents(
+                    *comp_id,
+                    &self.current_solution.as_ref(),
+                    ctx
+                );
+
                 for val in term_currents {
                     currents.push(val.to_f64().unwrap());
                 }
 
-                let obs_vals = comp.calculate_observables(&self.current_solution.as_ref(), &ctx);
+                let obs_vals = self.components.get_observables(
+                    *comp_id,
+                    &self.current_solution.as_ref(),
+                    ctx
+                );
+
                 for val in obs_vals {
                     observables.push(val.to_f64().unwrap());
                 }
@@ -827,10 +748,10 @@ impl<T: CircuitScalar> Circuit<T> {
 
     /// Read the terminal currents for a component at the current time step. The order of currents corresponds to the order of ports returned by `Component::ports()`.
     pub fn get_terminal_current(&self, component_idx: usize, dt: T) -> Vec<T> {
-        // map the component idx to the graph index
         if let Some(graph_idx) = self.component_order.get(component_idx) {
-            if let CircuitElement::Device(comp) = &self.graph[*graph_idx] {
-                comp.terminal_currents(
+            if let CircuitElement::Device(comp_id) = self.graph[*graph_idx] {
+                return self.components.get_terminal_currents(
+                    comp_id,
                     &self.current_solution.as_ref(),
                     &SimulationContext {
                         dt,
@@ -840,13 +761,11 @@ impl<T: CircuitScalar> Circuit<T> {
                         is_dc_analysis: false,
                         // TODO: we need to check if time step 0 and set to dc analysis or else the measurement won't be accurate for the first step
                     },
-                )
-            } else {
-                vec![]
+                );
             }
-        } else {
-            vec![]
         }
+
+        vec![]
     }
 
     pub fn get_all_voltages_cloned(&self) -> Vec<T> {
