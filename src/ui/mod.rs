@@ -93,6 +93,7 @@ pub struct VisualComponent {
     pub pos: GridPos,
     pub size: GridPos, // width and height in grid units at rotation 0, rotation has to be applied beforehand
     pub rotation: u8,  // 0, 1, 2, 3 (90 degree steps)
+    pub offset: (f32, f32), // Tells the UI how to offset the size for the bounding box
 }
 
 impl VisualComponent {
@@ -224,6 +225,7 @@ impl Schematic {
         pos: GridPos,
         rotation: u8,
         size: GridPos,
+        offset: (f32, f32),
     ) {
         let name = self.generate_next_name(data.prefix());
         self.components.push(VisualComponent {
@@ -233,6 +235,7 @@ impl Schematic {
             size,
             pos,
             rotation,
+            offset,
         });
         self.next_component_id += 1;
     }
@@ -244,6 +247,7 @@ impl Schematic {
         rotation: u8,
         name: String,
         size: GridPos,
+        offset: (f32, f32),
     ) {
         self.components.push(VisualComponent {
             id: self.next_component_id,
@@ -252,6 +256,7 @@ impl Schematic {
             pos,
             size,
             rotation,
+            offset
         });
         self.next_component_id += 1;
     }

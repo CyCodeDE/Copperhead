@@ -346,7 +346,6 @@ impl eframe::App for CircuitApp {
                                 // Start Logic
                                 let netlist = self.compile_netlist();
                                 self.active_netlist = Some(netlist.clone());
-                                debug!("Compiled Netlist: {:?}", netlist);
 
                                 self.tx_command
                                     .send(SimCommand::SetRunTime(self.state.simulation_time))
@@ -666,25 +665,33 @@ impl eframe::App for CircuitApp {
                             };
 
                             // calculate size in grid units depending on the type of component
-                            let size = match comp_data {
+                            let (size, offset) = match comp_data {
                                 ComponentBuildData::Resistor { .. } |
                                 ComponentBuildData::Capacitor { .. } |
                                 ComponentBuildData::Inductor { .. } |
-                                ComponentBuildData::Diode { .. } |
+                                ComponentBuildData::Diode { .. } => (GridPos { x: 2, y: 1 }, (0., 0.)),
                                 ComponentBuildData::DCSource { .. } |
                                 ComponentBuildData::ASource { .. } |
-                                ComponentBuildData::AudioSource { .. } => GridPos { x: 2, y: 1 },
+                                ComponentBuildData::AudioSource { .. } => (GridPos { x: 1, y: 2 }, (0., 0.)),
 
                                 ComponentBuildData::Ground |
-                                ComponentBuildData::Label |
-                                ComponentBuildData::AudioProbe { .. } => GridPos { x: 1, y: 1 },
+                                ComponentBuildData::Label => (GridPos { x: 1, y: 1 }, (0., 0.)),
+                                ComponentBuildData::AudioProbe { .. } => (GridPos { x: 1, y: 2 }, (0., -0.75)),
 
-                                ComponentBuildData::Bjt { .. } => GridPos { x: 2, y: 2}, // a bjt has pins at these positions: vec![(1, 1), (-1, 0), (1, -1)]
+                                ComponentBuildData::Bjt { .. } => (GridPos { x: 2, y: 2}, (0., 0.)),
                             };
 
                             let rotated_size = match self.current_rotation % 4 {
                                 0 | 2 => size,
                                 1 | 3 => GridPos { x: size.y, y: size.x },
+                                _ => unreachable!(),
+                            };
+
+                            let rotated_offset = match self.current_rotation % 4 {
+                                0 => offset,
+                                1 => (-offset.1, offset.0),
+                                2 => (-offset.0, -offset.1),
+                                3 => (offset.1, -offset.0),
                                 _ => unreachable!(),
                             };
 
@@ -695,6 +702,7 @@ impl eframe::App for CircuitApp {
                                 pos: grid_pos,
                                 size: rotated_size,
                                 rotation: self.current_rotation,
+                                offset: rotated_offset,
                             };
 
                             // Draw Ghost
@@ -716,6 +724,7 @@ impl eframe::App for CircuitApp {
                                     self.current_rotation,
                                     name,
                                     rotated_size,
+                                    rotated_offset,
                                 );
 
                                 self.current_rotation = 0;
@@ -797,7 +806,7 @@ impl eframe::App for CircuitApp {
                                     let comp_screen_pos = self.to_screen(comp.pos);
                                     // add a small tolerance to the size for easier selection
                                     let size = (comp.size.to_vec2() + Vec2::splat(0.5)) * self.zoom;
-                                    let rect = Rect::from_center_size(comp_screen_pos, size);
+                                    let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(comp.offset.0 * self.zoom, comp.offset.1 * self.zoom));
 
                                     if rect.contains(mouse_pos) {
                                         found_id = Some(comp.id);
@@ -832,8 +841,9 @@ impl eframe::App for CircuitApp {
                                         }
 
                                         if hit_body.is_none() {
-                                            let size = Vec2::new(2.0 * self.zoom, 1.0 * self.zoom);
-                                            let rect = Rect::from_center_size(comp_screen_pos, size);
+                                            let size = Vec2::new(comp.size.x as f32 * self.zoom, comp.size.y as f32 * self.zoom);
+                                            let rect = Rect::from_center_size(comp_screen_pos, size)
+                                                .translate(Vec2::new(comp.offset.0 * self.zoom, comp.offset.1 * self.zoom));
 
                                             if rect.contains(mouse_pos) {
                                                 hit_body = Some(comp);
@@ -924,7 +934,7 @@ impl eframe::App for CircuitApp {
                                 for comp in &self.state.schematic.components {
                                     let comp_screen_pos = self.to_screen(comp.pos);
                                     let size = Vec2::new(2.0 * self.zoom, 1.0 * self.zoom);
-                                    let comp_rect = Rect::from_center_size(comp_screen_pos, size);
+                                    let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(comp.offset.0 * self.zoom, comp.offset.1 * self.zoom));
 
                                     if selection_rect.intersects(comp_rect) {
                                         comps_to_remove.push(comp.id);

@@ -104,7 +104,10 @@ pub fn draw_component<F>(
         ComponentBuildData::Bjt { model } => match model.polarity() {
             true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
             false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
-        },
+        }
+        ComponentBuildData::AudioProbe { .. } => {
+            draw_voltage_prober(painter, center, rotation, zoom, fill_color, stroke_color);
+        }
         // Fallback for unimplemented components
         _ => {
             draw_generic_box(painter, center, rotation, zoom, fill_color, stroke_color);
@@ -410,6 +413,33 @@ fn draw_ground(painter: &Painter, center: Pos2, rotation: u8, zoom: f32, stroke_
     let l3_start = center + rotate_vec(Vec2::new(-0.1, l3_y_offset) * zoom, rotation);
     let l3_end = center + rotate_vec(Vec2::new(0.1, l3_y_offset) * zoom, rotation);
     painter.line_segment([l3_start, l3_end], stroke);
+}
+
+fn draw_voltage_prober(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let stroke = Stroke::new(2.0, stroke_color);
+
+    let radius = 0.4;
+    let circle_center = center + rotate_vec(Vec2::new(0.0, -1.) * zoom, rotation);
+    painter.circle(circle_center, radius * zoom, fill_color, stroke);
+
+    // The pin connecting the node (center) to the probe body
+    let pin_end = center + rotate_vec(Vec2::new(0.0, -0.6) * zoom, rotation);
+    painter.line_segment([center, pin_end], stroke);
+
+    painter.text(
+        circle_center,
+        Align2::CENTER_CENTER,
+        "V",
+        egui::FontId::proportional(zoom * 0.35),
+        stroke_color,
+    );
 }
 
 fn draw_generic_box(
@@ -851,14 +881,42 @@ pub fn draw_component_labels(
         | ComponentBuildData::AudioSource { .. } => {
             // Place label below for vertical, right for horizontal
             let label_pos = match rotation {
-                0 | 2 => Vec2::new(0.7 * zoom, -0.62 * zoom), // Below
-                1 | 3 => Vec2::new(0.0, -1.1 * zoom),         // Right
+                0 | 2 => Vec2::new(0.7 * zoom, -0.62 * zoom),
+                1 | 3 => Vec2::new(0.0, -1.1 * zoom),
                 _ => Vec2::ZERO,
             };
 
             let value_pos = match rotation {
-                0 | 2 => Vec2::new(0.7 * zoom, 0.2 * zoom), // Above
-                1 | 3 => Vec2::new(0.0, 0.7 * zoom),        // Left
+                0 | 2 => Vec2::new(0.7 * zoom, 0.2 * zoom),
+                1 | 3 => Vec2::new(0.0, 0.55 * zoom),
+                _ => Vec2::ZERO,
+            };
+
+            (valign_label, halign_label) = match rotation {
+                0 | 2 => (Align::TOP, Align::TOP),
+                1 | 3 => (Align::BOTTOM, Align::Center),
+                _ => (Align::TOP, Align::TOP),
+            };
+
+            (valign_value, halign_value) = match rotation {
+                0 | 2 => (Align::BOTTOM, Align::LEFT),
+                1 | 3 => (Align::TOP, Align::Center),
+                _ => (Align::BOTTOM, Align::LEFT),
+            };
+
+            (label_pos, value_pos)
+        }
+        ComponentBuildData::AudioProbe { .. } => {
+            // Place label below for vertical, right for horizontal
+            let label_pos = match rotation {
+                0 | 2 => Vec2::new(0.7 * zoom, -1.37 * zoom),
+                1 | 3 => Vec2::new(0.75 * zoom, -1.1 * zoom),
+                _ => Vec2::ZERO,
+            };
+
+            let value_pos = match rotation {
+                0 | 2 => Vec2::new(0.7 * zoom, -0.55 * zoom),
+                1 | 3 => Vec2::new(0.75 * zoom, 0.55 * zoom),
                 _ => Vec2::ZERO,
             };
 
@@ -958,7 +1016,7 @@ pub fn draw_component_labels(
     let value = match &component.component {
         ComponentBuildData::Diode { model } => model.format_name().to_string(),
         ComponentBuildData::Bjt { model } => model.format_name().to_string(),
-        ComponentBuildData::AudioSource { path } => {
+        ComponentBuildData::AudioSource { path } | ComponentBuildData::AudioProbe { path } => {
             // format the pathbuf to include just the file name and extension, not the full path
             if let Some(file_name) = path.file_name() {
                 if let Some(file_str) = file_name.to_str() {

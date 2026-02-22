@@ -73,7 +73,6 @@ pub fn run_simulation_loop(
                     let mut new_ckt = Circuit::<f64>::new();
                     for instr in netlist.instructions {
                         if matches!(instr, ComponentDescriptor::AudioProbe { .. }) {
-                            println!("MATCHES");
                             add_probe_to_circuit(instr, dt, &mut new_ckt, max_steps);
                         } else {
                             instr.add_to_circuit(dt, &mut new_ckt);

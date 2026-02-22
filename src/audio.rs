@@ -23,6 +23,7 @@ use num_traits::NumCast;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
 use std::fs::File;
 use std::path::PathBuf;
+use log::info;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
@@ -172,7 +173,7 @@ pub fn write_to_wav<T: NumCast + Copy>(file_path: PathBuf, samples: &[T], sample
 
     writer.finalize().expect("Failed to finalize WAV file");
 
-    println!(
+    info!(
         "Successfully wrote {} samples to {:?}",
         samples.len(),
         file_path
