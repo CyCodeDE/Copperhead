@@ -18,6 +18,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 mod audio;
 pub(crate) mod circuit;
 pub(crate) mod components;
@@ -29,9 +30,14 @@ mod util;
 
 use crate::ui::app::CircuitApp;
 use egui::ViewportBuilder;
+use crate::ui::util::{get_config_path, get_default_path};
 
 fn main() -> eframe::Result {
     env_logger::init();
+
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+    ).expect("Failed to set up Tracy");
 
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default(),
@@ -40,11 +46,11 @@ fn main() -> eframe::Result {
 
     // Before start, check if default project path and config folder exist
     // If not, create them
-    let default_path = util::get_default_path();
+    let default_path = get_default_path();
     if !default_path.exists() {
         std::fs::create_dir_all(&default_path).expect("Could not create default project directory");
     }
-    let config_path = util::get_config_path();
+    let config_path = get_config_path();
     if !config_path.exists() {
         std::fs::create_dir_all(&config_path).expect("Could not create config directory");
     }

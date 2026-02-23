@@ -29,7 +29,6 @@ use crate::ui::{
     CircuitSelection, ComponentBuildData, SimCommand, SimStepData, VisualComponent, VisualWire,
     handle_circuit_loaded, lerp_color,
 };
-use crate::util::{format_si_single, get_default_path, parse_si};
 use egui::text::LayoutJob;
 use egui::{
     Align, Align2, Button, CentralPanel, Checkbox, Color32, ComboBox, CornerRadius, CursorIcon,
@@ -44,6 +43,8 @@ use std::ops::Add;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
+use crate::components::triode::TriodeModel;
+use crate::ui::util::{format_si_single, get_default_path, parse_si};
 
 impl Tool {
     fn get_name(&self) -> &str {
@@ -467,6 +468,10 @@ impl eframe::App for CircuitApp {
                 {
                     self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Bjt { model: BjtModel::GenericNPN });
                 }
+                if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::Triode { model: _ })), Button::new("Triode")).clicked()
+                {
+                    self.selected_tool = Tool::PlaceComponent(ComponentBuildData::Triode { model: TriodeModel::T12AX7 });
+                }
                 ui.separator();
                 if ui.add_enabled(!matches!(self.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: _ })), Button::new("Audio Probe")).clicked()
                 {
@@ -679,6 +684,7 @@ impl eframe::App for CircuitApp {
                                 ComponentBuildData::AudioProbe { .. } => (GridPos { x: 1, y: 2 }, (0., -0.75)),
 
                                 ComponentBuildData::Bjt { .. } => (GridPos { x: 2, y: 2}, (0., 0.)),
+                                ComponentBuildData::Triode { .. } => (GridPos { x: 2, y: 2 }, (0., 0.)),
                             };
 
                             let rotated_size = match self.current_rotation % 4 {
@@ -1203,7 +1209,13 @@ impl eframe::App for CircuitApp {
                                             });
                                             ui.horizontal(|ui| {
                                                 ui.label("Frequency:");
-
+                                                ui.add(egui::DragValue::new(frequency).speed(1.0).range(0.0..=f64::INFINITY).suffix("Hz")
+                                                    .custom_formatter(|val, _range| {
+                                                        format_si_single(val, 3)
+                                                    })
+                                                    .custom_parser(|text| {
+                                                        parse_si(text)
+                                                    }));
                                             });
                                         }
                                         ComponentBuildData::AudioSource { path } => {

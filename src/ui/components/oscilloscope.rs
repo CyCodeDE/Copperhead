@@ -18,12 +18,12 @@
  */
 
 use crate::ui::{SimState, SimStepData};
-use crate::util::{format_si, format_si_single};
 use egui::epaint::PathShape;
 use egui::{
     Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
     StrokeKind, Ui, Vec2, pos2, vec2,
 };
+use crate::ui::util::{format_si, format_si_single};
 
 #[derive(Debug, Clone)]
 pub struct ScopeState {

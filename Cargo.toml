@@ -26,6 +26,12 @@ symphonia = "0.5.5"
 rubato = "1.0.1"
 audioadapter-buffers = "2.0.0"
 
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
+
+tracing-tracy = "0.11.4"
+tracy-client = "0.18.4"
+
 [profile.release-performance]
 inherits = "release"
 lto = "fat"

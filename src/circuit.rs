@@ -575,6 +575,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     .copy_from(&state.workspace.initial_guess_n);
             }
             for _iter in 0..MAX_NR_ITERATIONS {
+                let inner_span = tracing::info_span!("NR Iteration").entered();
                 state
                     .workspace
                     .iter_matrix
@@ -634,6 +635,8 @@ impl<T: CircuitScalar> Circuit<T> {
                 self.current_solution
                     .subrows_mut(l_size, n_size)
                     .copy_from(&state.workspace.x_n);
+
+                inner_span.exit();
 
                 if error < T::real_part_impl(&tolerance) {
                     converged = true;

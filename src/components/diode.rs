@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use crate::util::math;
 
 /// Internal state used only during the Newton-Raphson iteration loop.
 /// Grouping these reduces lock contention overhead.
@@ -159,7 +160,7 @@ impl<T: CircuitScalar> Diode<T> {
         }
     }
 
-    /// Determines the index of the Anode of the *Intrinsic* diode.
+    /// Determines the index of the Anode of the *Intrinsic* diode and the offset to apply if necessary
     fn get_intrinsic_anode_idx(&self, offset: usize) -> (Option<usize>, usize) {
         if self.series_resistance > T::epsilon() {
             (self.internal_node_idx, offset)
@@ -189,55 +190,8 @@ impl<T: CircuitScalar> Diode<T> {
     /// Dampens voltage changes to prevent numerical overflow in exp().
     fn limit_voltage(&self, v_new: T, v_old: T) -> T {
         let vt_n = self.emission_coefficient * self.vt;
-        let two = T::from(2.0).unwrap();
 
-        // Checks if we are in (or entering) Breakdown
-        // Treat the breakdown region as a "forward" diode by transforming coordinates:
-        // V_equiv = -(V + BV)
-        if v_new < -self.bv {
-            let v_new_eq = -(v_new + self.bv);
-            let v_old_eq = -(v_old + self.bv);
-            let v_crit_bwd = self.v_crit_bwd;
-
-            if v_new_eq > v_crit_bwd {
-                let effective_v_old_eq = if v_old_eq < v_crit_bwd {
-                    v_crit_bwd
-                } else {
-                    v_old_eq
-                };
-
-                let arg = (v_new_eq - effective_v_old_eq) / vt_n;
-
-                if arg > two {
-                    let limited_eq = effective_v_old_eq + vt_n * (two + (arg - two).ln());
-                    // Transform back: V = -(V_eq + BV)
-                    return -(limited_eq + self.bv);
-                }
-            }
-            // If strictly inside breakdown but step is small, we accept the new voltage
-            return v_new;
-        }
-
-        // Simple case: Voltage is low or reverse biased (but not breakdown)
-        if v_new < self.v_crit {
-            return v_new;
-        }
-
-        // Standard SPICE limiting for forward bias
-        if v_new > v_old {
-            let arg = (v_new - v_old) / vt_n;
-            // CRITICAL FIX 1: Ensure arg > 2.0
-            if arg > two {
-                return v_old + vt_n * (two + (arg - two).ln());
-            }
-        } else {
-            // Unwinding high voltage
-            if v_new < self.v_crit {
-                return v_new;
-            }
-        }
-
-        v_new
+        math::pn_junction_limit(v_new, v_old, vt_n, self.v_crit)
     }
 
     /// Calculates: I_d, G_d, Q_tot, C_tot

@@ -582,6 +582,27 @@ impl CircuitApp {
                         polarity,
                     }
                 }
+                ComponentBuildData::Triode { model } => {
+                    assert!(c.is_some(), "Triode must have 3 pins");
+                    let (mu, ex, kg1, kp, kvb, rgi, cgp, cgk, cpk, i_s, vt) = model.parameters();
+
+                    ComponentDescriptor::Triode {
+                        p: node_a.expect("A is not mapped").0,
+                        g: node_b.expect("B is not mapped").0,
+                        c: c.unwrap(),
+                        mu,
+                        ex,
+                        kg1,
+                        kp,
+                        kvb,
+                        rgi,
+                        cgp,
+                        cgk,
+                        cpk,
+                        i_s,
+                        vt,
+                    }
+                }
                 ComponentBuildData::AudioProbe { path } => ComponentDescriptor::AudioProbe {
                     file_path: path,
                     node: node_a.expect("A is not mapped").0,

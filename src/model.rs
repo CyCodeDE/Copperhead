@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Add, Sub};
+use crate::components::triode::Triode;
 
 /// The numerical trait.
 /// For inference: T = f32
@@ -370,6 +371,7 @@ define_circuit_components!(
     voltage_sources: VoltageSource,
     diodes: Diode,
     bjts: Bjt,
+    triodes: Triode,
     audio_probes: AudioProbe,
 );
 

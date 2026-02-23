@@ -20,12 +20,11 @@
 use crate::components::transistor::bjt::BjtModel;
 use crate::model::GridPos;
 use crate::ui::{ComponentBuildData, VisualComponent};
-use crate::util::format_si;
 use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use egui::{Align2, FontSelection, Painter, RichText, Style};
-
+use crate::ui::util::format_si;
 // DISCLAIMER:
 // Most of this file is vibe-coded. Performance is probably not optimal, but tbh I couldn't give less of a fuck.
 // Is the performance good? No. Probably not. But that is a problem for the me/myself/and I of tomorrow.
