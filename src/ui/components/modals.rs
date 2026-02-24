@@ -22,6 +22,7 @@ use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::util::{format_si_single, parse_si};
 use crate::ui::ComponentBuildData;
 use egui::{Align, ComboBox, Id, Sense, StrokeKind, TextEdit, Vec2};
+use crate::components::triode::TriodeModel;
 
 pub fn handle_properties(
     app: &mut CircuitApp,
@@ -63,6 +64,8 @@ pub fn handle_properties(
                                 ComponentBuildData::Diode { .. } => "Diode",
                                 ComponentBuildData::Bjt { .. } => "Bipolar Junction Transistor",
                                 ComponentBuildData::Label => "Label",
+                                ComponentBuildData::AudioProbe { .. } => "Audio Probe",
+                                ComponentBuildData::Triode { .. } => "Triode",
                                 _ => "Component",
                             }
                         ));
@@ -390,6 +393,20 @@ pub fn handle_properties(
                                                 &mut *model,
                                                 BjtModel::GenericPNP,
                                                 BjtModel::GenericPNP.format_name(),
+                                            );
+                                        });
+                                });
+                            }
+                            ComponentBuildData::Triode { model } => {
+                                ui.horizontal(|ui| {
+                                    ui.label("Model:");
+                                    ComboBox::from_id_salt("triode_combo")
+                                        .selected_text(model.format_name())
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut *model,
+                                                TriodeModel::T12AX7,
+                                                TriodeModel::T12AX7.format_name(),
                                             );
                                         });
                                 });
