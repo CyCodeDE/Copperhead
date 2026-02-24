@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026-2026 CyCode and the Copperhead contributors
+ * Copyright (c) 2026 CyCode and the Copperhead contributors
  *
  * This file is part of Copperhead.
  *
@@ -16,9 +16,5 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-
-pub mod canvas;
-pub mod modals;
-pub mod oscilloscope;
-pub mod side_panel;
-pub mod top_bar;
+pub mod math;
+pub mod mna;

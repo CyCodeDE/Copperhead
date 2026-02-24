@@ -25,11 +25,20 @@ use crate::ui::{CircuitMetadata, ComponentMetadata, SimBatchData, SimCommand, Si
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
 
+#[cfg(feature = "profiling")]
+use tracy_client::Client;
+
 pub fn run_simulation_loop(
     rx: Receiver<SimCommand>,
     state: Sender<StateUpdate>,
     recycled_rx: Receiver<SimBatchData>,
 ) {
+    #[cfg(feature = "profiling")]
+    let tracy = Client::start();
+
+    #[cfg(feature = "profiling")]
+    tracy.set_thread_name("Simulation Loop");
+
     let mut realtime_mode = false;
     let sample_rate = 96000.0;
     let mut circuit: Option<Circuit<f64>> = None;
@@ -148,6 +157,9 @@ pub fn run_simulation_loop(
 
         // Run Simulation Batch
         if running {
+            #[cfg(feature = "profiling")]
+            let _batch_span = tracing::info_span!("sim_batch").entered();
+
             let batch_start = if realtime_mode {
                 Some(std::time::Instant::now())
             } else {
@@ -159,19 +171,27 @@ pub fn run_simulation_loop(
                 state.send(StateUpdate::UpdateRunning(false));
             } else if let Some(ref mut ckt) = circuit {
                 let mut steps_performed = 0;
-                while steps_performed < steps_per_batch && current_step < max_steps {
-                    ckt.solve_step(dt);
-                    current_step += 1;
-                    steps_performed += 1;
+                {
+                    while steps_performed < steps_per_batch && current_step < max_steps {
+                        //let _solve_span = tracing::info_span!("solve_call").entered();
+                        ckt.solve_step(dt);
+                        current_step += 1;
+                        steps_performed += 1;
+                    }
                 }
 
                 // Extract History
                 if steps_performed > 0 {
+                    #[cfg(feature = "profiling")]
+                    let _extract_span = tracing::info_span!("extract_history").entered();
                     ckt.extract_history(&mut active_batch);
                 }
 
                 // Try to flush to UI
                 if !active_batch.times.is_empty() {
+                    #[cfg(feature = "profiling")]
+                    let _flush_span = tracing::info_span!("flush_to_ui").entered();
+
                     let nodes = active_batch.nodes_per_step;
                     let terms = active_batch.terminals_per_step;
                     let obs = active_batch.observables_per_step;
@@ -211,14 +231,12 @@ pub fn run_simulation_loop(
                     running = false;
                     state.send(StateUpdate::UpdateRunning(false));
                     let elapsed = current_start.elapsed();
-                    info!("Finished after: {:?}", elapsed);
-                    info!("Average time per step: {:?}", elapsed / current_step as u32);
+                    println!("Finished after: {:?}", elapsed);
+                    println!("Average time per step: {:?}", elapsed / current_step as u32);
 
                     for probe in &ckt.components.audio_probes {
                         if probe.buffer.is_empty() || probe.filepath.is_empty() {
-                            info!(
-                                "Skipping WAV export for probe due to empty buffer or filepath"
-                            );
+                            info!("Skipping WAV export for probe due to empty buffer or filepath");
                             continue;
                         }
                         write_to_wav(
@@ -229,6 +247,9 @@ pub fn run_simulation_loop(
                     }
                 }
             }
+
+            #[cfg(feature = "profiling")]
+            tracy.frame_mark();
         } else {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }

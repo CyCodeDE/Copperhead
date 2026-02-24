@@ -18,13 +18,18 @@
  */
 
 pub mod app;
+mod app_state;
 mod components;
 mod drawing;
+mod netlist;
+mod tools;
 pub mod ui;
+pub mod util;
 
 use crate::components::ComponentDescriptor;
 use crate::components::diode::DiodeModel;
 use crate::components::transistor::bjt::BjtModel;
+use crate::components::triode::TriodeModel;
 use crate::model::{CircuitScalar, ComponentProbe, GridPos, NodeId};
 use egui::Color32;
 use serde::{Deserialize, Serialize};
@@ -60,6 +65,9 @@ pub enum ComponentBuildData {
     Bjt {
         model: BjtModel,
     },
+    Triode {
+        model: TriodeModel,
+    },
     AudioProbe {
         path: PathBuf,
     },
@@ -79,6 +87,7 @@ impl ComponentBuildData {
             Self::Bjt { .. } => "Q",
             Self::AudioProbe { .. } => "Probe",
             Self::Label { .. } => "",
+            Self::Triode { .. } => "T", // Just "T" for Triode to avoid confusion with "V" for voltage sources
             Self::Ground => "",
         }
     }
@@ -119,6 +128,7 @@ impl VisualComponent {
                 true => vec![(1, -1), (-1, 0), (1, 1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E   | NPN
                 false => vec![(1, 1), (-1, 0), (1, -1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E  | PNP
             },
+            ComponentBuildData::Triode { .. } => vec![(0, -1), (-1, 0), (0, 1)], // 3 Pins (Plate, Grid, Cathode) -> P, G, K
         };
 
         local_pins
@@ -256,7 +266,7 @@ impl Schematic {
             pos,
             size,
             rotation,
-            offset
+            offset,
         });
         self.next_component_id += 1;
     }

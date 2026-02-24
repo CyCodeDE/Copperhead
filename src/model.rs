@@ -24,6 +24,7 @@ use crate::components::diode::Diode;
 use crate::components::inductor::Inductor;
 use crate::components::resistor::Resistor;
 use crate::components::transistor::bjt::Bjt;
+use crate::components::triode::Triode;
 use crate::components::voltage_source::VoltageSource;
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
@@ -370,6 +371,7 @@ define_circuit_components!(
     voltage_sources: VoltageSource,
     diodes: Diode,
     bjts: Bjt,
+    triodes: Triode,
     audio_probes: AudioProbe,
 );
 

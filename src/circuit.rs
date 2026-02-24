@@ -395,86 +395,195 @@ impl<T: CircuitScalar> Circuit<T> {
         self.time = T::zero();
         self.prepare(dc_ctx.dt, true);
 
-        let state = self.solver_state.as_ref().unwrap();
-        let total_size = state.l_size + state.n_size;
-
-        let mut x = if self.previous_solution.nrows() == total_size {
-            self.previous_solution.clone()
-        } else {
-            Col::<T>::zeros(total_size)
+        let state = match &mut self.solver_state {
+            Some(s) => s,
+            None => return Err("Solver state not initialized!".to_string()),
         };
 
-        let mut b_full = Col::<T>::zeros(total_size);
-        let empty_prev = Col::<T>::zeros(total_size);
+        let total_size = state.l_size + state.n_size;
+        let l_size = state.l_size;
+        let n_size = state.n_size;
 
-        self.components
-            .stamp_all_dynamic(&empty_prev.as_ref(), &mut b_full.as_mut(), &dc_ctx);
+        // Ensure current_solution and previous_solution are properly sized
+        if self.previous_solution.nrows() != total_size {
+            self.previous_solution = faer::Col::<T>::zeros(total_size);
+            self.current_solution = faer::Col::<T>::zeros(total_size);
+        } else {
+            self.current_solution.copy_from(&self.previous_solution);
+        }
 
-        let b_l = b_full.subrows(0, state.l_size);
-        let b_n = b_full.subrows(state.l_size, state.n_size);
+        let empty_prev = faer::Col::<T>::zeros(total_size);
 
-        let v_linear_sources = state.l_lu.solve(&b_l);
+        for i in 0..total_size {
+            state.workspace.b_full[i] = T::zero();
+        }
 
-        let constant_coupling = &state.a_nl * &v_linear_sources;
+        // Stamp Dynamic (with empty previous history for DC)
+        self.components.stamp_all_dynamic(
+            &empty_prev.as_ref(),
+            &mut state.workspace.b_full.as_mut(),
+            &dc_ctx,
+        );
 
+        state
+            .workspace
+            .v_temp
+            .copy_from(&state.workspace.b_full.subrows(0, l_size));
+        state.l_lu.solve_in_place(state.workspace.v_temp.as_mut());
+
+        faer::linalg::matmul::matmul(
+            state.workspace.coupling_effect.as_mut(),
+            Accum::Replace,
+            state.a_nl.as_ref(),
+            state.workspace.v_temp.as_ref(),
+            T::one(),
+            Par::Seq,
+        );
+
+        let b_n = state.workspace.b_full.subrows(l_size, n_size);
+        for i in 0..n_size {
+            state.workspace.b_reduced_base[i] = b_n[i] - state.workspace.coupling_effect[i];
+        }
+
+        // Newton-Raphson Loop
         let mut converged = false;
         let mut damping_factor = 1.0f64;
 
-        for _iter in 0..max_iters {
-            let mut iter_matrix = state.reduced_base_matrix.clone();
+        state
+            .workspace
+            .initial_guess_n
+            .copy_from(&self.current_solution.subrows(l_size, n_size));
+        state
+            .workspace
+            .x_n
+            .copy_from(&state.workspace.initial_guess_n);
 
-            // GMIN insertion (Crucial for DC stability of floating nodes)
-            let gmin = T::from(GMIN).unwrap();
-            for i in 0..state.n_size {
-                iter_matrix[(i, i)] = iter_matrix[(i, i)] + gmin;
+        // Try to converge, if not, reduce damping factor
+        for attempt in 0..3 {
+            if attempt > 0 {
+                state
+                    .workspace
+                    .x_n
+                    .copy_from(&state.workspace.initial_guess_n);
             }
 
-            let mut iter_rhs = b_n - &constant_coupling;
+            for _iter in 0..max_iters {
+                state
+                    .workspace
+                    .iter_matrix
+                    .copy_from(&state.reduced_base_matrix);
 
-            // Stamp Non-Linear Jacobian and RHS corrections
-            self.components.stamp_all_nonlinear(
-                &x.as_ref(),
-                &mut iter_matrix.as_mut(),
-                &mut iter_rhs.as_mut(),
-                &state.ctx,
-                state.l_size,
-            );
+                // GMIN insertion (Crucial for DC stability of floating nodes)
+                let gmin = T::from(GMIN).unwrap();
+                for i in 0..n_size {
+                    state.workspace.iter_matrix[(i, i)] =
+                        state.workspace.iter_matrix[(i, i)] + gmin;
+                }
 
-            let lu = iter_matrix.partial_piv_lu();
-            let target_x_n = lu.solve(&iter_rhs);
+                state
+                    .workspace
+                    .iter_rhs
+                    .copy_from(&state.workspace.b_reduced_base);
 
-            let current_x_n = x.subrows(state.l_size, state.n_size);
-            let diff = &target_x_n - &current_x_n;
-            let error = diff.norm_max();
+                // Stamp Non-Linear Jacobian and RHS corrections
+                self.components.stamp_all_nonlinear(
+                    &self.current_solution.as_ref(),
+                    &mut state.workspace.iter_matrix.as_mut(),
+                    &mut state.workspace.iter_rhs.as_mut(),
+                    &dc_ctx,
+                    l_size,
+                );
 
-            let damped_update = &current_x_n + &(&diff * damping_factor);
-            x.subrows_mut(state.l_size, state.n_size)
-                .copy_from(&damped_update);
+                let stack =
+                    faer::dyn_stack::MemStack::new(&mut state.workspace.lu_workspace_memory);
 
-            let adjustment = &state.t_mat * &x.subrows(state.l_size, state.n_size);
-            let x_l = &v_linear_sources - &adjustment;
-            x.subrows_mut(0, state.l_size).copy_from(&x_l);
+                faer::linalg::lu::partial_pivoting::factor::lu_in_place(
+                    state.workspace.iter_matrix.as_mut(),
+                    &mut state.workspace.row_perm_fwd,
+                    &mut state.workspace.row_perm_inv,
+                    Par::Seq,
+                    stack,
+                    Spec::default(),
+                );
 
-            if error < T::real_part_impl(&T::from(tolerance).unwrap()) {
-                converged = true;
+                let perm = unsafe {
+                    PermRef::new_unchecked(
+                        &state.workspace.row_perm_fwd,
+                        &state.workspace.row_perm_inv,
+                        state.workspace.iter_matrix.nrows(),
+                    )
+                };
+
+                faer::linalg::lu::partial_pivoting::solve::solve_in_place_with_conj(
+                    state.workspace.iter_matrix.as_ref(),
+                    state.workspace.iter_matrix.as_ref(),
+                    perm,
+                    Conj::No,
+                    state.workspace.iter_rhs.as_mat_mut(),
+                    Par::Seq,
+                    stack,
+                );
+
+                // Element-wise diff and damped update
+                for i in 0..n_size {
+                    let d = state.workspace.iter_rhs[i] - state.workspace.x_n[i];
+                    state.workspace.diff[i] = d;
+
+                    let damped = T::from(damping_factor).unwrap() * d;
+                    state.workspace.x_n[i] = state.workspace.x_n[i] + damped;
+                }
+
+                let error = state.workspace.diff.norm_max();
+                self.current_solution
+                    .subrows_mut(l_size, n_size)
+                    .copy_from(&state.workspace.x_n);
+
+                if error < T::real_part_impl(&tolerance) {
+                    converged = true;
+                    break;
+                }
+            }
+
+            if converged {
                 break;
             }
 
-            // Simple Damping Control
-            if _iter > 10 && error > T::real_part_impl(&T::from(1.0).unwrap()) {
-                damping_factor = 0.5; // Slow down if oscillating high
-            }
+            // Reduce damping factor and try again
+            damping_factor *= 0.5;
+            log::warn!(
+                "DC Op Point: Reducing damping factor to {} for better convergence",
+                damping_factor
+            );
         }
 
         if !converged {
-            // Fallback: Try Source Stepping here?
-            return Err("DC Operating Point failed to converge".to_string());
+            return Err(format!(
+                "DC Operating Point failed to converge within {} iterations",
+                max_iters
+            ));
         }
 
-        self.current_solution = x.clone();
-        self.previous_solution = x.clone();
+        // adjustment = t_mat * x_n
+        faer::linalg::matmul::matmul(
+            state.workspace.adjustment.as_mut(),
+            Accum::Replace,
+            state.t_mat.as_ref(),
+            state.workspace.x_n.as_ref(),
+            T::one(),
+            Par::Seq,
+        );
 
-        self.components.update_all_states(&x.as_ref(), &dc_ctx);
+        // Update linear variables
+        for i in 0..l_size {
+            self.current_solution[i] = state.workspace.v_temp[i] - state.workspace.adjustment[i];
+        }
+
+        self.previous_solution.copy_from(&self.current_solution);
+        // Note: prev_prev_solution is usually ignored or zeroed for the first step after DC
+        self.prev_prev_solution.copy_from(&self.current_solution);
+
+        self.components
+            .update_all_states(&self.current_solution.as_ref(), &dc_ctx);
 
         self.record_state(&dc_ctx);
         self.step_count += 1;
@@ -495,7 +604,7 @@ impl<T: CircuitScalar> Circuit<T> {
         let n_size = state.n_size;
 
         // Initialize the solution guess for this time step.
-        // A good guess is the solution from the previous time step.
+        // A good guess is the solution from the previous time step or the one before that.
         // If we don't do this, the diodes for example starts at 0V (off) every step,
         if self.previous_solution.nrows() == total_size {
             if self.step_count > 1 {
@@ -575,6 +684,8 @@ impl<T: CircuitScalar> Circuit<T> {
                     .copy_from(&state.workspace.initial_guess_n);
             }
             for _iter in 0..MAX_NR_ITERATIONS {
+                #[cfg(feature = "profiling")]
+                let iter_span = tracing::info_span!("NR Iteration").entered();
                 state
                     .workspace
                     .iter_matrix
@@ -584,7 +695,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
 
-                self.components.stamp_all_dynamic_and_nonlinear(
+                self.components.stamp_all_nonlinear(
                     &self.current_solution.as_ref(),
                     &mut state.workspace.iter_matrix.as_mut(),
                     &mut state.workspace.iter_rhs.as_mut(),
@@ -634,6 +745,9 @@ impl<T: CircuitScalar> Circuit<T> {
                 self.current_solution
                     .subrows_mut(l_size, n_size)
                     .copy_from(&state.workspace.x_n);
+
+                #[cfg(feature = "profiling")]
+                iter_span.exit();
 
                 if error < T::real_part_impl(&tolerance) {
                     converged = true;

@@ -19,8 +19,8 @@
 
 use crate::components::transistor::bjt::BjtModel;
 use crate::model::GridPos;
+use crate::ui::util::format_si;
 use crate::ui::{ComponentBuildData, VisualComponent};
-use crate::util::format_si;
 use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
@@ -104,9 +104,12 @@ pub fn draw_component<F>(
         ComponentBuildData::Bjt { model } => match model.polarity() {
             true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
             false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
-        }
+        },
         ComponentBuildData::AudioProbe { .. } => {
             draw_voltage_prober(painter, center, rotation, zoom, fill_color, stroke_color);
+        }
+        ComponentBuildData::Triode { .. } => {
+            draw_triode(painter, center, rotation, zoom, fill_color, stroke_color);
         }
         // Fallback for unimplemented components
         _ => {
@@ -799,6 +802,106 @@ pub fn check_line_rect_intersection(p1: Pos2, p2: Pos2, rect: Rect) -> bool {
     false
 }
 
+fn draw_triode(
+    painter: &Painter,
+    center: Pos2,
+    rotation: u8,
+    zoom: f32,
+    fill_color: Color32,
+    stroke_color: Color32,
+) {
+    let stroke = Stroke::new(2.0, stroke_color);
+
+    // Draw the Glass Envelope (Circle)
+    let radius = 0.7;
+    painter.circle(
+        center,
+        radius * zoom,
+        fill_color,
+        stroke,
+    );
+
+    // Draw Plate / Anode
+    let plate_pin = Vec2::new(0.0, -1.0);
+    let plate_y = -0.4;
+    let plate_w = 0.35;
+
+    // Wire: Pin -> Plate Bar
+    painter.line_segment(
+        [
+            center + rotate_vec(plate_pin * zoom, rotation),
+            center + rotate_vec(Vec2::new(0.0, plate_y) * zoom, rotation),
+        ],
+        stroke,
+    );
+    // Plate Bar
+    painter.line_segment(
+        [
+            center + rotate_vec(Vec2::new(-plate_w, plate_y) * zoom, rotation),
+            center + rotate_vec(Vec2::new(plate_w, plate_y) * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // Draw Cathode
+    let cathode_pin = Vec2::new(0.0, 1.0);
+    let cathode_y = 0.4;
+    let cathode_w = 0.35;
+
+    // Wire: Pin -> Cathode Bar
+    painter.line_segment(
+        [
+            center + rotate_vec(cathode_pin * zoom, rotation),
+            center + rotate_vec(Vec2::new(0.0, cathode_y) * zoom, rotation),
+        ],
+        stroke,
+    );
+    // Cathode Bar
+    painter.line_segment(
+        [
+            center + rotate_vec(Vec2::new(-cathode_w, cathode_y) * zoom, rotation),
+            center + rotate_vec(Vec2::new(cathode_w, cathode_y) * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // Draw Control Grid
+    let grid_pin = Vec2::new(-1.0, 0.0);
+    let grid_wire_end = -0.4;
+
+    // Wire: Pin -> Start of Grid
+    painter.line_segment(
+        [
+            center + rotate_vec(grid_pin * zoom, rotation),
+            center + rotate_vec(Vec2::new(grid_wire_end - 0.2, 0.0) * zoom, rotation),
+        ],
+        stroke,
+    );
+
+    // Grid Dashes
+    let num_dashes = 3;
+    let total_grid_width = 0.7;
+    let gap_width = 0.06;
+    let dash_width = (total_grid_width - (gap_width * (num_dashes - 1) as f32)) / num_dashes as f32;
+
+    let mut current_x = -total_grid_width / 2.;
+
+    for _ in 0..num_dashes {
+        let dash_start = current_x;
+        let dash_end = current_x + dash_width;
+
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(dash_start, 0.0) * zoom, rotation),
+                center + rotate_vec(Vec2::new(dash_end, 0.0) * zoom, rotation),
+            ],
+            stroke,
+        );
+
+        current_x = dash_end + gap_width;
+    }
+}
+
 // Standard line-line intersection
 fn lines_intersect(a1: Pos2, a2: Pos2, b1: Pos2, b2: Pos2) -> bool {
     let den = (b2.y - b1.y) * (a2.x - a1.x) - (b2.x - b1.x) * (a2.y - a1.y);
@@ -972,6 +1075,43 @@ pub fn draw_component_labels(
 
             (label_pos, value_pos)
         }
+        ComponentBuildData::Triode { .. } => {
+            let offset_dist = 1. * zoom;
+
+            let label_pos = match rotation {
+                0 => Vec2::new(offset_dist, -0.62 * zoom), // Right, slightly up
+                1 => Vec2::new(0.75 * zoom, -0.95 * zoom),   // Down, slightly right
+                2 => Vec2::new(-offset_dist, -0.62 * zoom), // Left, slightly up
+                3 => Vec2::new(-0.75 * zoom, 0.4 * zoom),    // Up, slightly right
+                _ => Vec2::ZERO,
+            };
+
+            let value_pos = match rotation {
+                0 => Vec2::new(offset_dist, 0.2 * zoom), // Right, slightly down
+                1 => Vec2::new(-0.0 * zoom, 0.8 * zoom), // Down, slightly left
+                2 => Vec2::new(-offset_dist, 0.2 * zoom), // Left, slightly down
+                3 => Vec2::new(-0.0 * zoom, -1.3 * zoom), // Up, slightly left
+                _ => Vec2::ZERO,
+            };
+
+            (valign_label, halign_label) = match rotation {
+                0 => (Align::BOTTOM, Align::LEFT),
+                1 => (Align::TOP, Align::LEFT),
+                2 => (Align::BOTTOM, Align::RIGHT),
+                3 => (Align::BOTTOM, Align::RIGHT),
+                _ => (Align::Center, Align::Center),
+            };
+
+            (valign_value, halign_value) = match rotation {
+                0 => (Align::TOP, Align::LEFT),
+                1 => (Align::TOP, Align::Center),
+                2 => (Align::TOP, Align::RIGHT),
+                3 => (Align::BOTTOM, Align::Center),
+                _ => (Align::Center, Align::Center),
+            };
+
+            (label_pos, value_pos)
+        }
         _ => (Vec2::new(0.0, -0.7 * zoom), Vec2::new(0.0, 0.7 * zoom)),
     };
 
@@ -1016,6 +1156,7 @@ pub fn draw_component_labels(
     let value = match &component.component {
         ComponentBuildData::Diode { model } => model.format_name().to_string(),
         ComponentBuildData::Bjt { model } => model.format_name().to_string(),
+        ComponentBuildData::Triode { model } => model.format_name().to_string(),
         ComponentBuildData::AudioSource { path } | ComponentBuildData::AudioProbe { path } => {
             // format the pathbuf to include just the file name and extension, not the full path
             if let Some(file_name) = path.file_name() {

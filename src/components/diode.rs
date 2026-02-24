@@ -19,11 +19,12 @@
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
+use crate::util::math;
+use crate::util::mna::{stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// Internal state used only during the Newton-Raphson iteration loop.
 /// Grouping these reduces lock contention overhead.
@@ -159,12 +160,12 @@ impl<T: CircuitScalar> Diode<T> {
         }
     }
 
-    /// Determines the index of the Anode of the *Intrinsic* diode.
-    fn get_intrinsic_anode_idx(&self, offset: usize) -> (Option<usize>, usize) {
+    /// Determines the index of the Anode of the *Intrinsic* diode
+    fn get_intrinsic_anode_idx(&self, offset: usize) -> Option<usize> {
         if self.series_resistance > T::epsilon() {
-            (self.internal_node_idx, offset)
+            self.internal_node_idx
         } else {
-            (self.cached_idx_a, offset)
+            self.cached_idx_a
         }
     }
 
@@ -189,55 +190,8 @@ impl<T: CircuitScalar> Diode<T> {
     /// Dampens voltage changes to prevent numerical overflow in exp().
     fn limit_voltage(&self, v_new: T, v_old: T) -> T {
         let vt_n = self.emission_coefficient * self.vt;
-        let two = T::from(2.0).unwrap();
 
-        // Checks if we are in (or entering) Breakdown
-        // Treat the breakdown region as a "forward" diode by transforming coordinates:
-        // V_equiv = -(V + BV)
-        if v_new < -self.bv {
-            let v_new_eq = -(v_new + self.bv);
-            let v_old_eq = -(v_old + self.bv);
-            let v_crit_bwd = self.v_crit_bwd;
-
-            if v_new_eq > v_crit_bwd {
-                let effective_v_old_eq = if v_old_eq < v_crit_bwd {
-                    v_crit_bwd
-                } else {
-                    v_old_eq
-                };
-
-                let arg = (v_new_eq - effective_v_old_eq) / vt_n;
-
-                if arg > two {
-                    let limited_eq = effective_v_old_eq + vt_n * (two + (arg - two).ln());
-                    // Transform back: V = -(V_eq + BV)
-                    return -(limited_eq + self.bv);
-                }
-            }
-            // If strictly inside breakdown but step is small, we accept the new voltage
-            return v_new;
-        }
-
-        // Simple case: Voltage is low or reverse biased (but not breakdown)
-        if v_new < self.v_crit {
-            return v_new;
-        }
-
-        // Standard SPICE limiting for forward bias
-        if v_new > v_old {
-            let arg = (v_new - v_old) / vt_n;
-            // CRITICAL FIX 1: Ensure arg > 2.0
-            if arg > two {
-                return v_old + vt_n * (two + (arg - two).ln());
-            }
-        } else {
-            // Unwinding high voltage
-            if v_new < self.v_crit {
-                return v_new;
-            }
-        }
-
-        v_new
+        math::pn_junction_limit(v_new, v_old, vt_n, self.v_crit)
     }
 
     /// Calculates: I_d, G_d, Q_tot, C_tot
@@ -343,66 +297,6 @@ impl<T: CircuitScalar> Diode<T> {
         (i_dc, g_dc, q_diff + q_jun, c_diff + c_jun)
     }
 
-    /// Stamp G into Matrix A
-    fn stamp_conductance(matrix: &mut MatMut<T>, idx_a: Option<usize>, idx_b: Option<usize>, g: T) {
-        if let Some(i) = idx_a {
-            matrix[(i, i)] = matrix[(i, i)] + g;
-        }
-        if let Some(j) = idx_b {
-            matrix[(j, j)] = matrix[(j, j)] + g;
-        }
-
-        if let (Some(i), Some(j)) = (idx_a, idx_b) {
-            matrix[(i, j)] = matrix[(i, j)] - g;
-            matrix[(j, i)] = matrix[(j, i)] - g;
-        }
-    }
-
-    /// Stamp G into Matrix A
-    fn stamp_conductance_nonlinear(
-        matrix: &mut MatMut<T>,
-        idx_a: Option<usize>,
-        idx_b: Option<usize>,
-        g: T,
-        offset: usize,
-        a_offset: usize,
-    ) {
-        if let Some(i) = idx_a {
-            let local_i = i - a_offset;
-            matrix[(local_i, local_i)] = matrix[(local_i, local_i)] + g;
-        }
-        if let Some(j) = idx_b {
-            let local_j = j - offset;
-            matrix[(local_j, local_j)] = matrix[(local_j, local_j)] + g;
-        }
-
-        if let (Some(i), Some(j)) = (idx_a, idx_b) {
-            let local_i = i - a_offset;
-            let local_j = j - offset;
-            matrix[(local_i, local_j)] = matrix[(local_i, local_j)] - g;
-            matrix[(local_j, local_i)] = matrix[(local_j, local_i)] - g;
-        }
-    }
-
-    /// Stamp Current J into RHS Vector b (J flows A -> B)
-    fn stamp_current_source(
-        rhs: &mut ColMut<T>,
-        idx_a: Option<usize>,
-        idx_b: Option<usize>,
-        val: T,
-        offset: usize,
-        a_offset: usize,
-    ) {
-        if let Some(i) = idx_a {
-            let local_i = i - a_offset;
-            rhs[local_i] = rhs[local_i] - val;
-        }
-        if let Some(j) = idx_b {
-            let local_j = j - offset;
-            rhs[local_j] = rhs[local_j] + val;
-        }
-    }
-
     /// Helper to calculate the total current (DC + Transient) flowing through the diode
     /// based on the converged solution.
     fn compute_total_current(&self, solution: &ColRef<T>, dt: T) -> T {
@@ -462,7 +356,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         if let Some(r_idx) = self.internal_node_idx {
             let g_s = T::one() / self.series_resistance;
-            Self::stamp_conductance(matrix, idx_a, Some(r_idx), g_s);
+            stamp_conductance(matrix, idx_a, Some(r_idx), g_s, 0);
         }
     }
 
@@ -479,7 +373,6 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         let v_d_input = self.get_intrinsic_voltage(current_node_voltages);
 
-        // pnjlim
         let v_d = self.limit_voltage(v_d_input, v_old_iter);
 
         state.last_iter_voltage = v_d;
@@ -503,11 +396,11 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
 
         let i_rhs = i_total_flowing - (g_total * v_d);
 
-        let (idx_p, a_offset) = self.get_intrinsic_anode_idx(l_size);
+        let idx_p = self.get_intrinsic_anode_idx(l_size);
         let idx_k = self.cached_idx_b;
 
-        Self::stamp_conductance_nonlinear(matrix, idx_p, idx_k, g_total, l_size, a_offset);
-        Self::stamp_current_source(rhs, idx_p, idx_k, i_rhs, l_size, a_offset);
+        stamp_conductance(matrix, idx_p, idx_k, g_total, l_size);
+        stamp_current_source(rhs, idx_p, idx_k, i_rhs, l_size);
 
         let current_diff = (i_total_flowing - state.last_iter_current).abs();
 
