@@ -684,6 +684,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     .copy_from(&state.workspace.initial_guess_n);
             }
             for _iter in 0..MAX_NR_ITERATIONS {
+                #[cfg(feature = "profiling")]
                 let iter_span = tracing::info_span!("NR Iteration").entered();
                 state
                     .workspace
@@ -745,6 +746,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     .subrows_mut(l_size, n_size)
                     .copy_from(&state.workspace.x_n);
 
+                #[cfg(feature = "profiling")]
                 iter_span.exit();
 
                 if error < T::real_part_impl(&tolerance) {

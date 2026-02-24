@@ -24,6 +24,8 @@ use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentMetadata, SimBatchData, SimCommand, SimStepData};
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
+
+#[cfg(feature = "profiling")]
 use tracy_client::Client;
 
 pub fn run_simulation_loop(
@@ -31,8 +33,10 @@ pub fn run_simulation_loop(
     state: Sender<StateUpdate>,
     recycled_rx: Receiver<SimBatchData>,
 ) {
+    #[cfg(feature = "profiling")]
     let tracy = Client::start();
 
+    #[cfg(feature = "profiling")]
     tracy.set_thread_name("Simulation Loop");
 
     let mut realtime_mode = false;
@@ -153,6 +157,7 @@ pub fn run_simulation_loop(
 
         // Run Simulation Batch
         if running {
+            #[cfg(feature = "profiling")]
             let _batch_span = tracing::info_span!("sim_batch").entered();
 
             let batch_start = if realtime_mode {
@@ -177,12 +182,14 @@ pub fn run_simulation_loop(
 
                 // Extract History
                 if steps_performed > 0 {
+                    #[cfg(feature = "profiling")]
                     let _extract_span = tracing::info_span!("extract_history").entered();
                     ckt.extract_history(&mut active_batch);
                 }
 
                 // Try to flush to UI
                 if !active_batch.times.is_empty() {
+                    #[cfg(feature = "profiling")]
                     let _flush_span = tracing::info_span!("flush_to_ui").entered();
 
                     let nodes = active_batch.nodes_per_step;
@@ -241,7 +248,7 @@ pub fn run_simulation_loop(
                 }
             }
 
-            drop(_batch_span);
+            #[cfg(feature = "profiling")]
             tracy.frame_mark();
         } else {
             std::thread::sleep(std::time::Duration::from_millis(100));

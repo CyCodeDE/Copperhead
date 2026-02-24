@@ -18,6 +18,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#[cfg(feature = "profiling")]
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 mod audio;
 pub(crate) mod circuit;
@@ -35,6 +36,7 @@ use egui::ViewportBuilder;
 fn main() -> eframe::Result {
     env_logger::init();
 
+    #[cfg(feature = "profiling")]
     tracing::subscriber::set_global_default(
         tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
     )
