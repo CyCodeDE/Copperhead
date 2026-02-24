@@ -28,7 +28,6 @@ pub fn exp_safe<T: CircuitScalar>(x: T) -> T {
 
     if x > max_arg {
         let exp_max = max_arg.exp();
-        // Linear extrapolation: f(x) = f(a) + f'(a)(x - a)
         exp_max * (T::one() + (x - max_arg))
     } else {
         x.exp()
@@ -50,13 +49,34 @@ pub fn exp_safe_deriv<T: CircuitScalar>(x: T) -> (T, T) {
     }
 }
 
+/// Computes the Softplus function and its derivative safely.
+/// Softplus: f(x) = ln(1 + e^x)
+/// Derivative (Sigmoid): f'(x) = 1 / (1 + e^{-x})
+///
+/// Uses a threshold to prevent floating-point overflow and underflow,
+/// returning the linear asymptotes for large positive or negative inputs.
+#[inline]
+pub fn softplus_safe_deriv<T: Float>(x: T) -> (T, T) {
+    let limit = T::from(20.0).unwrap();
+    let zero = T::zero();
+    let one = T::one();
+
+    if x > limit {
+        (x, one)
+    } else if x < -limit {
+        (zero, zero)
+    } else {
+        let val = (one + x.exp()).ln();
+        let deriv = one / (one + (-x).exp());
+        (val, deriv)
+    }
+}
+
 /// Standard SPICE `pnjlim` algorithm for limiting junction voltage steps.
 /// Dampens voltage changes across PN junctions to prevent exponential overflow
 /// and oscillation during Newton-Raphson iterations.
 pub fn pn_junction_limit<T: CircuitScalar>(v_new: T, v_old: T, vt: T, v_crit: T) -> T {
-    let two = T::from(2.0).unwrap();
-
-    if v_new > v_crit && (v_new - v_old).abs() > (two * vt) {
+    if v_new > v_crit && (v_new - v_old).abs() > (vt + vt) {
         if v_old > T::zero() {
             let arg = (v_new - v_old) / vt;
             if arg > T::zero() {

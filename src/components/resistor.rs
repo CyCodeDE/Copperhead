@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::circuit::NodePartition;
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
@@ -120,8 +119,7 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
             } else {
                 T::one() / value
             };
-            // Return TRUE: The conductance matrix (G) changed,
-            // so the solver MUST rebuild Matrix A before the next step.
+            // Return true so the solver MUST rebuild Matrix A before the next step.
             return true;
         }
         false

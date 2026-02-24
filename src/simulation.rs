@@ -229,9 +229,7 @@ pub fn run_simulation_loop(
 
                     for probe in &ckt.components.audio_probes {
                         if probe.buffer.is_empty() || probe.filepath.is_empty() {
-                            info!(
-                                "Skipping WAV export for probe due to empty buffer or filepath"
-                            );
+                            info!("Skipping WAV export for probe due to empty buffer or filepath");
                             continue;
                         }
                         write_to_wav(
@@ -245,7 +243,6 @@ pub fn run_simulation_loop(
 
             drop(_batch_span);
             tracy.frame_mark();
-
         } else {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }

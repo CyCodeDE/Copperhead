@@ -24,6 +24,7 @@ use crate::components::diode::Diode;
 use crate::components::inductor::Inductor;
 use crate::components::resistor::Resistor;
 use crate::components::transistor::bjt::Bjt;
+use crate::components::triode::Triode;
 use crate::components::voltage_source::VoltageSource;
 use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
@@ -32,7 +33,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Add, Sub};
-use crate::components::triode::Triode;
 
 /// The numerical trait.
 /// For inference: T = f32

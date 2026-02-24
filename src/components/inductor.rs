@@ -50,7 +50,7 @@ impl<T: CircuitScalar> Inductor<T> {
             cached_idx_b: None,
             inductance: l,
             series_resistance: r,
-            g_eq: T::zero(), // Will be calculated immediately below
+            g_eq: T::zero(),
             prev_current: T::zero(),
             prev_voltage: T::zero(),
         };
@@ -93,9 +93,7 @@ impl<T: CircuitScalar> Inductor<T> {
 
     fn calculate_history_current(&self) -> T {
         let two = T::from(2.0).unwrap();
-
-        // The voltage drop due to the resistor in the previous step needs to be accounted for
-        // in the history term derivation for RL branches.
+        
         let resistive_drop_term = two * self.series_resistance * self.prev_current;
 
         self.prev_current + (self.g_eq * (self.prev_voltage - resistive_drop_term))
@@ -192,7 +190,6 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
 
             let i_dc = v_new * g_dc;
 
-            // Initialize history with DC Operating Point
             self.prev_voltage = v_new;
             self.prev_current = i_dc;
         } else {

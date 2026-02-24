@@ -19,12 +19,13 @@
 
 use crate::components::transistor::bjt::BjtModel;
 use crate::model::GridPos;
+use crate::ui::util::format_si;
 use crate::ui::{ComponentBuildData, VisualComponent};
 use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use egui::{Align2, FontSelection, Painter, RichText, Style};
-use crate::ui::util::format_si;
+
 // DISCLAIMER:
 // Most of this file is vibe-coded. Performance is probably not optimal, but tbh I couldn't give less of a fuck.
 // Is the performance good? No. Probably not. But that is a problem for the me/myself/and I of tomorrow.
@@ -103,7 +104,7 @@ pub fn draw_component<F>(
         ComponentBuildData::Bjt { model } => match model.polarity() {
             true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
             false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
-        }
+        },
         ComponentBuildData::AudioProbe { .. } => {
             draw_voltage_prober(painter, center, rotation, zoom, fill_color, stroke_color);
         }

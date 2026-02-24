@@ -17,13 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::ui::util::{format_si, format_si_single};
 use crate::ui::{SimState, SimStepData};
 use egui::epaint::PathShape;
-use egui::{
-    Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui, Vec2, pos2, vec2,
-};
-use crate::ui::util::{format_si, format_si_single};
+use egui::{Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2, CornerRadius};
 
 #[derive(Debug, Clone)]
 pub struct ScopeState {
@@ -112,11 +109,16 @@ pub fn draw_oscilloscope(
     );
 
     // Draw Background
-    painter.rect_filled(response.rect, 2.0, Color32::from_rgb(15, 17, 26));
+    painter.rect_filled(response.rect, CornerRadius { ne: 0, nw: 0, se: 0, sw: 20 }, Color32::from_rgb(15, 17, 26));
     painter.rect_stroke(
         response.rect,
-        2.0,
-        Stroke::new(1.0, Color32::from_gray(60)),
+        CornerRadius {
+            ne: 0,
+            nw: 20,
+            se: 0,
+            sw: 20,
+        },
+        Stroke::NONE,
         StrokeKind::Inside,
     );
 
@@ -458,6 +460,35 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
         s * mag
     }
 
+    let r = 20.0; // Corner radius
+
+    // Calculates the top and bottom y-coordinates for a vertical line at x
+    let clip_v = |x: f32| -> (f32, f32) {
+        let dx = x - ctx.rect.left();
+        if dx >= 0.0 && dx < r {
+            let offset = r - (r * r - (r - dx).powi(2)).sqrt();
+            (ctx.rect.top() + offset, ctx.rect.bottom() - offset)
+        } else {
+            (ctx.rect.top(), ctx.rect.bottom())
+        }
+    };
+
+    // Calculates the starting x-coordinate for a horizontal line at y
+    let clip_h = |y: f32| -> f32 {
+        let dy_top = y - ctx.rect.top();
+        let dy_bot = ctx.rect.bottom() - y;
+
+        if dy_top >= 0.0 && dy_top < r {
+            let offset = r - (r * r - (r - dy_top).powi(2)).sqrt();
+            ctx.rect.left() + offset
+        } else if dy_bot >= 0.0 && dy_bot < r {
+            let offset = r - (r * r - (r - dy_bot).powi(2)).sqrt();
+            ctx.rect.left() + offset
+        } else {
+            ctx.rect.left()
+        }
+    };
+
     let t_step = calc_step(ctx.time_range.1 - ctx.time_range.0, 10.0);
     let t_start = (ctx.time_range.0 / t_step).floor() as i64;
     let t_end = (ctx.time_range.1 / t_step).ceil() as i64;
@@ -466,20 +497,24 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
         let t = i as f64 * t_step;
         let x = ctx.t_to_x(t);
         if x >= ctx.rect.left() - 0.5 && x <= ctx.rect.right() + 0.5 {
+            let (y_top, y_bot) = clip_v(x);
             painter.line_segment(
-                [pos2(x, ctx.rect.top()), pos2(x, ctx.rect.bottom())],
+                [pos2(x, y_top), pos2(x, y_bot)],
                 Stroke::new(1.0, major_color),
             );
+
             let sub = t_step / 5.0;
             for j in 1..5 {
                 let sx = ctx.t_to_x(t + j as f64 * sub);
                 if sx < ctx.rect.right() {
+                    let (sy_top, sy_bot) = clip_v(sx);
                     painter.line_segment(
-                        [pos2(sx, ctx.rect.top()), pos2(sx, ctx.rect.bottom())],
+                        [pos2(sx, sy_top), pos2(sx, sy_bot)],
                         Stroke::new(0.5, minor_color),
                     );
                 }
             }
+
             painter.text(
                 pos2(x + 3.0, ctx.rect.bottom() - 12.0),
                 Align2::LEFT_BOTTOM,
@@ -497,18 +532,22 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
         for i in v_start..=v_end {
             let v = i as f64 * v_step;
             let y = ctx.v_to_y(v);
-            if y >= ctx.rect.top() - 0.5 && y <= ctx.rect.bottom() + 0.5 {
+            if y <= ctx.rect.bottom() + 0.5 {
+                let start_x = clip_h(y);
                 painter.line_segment(
-                    [pos2(ctx.rect.left(), y), pos2(ctx.rect.right(), y)],
+                    [pos2(start_x, y), pos2(ctx.rect.right(), y)],
                     Stroke::new(1.0, major_color.gamma_multiply(0.5)),
                 );
+
                 let label = if i == 0 {
                     "GND".to_string()
                 } else {
                     format_si(&[(v, "V")], 0.1, 2)
                 };
+
+                // Offset the text by start_x so labels in the corners are pushed right
                 painter.text(
-                    pos2(ctx.rect.left() + 2.0, y - 2.0),
+                    pos2(start_x + 2.0, y - 2.0),
                     Align2::LEFT_BOTTOM,
                     label,
                     font.clone(),
@@ -525,7 +564,9 @@ fn draw_grid(painter: &Painter, ctx: &ScopeContext, show_v: bool, show_i: bool) 
         for i in i_start..=i_end {
             let val = i as f64 * i_step;
             let y = ctx.i_to_y(val);
-            if y >= ctx.rect.top() && y <= ctx.rect.bottom() {
+            if y <= ctx.rect.bottom() {
+                // Since the current is drawn on the right (and NE/SE corners are 0 radius),
+                // no clipping math is needed here!
                 painter.line_segment(
                     [pos2(ctx.rect.right() - 6.0, y), pos2(ctx.rect.right(), y)],
                     Stroke::new(1.5, Color32::from_rgb(200, 100, 100)),

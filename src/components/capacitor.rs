@@ -19,6 +19,7 @@
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
+use crate::util::mna::get_voltage_diff;
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
 
@@ -61,23 +62,6 @@ impl<T: CircuitScalar> Capacitor<T> {
             conductance,
             eq_current: T::zero(), // Assumes capacitor is initially uncharged
         }
-    }
-
-    /// Helper to get voltage across the component (Va - Vb)
-    fn get_voltage_diff(&self, solution: &ColRef<T>) -> T {
-        let v_a = if let Some(idx) = self.cached_idx_a {
-            solution[idx]
-        } else {
-            T::zero()
-        };
-
-        let v_b = if let Some(idx) = self.cached_idx_b {
-            solution[idx]
-        } else {
-            T::zero()
-        };
-
-        v_a - v_b
     }
 
     fn update_conductance(&mut self, dt: T) {
@@ -158,7 +142,8 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
     }
 
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
-        let v_terminal = self.get_voltage_diff(current_node_voltages);
+        let v_terminal =
+            get_voltage_diff(current_node_voltages, self.cached_idx_a, self.cached_idx_b);
         let i_through = if ctx.is_dc_analysis {
             T::zero()
         } else {
@@ -195,7 +180,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         ctx: &SimulationContext<T>,
         out_observables: &mut [T],
     ) {
-        let v = self.get_voltage_diff(node_voltages);
+        let v = get_voltage_diff(node_voltages, self.cached_idx_a, self.cached_idx_b);
 
         let i = if ctx.is_dc_analysis {
             T::zero()
@@ -216,7 +201,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         ctx: &SimulationContext<T>,
         out_currents: &mut [T],
     ) {
-        let v = self.get_voltage_diff(node_voltages);
+        let v = get_voltage_diff(node_voltages, self.cached_idx_a, self.cached_idx_b);
 
         let i_flow = if ctx.is_dc_analysis {
             T::zero()

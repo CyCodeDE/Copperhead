@@ -16,5 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-pub mod math;
-pub mod mna;
+pub mod erasing;
+pub mod placement;
+pub mod selection;
+pub mod wiring;

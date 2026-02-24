@@ -19,11 +19,14 @@
 use crate::model::{
     CircuitScalar, Component, ComponentLinearity, ComponentProbe, NodeId, SimulationContext,
 };
+use crate::util::math::{exp_safe, exp_safe_deriv, pn_junction_limit};
+use crate::util::mna::{
+    get_voltage, stamp_conductance, stamp_matrix_element, stamp_vector_element,
+};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// Internal state for the BJT during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]
@@ -165,45 +168,6 @@ impl<T: CircuitScalar> Bjt<T> {
             aux_start_index: None,
         }
     }
-
-    fn limit_junction_voltage(v_new: T, v_old: T, vt: T, v_crit: T) -> T {
-        if v_new > v_crit && (v_new - v_old).abs() > vt + vt {
-            if v_old > T::zero() {
-                let arg = (v_new - v_old) / vt;
-                if arg > T::zero() {
-                    v_old + vt * (T::one() + arg).ln()
-                } else {
-                    v_new
-                }
-            } else {
-                vt * (v_new / vt).ln()
-            }
-        } else {
-            v_new
-        }
-    }
-
-    fn exp_safe(x: T) -> T {
-        let max_arg = T::from(80.).unwrap();
-        if x > max_arg {
-            let exp_max = max_arg.exp();
-            exp_max * (T::one() + (x - max_arg))
-        } else {
-            x.exp()
-        }
-    }
-
-    fn exp_safe_deriv(x: T) -> (T, T) {
-        // Returns (Value, Derivative)
-        let max_arg = T::from(80.).unwrap();
-        if x > max_arg {
-            let exp_max = max_arg.exp();
-            (exp_max * (T::one() + (x - max_arg)), exp_max)
-        } else {
-            let ex = x.exp();
-            (ex, ex)
-        }
-    }
 }
 
 impl<T: CircuitScalar> Component<T> for Bjt<T> {
@@ -282,67 +246,34 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let (idx_b_int, rb) = resolve_internal(idx_b_ext, self.rb);
         let (idx_e_int, re) = resolve_internal(idx_e_ext, self.re);
 
-        // Helper for Matrix Stamping
-        let mut stamp = |r: Option<usize>, c: Option<usize>, val: T| {
-            if let (Some(row), Some(col)) = (r, c) {
-                let local_r = row - l_size;
-                let local_c = col - l_size;
+        if rc > T::zero() {
+            stamp_conductance(matrix, idx_c_ext, idx_c_int, T::one() / rc, l_size);
+        }
+        if rb > T::zero() {
+            stamp_conductance(matrix, idx_b_ext, idx_b_int, T::one() / rb, l_size);
+        }
+        if re > T::zero() {
+            stamp_conductance(matrix, idx_e_ext, idx_e_int, T::one() / re, l_size);
+        }
 
-                matrix[(local_r, local_c)] = matrix[(local_r, local_c)] + val;
-            }
-        };
-
-        let mut stamp_rhs = |r: Option<usize>, val: T| {
-            if let Some(row) = r {
-                let local_r = row - l_size;
-                rhs[local_r] = rhs[local_r] + val;
-            }
-        };
-
-        // Stamp Parasitic Resistors
-        let mut apply_resistor = |idx_ext: Option<usize>, idx_int: Option<usize>, r: T| {
-            if r > T::zero() {
-                let g = T::one() / r;
-                // Stamp G between Ext and Int
-                stamp(idx_ext, idx_ext, g);
-                stamp(idx_ext, idx_int, -g);
-                stamp(idx_int, idx_ext, -g);
-                stamp(idx_int, idx_int, g);
-            }
-        };
-
-        apply_resistor(idx_c_ext, idx_c_int, rc);
-        apply_resistor(idx_b_ext, idx_b_int, rb);
-        apply_resistor(idx_e_ext, idx_e_int, re);
-
-        // Recover Internal Node Voltages
-        let get_v = |idx: Option<usize>| -> T {
-            match idx {
-                Some(i) => current_node_voltages[i],
-                None => T::zero(),
-            }
-        };
-
-        let vc = get_v(idx_c_int);
-        let vb = get_v(idx_b_int);
-        let ve = get_v(idx_e_int);
+        let vc = get_voltage(current_node_voltages, idx_c_int);
+        let vb = get_voltage(current_node_voltages, idx_b_int);
+        let ve = get_voltage(current_node_voltages, idx_e_int);
 
         let v_be_raw = self.polarity * (vb - ve);
         let v_bc_raw = self.polarity * (vb - vc);
 
         // Limiting and Convergence
-        let v_be =
-            Self::limit_junction_voltage(v_be_raw, state.v_be_limited, self.vt, self.v_crit_be);
-        let v_bc =
-            Self::limit_junction_voltage(v_bc_raw, state.v_bc_limited, self.vt, self.v_crit_bc);
+        let v_be = pn_junction_limit(v_be_raw, state.v_be_limited, self.vt, self.v_crit_be);
+        let v_bc = pn_junction_limit(v_bc_raw, state.v_bc_limited, self.vt, self.v_crit_bc);
 
         // Ebers-Moll with Early Effect
         let vt = self.vt;
         let is = self.saturation_current;
 
         // Base Exponentials
-        let (evbe, d_evbe) = Self::exp_safe_deriv(v_be / vt);
-        let evbc = Self::exp_safe(v_bc / vt);
+        let (evbe, d_evbe) = exp_safe_deriv(v_be / vt);
+        let evbc = exp_safe(v_bc / vt);
 
         let early_denom = T::one() + (v_bc / self.v_af) + (v_be / self.v_ar);
         let early_denom = if early_denom < T::from(0.01).unwrap() {
@@ -398,17 +329,17 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let i_e_final = i_e_total_mag * p;
 
         // Stamp Jacobian
-        stamp(idx_c_int, idx_c_int, g_cc + self.g_min);
-        stamp(idx_c_int, idx_b_int, g_cb);
-        stamp(idx_c_int, idx_e_int, g_ce);
+        stamp_matrix_element(matrix, idx_c_int, idx_c_int, g_cc + self.g_min, l_size);
+        stamp_matrix_element(matrix, idx_c_int, idx_b_int, g_cb, l_size);
+        stamp_matrix_element(matrix, idx_c_int, idx_e_int, g_ce, l_size);
 
-        stamp(idx_b_int, idx_c_int, g_bc);
-        stamp(idx_b_int, idx_b_int, g_bb + self.g_min);
-        stamp(idx_b_int, idx_e_int, g_be);
+        stamp_matrix_element(matrix, idx_b_int, idx_c_int, g_bc, l_size);
+        stamp_matrix_element(matrix, idx_b_int, idx_b_int, g_bb + self.g_min, l_size);
+        stamp_matrix_element(matrix, idx_b_int, idx_e_int, g_be, l_size);
 
-        stamp(idx_e_int, idx_c_int, g_ec);
-        stamp(idx_e_int, idx_b_int, g_eb);
-        stamp(idx_e_int, idx_e_int, g_ee + self.g_min);
+        stamp_matrix_element(matrix, idx_e_int, idx_c_int, g_ec, l_size);
+        stamp_matrix_element(matrix, idx_e_int, idx_b_int, g_eb, l_size);
+        stamp_matrix_element(matrix, idx_e_int, idx_e_int, g_ee + self.g_min, l_size);
 
         let p_inv = T::one() / self.polarity;
 
@@ -421,9 +352,9 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         // Row E: g_ec*Vc + g_eb*Vb + g_ee*Ve = -g_ec(Vb-Vc) - g_ee(Vb-Ve)
         let g_dot_v_e = (-g_ec * v_bc * p_inv) + (-g_ee * v_be * p_inv);
 
-        stamp_rhs(idx_c_int, g_dot_v_c - i_c_final);
-        stamp_rhs(idx_b_int, g_dot_v_b - i_b_final);
-        stamp_rhs(idx_e_int, g_dot_v_e - i_e_final);
+        stamp_vector_element(rhs, idx_c_int, g_dot_v_c - i_c_final, l_size);
+        stamp_vector_element(rhs, idx_b_int, g_dot_v_b - i_b_final, l_size);
+        stamp_vector_element(rhs, idx_e_int, g_dot_v_e - i_e_final, l_size);
 
         // Update State
         state.v_be_limited = v_be;
@@ -458,16 +389,9 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_int = resolve_int(idx_b_ext, self.rb);
         let idx_e_int = resolve_int(idx_e_ext, self.re);
 
-        let get_v = |i: Option<usize>| {
-            if let Some(x) = i {
-                current_node_voltages[x]
-            } else {
-                T::zero()
-            }
-        };
-        let vc = get_v(idx_c_int);
-        let vb = get_v(idx_b_int);
-        let ve = get_v(idx_e_int);
+        let vc = get_voltage(current_node_voltages, idx_c_int);
+        let vb = get_voltage(current_node_voltages, idx_b_int);
+        let ve = get_voltage(current_node_voltages, idx_e_int);
 
         // Check Convergence
         let v_be_new = self.polarity * (vb - ve);
@@ -514,17 +438,9 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_ext = self.cached_idx_b;
         let idx_e_ext = self.cached_idx_e;
 
-        let get_v = |i: Option<usize>| {
-            if let Some(x) = i {
-                node_voltages[x]
-            } else {
-                T::zero()
-            }
-        };
-
-        let vc_ext = get_v(idx_c_ext);
-        let vb_ext = get_v(idx_b_ext);
-        let ve_ext = get_v(idx_e_ext);
+        let vc_ext = get_voltage(node_voltages, idx_c_ext);
+        let vb_ext = get_voltage(node_voltages, idx_b_ext);
+        let ve_ext = get_voltage(node_voltages, idx_e_ext);
 
         let v_be = self.polarity * (vb_ext - ve_ext);
         let v_ce = self.polarity * (vc_ext - ve_ext);
@@ -561,16 +477,9 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let idx_b_int = resolve_int(idx_b_ext, self.rb);
         let idx_e_int = resolve_int(idx_e_ext, self.re);
 
-        let get_v = |i: Option<usize>| {
-            if let Some(x) = i {
-                node_voltages[x]
-            } else {
-                T::zero()
-            }
-        };
-        let vc = get_v(idx_c_int);
-        let vb = get_v(idx_b_int);
-        let ve = get_v(idx_e_int);
+        let vc = get_voltage(node_voltages, idx_c_int);
+        let vb = get_voltage(node_voltages, idx_b_int);
+        let ve = get_voltage(node_voltages, idx_e_int);
 
         let v_be = self.polarity * (vb - ve);
         let v_bc = self.polarity * (vb - vc);
@@ -578,8 +487,8 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let vt = self.vt;
         let is = self.saturation_current;
 
-        let evbe = Self::exp_safe(v_be / vt);
-        let evbc = Self::exp_safe(v_bc / vt);
+        let evbe = exp_safe(v_be / vt);
+        let evbc = exp_safe(v_bc / vt);
 
         // Early Effect
         let early_denom = T::one() + (v_bc / self.v_af) + (v_be / self.v_ar);
@@ -608,7 +517,6 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         out_currents[2] = i_e_mag * p;
     }
 
-    // NEW
     fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
         match name {
             "is" => self.saturation_current = value,

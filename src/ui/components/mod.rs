@@ -17,4 +17,8 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod canvas;
+pub mod modals;
 pub mod oscilloscope;
+pub mod side_panel;
+pub mod top_bar;

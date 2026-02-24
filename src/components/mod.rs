@@ -33,8 +33,8 @@ pub mod diode;
 pub mod inductor;
 pub mod resistor;
 pub mod transistor;
-pub mod voltage_source;
 pub mod triode;
+pub mod voltage_source;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
 #[derive(Clone, Debug)]
@@ -122,7 +122,6 @@ pub enum ComponentDescriptor {
         cpk: f64,
         i_s: f64,
         vt: f64,
-        
     },
     AudioProbe {
         node: usize,
@@ -325,14 +324,10 @@ impl ComponentDescriptor {
                     NodeId(c),
                     num_traits::cast(mu)
                         .expect("Failed to cast amplification factor to circuit scalar type"),
-                    num_traits::cast(ex)
-                        .expect("Failed to cast exponent to circuit scalar type"),
-                    num_traits::cast(kg1)
-                        .expect("Failed to cast kg1 to circuit scalar type"),
-                    num_traits::cast(kp)
-                        .expect("Failed to cast kp to circuit scalar type"),
-                    num_traits::cast(kvb)
-                        .expect("Failed to cast kvb to circuit scalar type"),
+                    num_traits::cast(ex).expect("Failed to cast exponent to circuit scalar type"),
+                    num_traits::cast(kg1).expect("Failed to cast kg1 to circuit scalar type"),
+                    num_traits::cast(kp).expect("Failed to cast kp to circuit scalar type"),
+                    num_traits::cast(kvb).expect("Failed to cast kvb to circuit scalar type"),
                     num_traits::cast(rgi)
                         .expect("Failed to cast grid resistance to circuit scalar type"),
                     num_traits::cast(cgp)

@@ -18,20 +18,23 @@
  */
 
 pub mod app;
+mod app_state;
 mod components;
 mod drawing;
+mod netlist;
+mod tools;
 pub mod ui;
 pub mod util;
 
 use crate::components::ComponentDescriptor;
 use crate::components::diode::DiodeModel;
 use crate::components::transistor::bjt::BjtModel;
+use crate::components::triode::TriodeModel;
 use crate::model::{CircuitScalar, ComponentProbe, GridPos, NodeId};
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::components::triode::TriodeModel;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ComponentBuildData {
@@ -263,7 +266,7 @@ impl Schematic {
             pos,
             size,
             rotation,
-            offset
+            offset,
         });
         self.next_component_id += 1;
     }
