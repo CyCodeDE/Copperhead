@@ -17,8 +17,8 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::model::GridPos;
-use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::VisualWire;
+use crate::ui::app::{CircuitApp, Tool};
 use egui::{Color32, Pos2, Stroke};
 
 pub fn handle(

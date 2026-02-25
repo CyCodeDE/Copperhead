@@ -19,8 +19,8 @@
 
 use crate::ui::ComponentBuildData;
 use crate::ui::app::{CircuitApp, Tool};
-use egui::{CornerRadius, Frame, Id, Key, Margin};
 use crate::ui::components::oscilloscope::draw_oscilloscope;
+use egui::{CornerRadius, Frame, Id, Key, Margin};
 
 impl Tool {
     pub(crate) fn get_name(&self) -> &str {

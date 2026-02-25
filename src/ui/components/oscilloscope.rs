@@ -20,7 +20,10 @@
 use crate::ui::util::{format_si, format_si_single};
 use crate::ui::{SimState, SimStepData};
 use egui::epaint::PathShape;
-use egui::{Align2, Color32, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2, CornerRadius};
+use egui::{
+    Align2, Color32, CornerRadius, FontId, Painter, PointerButton, Pos2, Rect, Response, Sense,
+    Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+};
 
 #[derive(Debug, Clone)]
 pub struct ScopeState {
@@ -109,7 +112,16 @@ pub fn draw_oscilloscope(
     );
 
     // Draw Background
-    painter.rect_filled(response.rect, CornerRadius { ne: 0, nw: 0, se: 0, sw: 20 }, Color32::from_rgb(15, 17, 26));
+    painter.rect_filled(
+        response.rect,
+        CornerRadius {
+            ne: 0,
+            nw: 0,
+            se: 0,
+            sw: 20,
+        },
+        Color32::from_rgb(15, 17, 26),
+    );
     painter.rect_stroke(
         response.rect,
         CornerRadius {

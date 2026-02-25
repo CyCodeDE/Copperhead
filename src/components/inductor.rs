@@ -93,7 +93,7 @@ impl<T: CircuitScalar> Inductor<T> {
 
     fn calculate_history_current(&self) -> T {
         let two = T::from(2.0).unwrap();
-        
+
         let resistive_drop_term = two * self.series_resistance * self.prev_current;
 
         self.prev_current + (self.g_eq * (self.prev_voltage - resistive_drop_term))

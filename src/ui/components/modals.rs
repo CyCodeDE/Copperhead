@@ -18,16 +18,13 @@
  */
 use crate::components::diode::DiodeModel;
 use crate::components::transistor::bjt::BjtModel;
+use crate::components::triode::TriodeModel;
+use crate::ui::ComponentBuildData;
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::util::{format_si_single, parse_si};
-use crate::ui::ComponentBuildData;
 use egui::{Align, ComboBox, Id, Sense, StrokeKind, TextEdit, Vec2};
-use crate::components::triode::TriodeModel;
 
-pub fn handle_properties(
-    app: &mut CircuitApp,
-    ctx: &egui::Context,
-) {
+pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
     if let Some(id) = app.editing_component_id {
         let mut open = true;
 

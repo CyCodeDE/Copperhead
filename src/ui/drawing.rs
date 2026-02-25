@@ -814,12 +814,7 @@ fn draw_triode(
 
     // Draw the Glass Envelope (Circle)
     let radius = 0.7;
-    painter.circle(
-        center,
-        radius * zoom,
-        fill_color,
-        stroke,
-    );
+    painter.circle(center, radius * zoom, fill_color, stroke);
 
     // Draw Plate / Anode
     let plate_pin = Vec2::new(0.0, -1.0);
@@ -1080,9 +1075,9 @@ pub fn draw_component_labels(
 
             let label_pos = match rotation {
                 0 => Vec2::new(offset_dist, -0.62 * zoom), // Right, slightly up
-                1 => Vec2::new(0.75 * zoom, -0.95 * zoom),   // Down, slightly right
+                1 => Vec2::new(0.75 * zoom, -0.95 * zoom), // Down, slightly right
                 2 => Vec2::new(-offset_dist, -0.62 * zoom), // Left, slightly up
-                3 => Vec2::new(-0.75 * zoom, 0.4 * zoom),    // Up, slightly right
+                3 => Vec2::new(-0.75 * zoom, 0.4 * zoom),  // Up, slightly right
                 _ => Vec2::ZERO,
             };
 
