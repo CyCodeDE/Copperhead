@@ -55,9 +55,9 @@ impl TriodeModel {
                     T::from(600.0).unwrap(),    // KP
                     T::from(300.0).unwrap(),    // KVB
                     T::from(2000.0).unwrap(),   // RGI (2k Ohms)
-                    T::from(1.7e-12).unwrap(),  // CGP (1.7 pF)
-                    T::from(1.6e-12).unwrap(),  // CGK (1.6 pF)
-                    T::from(0.46e-12).unwrap(), // CPK (0.46 pF)
+                    T::from(2.4e-12).unwrap(),  // CGP (1.7 pF)
+                    T::from(2.3e-12).unwrap(),  // CGK (1.6 pF)
+                    T::from(0.9e-12).unwrap(), // CPK (0.46 pF)
                     i_s,
                     vt,
                 )
