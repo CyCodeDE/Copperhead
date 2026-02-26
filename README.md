@@ -21,17 +21,26 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
     *   Capacitors
     *   Diodes (currently the 1N4148 is the only preset available, more coming soon)
     *   Bipolar junction transistors
+    *   Triodes (currently the 12AX7 is the only preset available, more coming soon)
     *   Voltage Sources (AC and DC)
     *   Net labels
 *   **GUI:** Immediate mode interface built with `egui`.
 *   **Oscilloscope:** Allows measuring voltages between nodes and currents on components and scaling correctly.
+*   **Audio IO:** Read voltage sources from WAV files and render simulation output at specific nodes to WAV.
+*   **Audio Plugin:** Take your DI input, run it through the plugin, and the voltage at a specific node will be the output waveform
 
 ### Planned Features
 *   **Realtime Solver:** A JIT-compiled solver with lookup tables to test amps and pedals live with instrument input.
-*   **Audio I/O:** Support for reading voltage sources from WAV files and rendering simulation output to WAV.
 *   **Component Library:** A suite of prebuilt basic components and common audio circuit blocks.
 *   **Data Export:** Export voltage readings and simulation data to text files.
-*   **Audio Plugin:** Take your DI input, run it through the plugin, and the voltage at a specific node will be the output waveform! All in real-time.
+*   **Components:**
+    *   MOSFETs
+    *   JFETs
+    *   More diodes and triodes
+    *   Pentodes
+    *   More complex components like op-amps, voltage regulators, etc.
+    *   Coupled inductors / transformers
+    *   Parametric components (Potentiometers, variable capacitors, etc.)
 
 ### Installation & Usage
 Clone the repository and run the simulator:
@@ -42,10 +51,10 @@ cargo run --profile release-performance
 ```
 
 ### Increasing Performance
-For development iteration, the standard `cargo run` is sufficient. However, simulation performance *might* be improved by using the custom profile configured in `Cargo.toml`.
+For development iteration, the standard `cargo run` is sufficient. However, simulation performance will be improved slightly by using the custom profile configured in `Cargo.toml`.
 
 ```bash
-cargo run --profile release-performance
+cargo run --package {copperhead_builder OR copperhead_plugin} --profile release-performance
 ```
 
 The `--profile release-performance` flag optimizes for solver speed using Fat Link Time Optimization and reduced codegen units compared to the default release or dev builds.
