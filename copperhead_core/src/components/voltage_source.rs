@@ -17,9 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
-use crate::model::{
-    CircuitScalar, NodeId, SimulationContext,
-};
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::signals::{Signal, SignalType};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
@@ -48,6 +46,18 @@ impl<T: CircuitScalar> VoltageSource<T> {
             signal,
             matrix_idx: None,
             current_voltage: T::zero(),
+        }
+    }
+
+    /// Directly sets the current value of a `RealtimeInputSignal` without allocation
+    /// or requiring a `SimulationContext`. Returns `true` if the signal was a `RealtimeInputSignal`.
+    #[inline]
+    pub fn set_realtime_value(&mut self, value: T) -> bool {
+        if let SignalType::RealtimeInput(ref mut s) = self.signal {
+            s.current_value = value;
+            true
+        } else {
+            false
         }
     }
 }

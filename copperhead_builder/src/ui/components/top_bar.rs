@@ -87,6 +87,28 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                             });
                         }
 
+                        if ui
+                            .add_enabled(
+                                app.file_dialog_state == FileDialogState::Closed,
+                                Button::new("Export Netlist"),
+                            )
+                            .clicked()
+                        {
+                            let default_path = get_default_path();
+
+                            app.file_dialog_state = FileDialogState::SaveNetlist;
+                            let tx = app.file_sender.clone();
+                            let ctx_clone = ctx.clone();
+
+                            thread::spawn(move || {
+                                let file = rfd::FileDialog::new()
+                                    .set_directory(default_path)
+                                    .save_file();
+                                let _ = tx.send(file);
+                                ctx_clone.request_repaint();
+                            });
+                        }
+
                         if ui.button("Quit").clicked() {
                             ui.ctx().send_viewport_cmd(ViewportCommand::Close);
                         }

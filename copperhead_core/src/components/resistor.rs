@@ -17,9 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
-use crate::model::{
-    CircuitScalar, NodeId, SimulationContext,
-};
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::ColRef;
 use std::collections::HashMap;
 

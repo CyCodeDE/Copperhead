@@ -17,17 +17,19 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::circuit::Circuit;
-use crate::model::CircuitScalar;
+use crate::components::ComponentId;
+use crate::model::{CircuitScalar, SimulationContext};
 
 pub struct CircuitProcessor<T: CircuitScalar> {
     circuit: Circuit<T>,
-    sample_rate: usize,
+    sample_rate: f64,
     dt: T,
 }
 
 impl<T: CircuitScalar> CircuitProcessor<T> {
-    pub fn new(mut circuit: Circuit<T>, sample_rate: usize, dt: T) -> Result<Self, String> {
-        circuit.calculate_dc_operating_point(T::from(1e-6).unwrap(), 100, dt)
+    pub fn new(mut circuit: Circuit<T>, sample_rate: f64, dt: T) -> Result<Self, String> {
+        circuit
+            .calculate_dc_operating_point(T::from(1e-6).unwrap(), 100, dt)
             .map_err(|e| format!("Initial state failed: {}", e))?;
 
         circuit.prepare(dt, false);
@@ -40,8 +42,8 @@ impl<T: CircuitScalar> CircuitProcessor<T> {
     }
 
     #[inline]
-    pub fn tick(&mut self) {
-        self.circuit.solve_step(self.dt);
+    pub fn tick(&mut self) -> SimulationContext<T> {
+        self.circuit.solve_step(self.dt)
     }
 
     pub fn get_circuit_ref(&self) -> &Circuit<T> {
@@ -50,5 +52,14 @@ impl<T: CircuitScalar> CircuitProcessor<T> {
 
     pub fn get_circuit_mut(&mut self) -> &mut Circuit<T> {
         &mut self.circuit
+    }
+
+    /// Directly sets the voltage on a RealtimeInputSignal without allocation.
+    /// The `input_id` must refer to a VoltageSource with a RealtimeInputSignal.
+    #[inline]
+    pub fn set_input_voltage(&mut self, input_id: ComponentId, voltage: T) {
+        self.circuit
+            .components
+            .set_voltage_source_realtime_value(input_id, voltage);
     }
 }

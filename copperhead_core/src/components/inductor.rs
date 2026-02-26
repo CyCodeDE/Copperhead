@@ -16,12 +16,10 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::model::{
-    CircuitScalar, NodeId, SimulationContext,
-};
+use crate::components::{Component, ComponentLinearity, ComponentProbe};
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
-use crate::components::{Component, ComponentLinearity, ComponentProbe};
 
 pub struct Inductor<T> {
     node_a: NodeId,

@@ -20,9 +20,9 @@ use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::{ComponentBuildData, SimCommand};
 use copperhead_core::components::diode::DiodeModel;
 use copperhead_core::components::transistor::bjt::BjtModel;
+use copperhead_core::components::triode::TriodeModel;
 use egui::{Button, Checkbox, Frame, Id, Key, Label};
 use std::path::PathBuf;
-use copperhead_core::components::triode::TriodeModel;
 
 pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
     let running = app.sim_state.running;

@@ -17,9 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
-use crate::model::{
-    CircuitScalar, NodeId, SimulationContext,
-};
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::math;
 use crate::util::mna::{stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};

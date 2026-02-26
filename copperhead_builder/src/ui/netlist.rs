@@ -18,9 +18,9 @@
  */
 use crate::ui::app::CircuitApp;
 use crate::ui::{ComponentBuildData, GridPos, Netlist};
-use std::collections::{BTreeMap, HashMap, HashSet};
 use copperhead_core::descriptor::ComponentDescriptor;
 use copperhead_core::model::NodeId;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Turns a netlist into a circuit that can be executed
 pub fn compile_netlist(app: &CircuitApp) -> Netlist {

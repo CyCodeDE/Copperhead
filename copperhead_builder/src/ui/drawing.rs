@@ -19,11 +19,11 @@
 
 use crate::ui::util::format_si;
 use crate::ui::{ComponentBuildData, GridPos, VisualComponent};
+use copperhead_core::components::transistor::bjt::BjtModel;
 use eframe::emath::{Align, Pos2, Rect, Vec2};
 use eframe::epaint::text::LayoutJob;
 use eframe::epaint::{Color32, Shape, Stroke, StrokeKind};
 use egui::{Align2, FontSelection, Painter, RichText, Style};
-use copperhead_core::components::transistor::bjt::BjtModel;
 // DISCLAIMER:
 // Most of this file is vibe-coded. Performance is probably not optimal, but tbh I couldn't give less of a fuck.
 // Is the performance good? No. Probably not. But that is a problem for the me/myself/and I of tomorrow.

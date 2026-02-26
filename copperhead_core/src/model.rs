@@ -48,7 +48,7 @@ impl CircuitScalar for f64 {}
 
 /// A handle to a node in the circuit (like a wire junction)
 /// In the matrix, this corresponds to a Row/Column index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub usize);
 
 /// Data chunk for a single simulation step

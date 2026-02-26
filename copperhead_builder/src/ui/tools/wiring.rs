@@ -16,8 +16,8 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::ui::{GridPos, VisualWire};
 use crate::ui::app::{CircuitApp, Tool};
+use crate::ui::{GridPos, VisualWire};
 use egui::{Color32, Pos2, Stroke};
 
 pub fn handle(

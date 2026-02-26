@@ -26,10 +26,10 @@ mod tools;
 pub mod ui;
 pub mod util;
 
+use copperhead_core::components::ComponentProbe;
 use copperhead_core::components::diode::DiodeModel;
 use copperhead_core::components::transistor::bjt::BjtModel;
 use copperhead_core::components::triode::TriodeModel;
-use copperhead_core::components::ComponentProbe;
 use copperhead_core::descriptor::ComponentDescriptor;
 use copperhead_core::model::{NodeId, SimStepData};
 use egui::{Color32, Pos2, Vec2};
@@ -399,7 +399,7 @@ pub enum SimCommand {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Netlist {
     /// A list of component ready to be built into the simulation
     pub instructions: Vec<ComponentDescriptor>,

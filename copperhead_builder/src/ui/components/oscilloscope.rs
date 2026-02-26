@@ -798,13 +798,9 @@ fn draw_cursor(
 
     // Find the data step corresponding to the mouse X position
     let t_hover = ctx.x_to_t(hover_pos.x);
-    let idx = data.binary_search_by(|d| d.time.partial_cmp(&t_hover).unwrap()).unwrap_or_else(|i| {
-        if i > 0 {
-            i - 1
-        } else {
-            0
-        }
-    });
+    let idx = data
+        .binary_search_by(|d| d.time.partial_cmp(&t_hover).unwrap())
+        .unwrap_or_else(|i| if i > 0 { i - 1 } else { 0 });
 
     if let Some(step) = data.get(idx) {
         let x = ctx.t_to_x(step.time);
