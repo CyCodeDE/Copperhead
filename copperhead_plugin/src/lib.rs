@@ -155,7 +155,7 @@ impl CopperheadPlugin {
     }
 }
 
-/// Returns an iterator over pairs `(&f64 /* input */, &mut f64 /* output */)` from the
+/// Returns an iterator over pairs `(&f64 input, &mut f64 output)` from the
 /// provided upsampled and downsampled slices, without borrowing `self`.
 fn iter_internal_samples<'a>(
     upsample_buffer: &'a [f64],
@@ -168,7 +168,7 @@ fn iter_internal_samples<'a>(
     }
 }
 
-/// Iterator yielding `(&f64 /* input */, &mut f64 /* output */)` for each internal sample.
+/// Iterator yielding `(&f64 input, &mut f64 output)` for each internal sample.
 pub struct InternalSampleIter<'a> {
     upsample: std::slice::Iter<'a, f64>,
     downsample: std::slice::IterMut<'a, f64>,
