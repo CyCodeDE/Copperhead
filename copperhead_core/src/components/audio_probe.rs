@@ -17,11 +17,11 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::components::{Component, ComponentLinearity};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::ColRef;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::components::{Component, ComponentLinearity};
 
 pub struct AudioProbe<T: CircuitScalar> {
     a: NodeId,

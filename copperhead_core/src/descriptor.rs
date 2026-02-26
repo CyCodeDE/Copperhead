@@ -16,20 +16,21 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::path::PathBuf;
-use portable_atomic::AtomicUsize;
 use crate::audio::load_and_resample_audio;
 use crate::circuit::Circuit;
 use crate::components::audio_probe::AudioProbe;
-use crate::components::{capacitor, inductor, transistor, triode};
 use crate::components::diode::Diode;
 use crate::components::resistor::Resistor;
 use crate::components::voltage_source::VoltageSource;
+use crate::components::{capacitor, inductor, transistor, triode};
 use crate::model::{CircuitScalar, NodeId};
 use crate::signals::{AudioBufferSignal, ConstantSignal, SignalType, SineSignal};
+use portable_atomic::AtomicUsize;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ComponentDescriptor {
     Resistor {
         a: usize,
@@ -159,7 +160,7 @@ impl ComponentDescriptor {
                     omega: num_traits::cast(
                         T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * freq,
                     )
-                        .expect("Failed to cast angular frequency to circuit scalar type"),
+                    .expect("Failed to cast angular frequency to circuit scalar type"),
                 });
                 let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
                 circuit.add_component(comp);

@@ -20,11 +20,8 @@
 use crate::components::capacitor::Capacitor;
 use crate::components::resistor::Resistor;
 use crate::components::{CircuitComponents, Component, ComponentId, InsertIntoSoA};
-use crate::model::{
-    CircuitScalar, NodeId,
-    SimulationContext,
-};
 use crate::model::SimBatchData;
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::dyn_stack::{MemBuffer, MemStack};
 use faer::linalg::lu::full_pivoting::factor::lu_in_place;
 use faer::linalg::solvers::PartialPivLu;
@@ -591,7 +588,7 @@ impl<T: CircuitScalar> Circuit<T> {
         Ok(())
     }
 
-    pub fn solve_step(&mut self, dt: T) {
+    pub fn solve_step(&mut self, dt: T) -> SimulationContext<T> {
         let state = match &mut self.solver_state {
             Some(s) => s,
             None => panic!("Solver state not initialized!"),
@@ -665,6 +662,8 @@ impl<T: CircuitScalar> Circuit<T> {
         let tolerance = T::from(NR_TOLERANCE).unwrap();
         let mut converged = false;
         let mut damping_factor = 1.0f64;
+        #[cfg(feature = "profiling")]
+        let mut total_nr_iterations: u64 = 0;
 
         state
             .workspace
@@ -685,7 +684,9 @@ impl<T: CircuitScalar> Circuit<T> {
             }
             for _iter in 0..MAX_NR_ITERATIONS {
                 #[cfg(feature = "profiling")]
-                let iter_span = tracing::info_span!("NR Iteration").entered();
+                {
+                    total_nr_iterations += 1;
+                }
                 state
                     .workspace
                     .iter_matrix
@@ -746,9 +747,6 @@ impl<T: CircuitScalar> Circuit<T> {
                     .subrows_mut(l_size, n_size)
                     .copy_from(&state.workspace.x_n);
 
-                #[cfg(feature = "profiling")]
-                iter_span.exit();
-
                 if error < T::real_part_impl(&tolerance) {
                     converged = true;
                     break;
@@ -767,6 +765,9 @@ impl<T: CircuitScalar> Circuit<T> {
                 damping_factor
             );
         }
+
+        //#[cfg(feature = "profiling")]
+        //tracy_client::plot!("NR Iterations", total_nr_iterations as f64);
 
         if !converged {
             log::warn!(
@@ -792,10 +793,12 @@ impl<T: CircuitScalar> Circuit<T> {
         self.components
             .update_all_states(&self.current_solution.as_ref(), &ctx);
 
-        self.record_state(&ctx);
+        //self.record_state(&ctx); moved outside to allow more control to the caller
         self.prev_prev_solution.copy_from(&self.previous_solution);
         self.previous_solution.copy_from(&self.current_solution);
         self.step_count += 1;
+
+        ctx
     }
 
     pub fn record_state(&mut self, ctx: &SimulationContext<T>) {

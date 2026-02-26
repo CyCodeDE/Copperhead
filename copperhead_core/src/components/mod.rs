@@ -218,6 +218,36 @@ macro_rules! define_circuit_components {
                 }
             }
 
+            #[inline(always)]
+            pub fn set_parameter(
+                &mut self,
+                id: ComponentId,
+                name: &str,
+                value: T,
+                ctx: &SimulationContext<T>,
+            ) -> bool {
+                match id {
+                    $(
+                        ComponentId::$comp_type(idx) => {
+                            self.$field[idx].set_parameter(name, value, ctx)
+                        }
+                    )*
+                }
+            }
+
+            /// Directly sets the realtime input value on a VoltageSource without
+            /// requiring a `SimulationContext` or allocating.
+            /// Panics if `id` is not a `ComponentId::VoltageSource`.
+            #[inline(always)]
+            pub fn set_voltage_source_realtime_value(&mut self, id: ComponentId, value: T) -> bool {
+                match id {
+                    ComponentId::VoltageSource(idx) => {
+                        self.voltage_sources[idx].set_realtime_value(value)
+                    }
+                    _ => panic!("set_voltage_source_realtime_value called with non-VoltageSource ComponentId"),
+                }
+            }
+
             // Pass 1: Used by partition()
             pub fn count_auxiliary_rows(&self, node_status: &HashMap<NodeId, NodePartition>) -> (usize, usize) {
                 let mut num_l_aux = 0;

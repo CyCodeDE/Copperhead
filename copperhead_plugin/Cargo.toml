@@ -1,23 +1,19 @@
 [package]
-name = "copperhead_core"
+name = "copperhead_plugin"
 version = "0.1.0"
 edition = "2024"
-license = "GPL-3.0-or-later"
 
 [lib]
+crate-type = ["cdylib", "lib"]
 
 [dependencies]
-faer = "0.24.0"
-egui = "0.33.3"
+copperhead_core = { path = "../copperhead_core" }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
 serde = { version = "1.0.228", features = ["derive"] }
-hound = "3.5.1"
-num-traits = "0.2.19"
-log = "0.4.29"
-portable-atomic = "1.13.0"
-petgraph = "0.8.3"
-symphonia = "0.5.5"
-rubato = "1.0.1"
-audioadapter-buffers = "2.0.0"
+serde_json = "1.0.149"
+vizia_plug = { git = "https://github.com/vizia/vizia-plug.git" }
+rfd = "0.17.2"
+crossbeam-channel = "0.5.15"
 
 tracing = { version = "0.1.44", optional = true }
 tracing-subscriber = { version = "0.3.22", optional = true }
@@ -29,7 +25,6 @@ tracy-client = { version = "0.18.4", optional = true }
 default = []
 profiling = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-tracy", "dep:tracy-client"]
 
-[profile.release-performance]
-inherits = "release"
+[profile.release]
 lto = "fat"
 codegen-units = 1

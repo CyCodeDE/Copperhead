@@ -3,4 +3,5 @@ resolver = "3"
 members = [
     "copperhead_core",
     "copperhead_builder",
+    "copperhead_plugin",
 ]

@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::components::{Component, ComponentLinearity};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::math::{exp_safe, exp_safe_deriv, softplus_safe_deriv};
 use crate::util::mna::{get_voltage, stamp_conductance, stamp_transconductance};
@@ -23,7 +24,6 @@ use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use crate::components::{Component, ComponentLinearity};
 
 /// Internal state for the Triode during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]
@@ -259,7 +259,7 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
             stamp_conductance(matrix, idx_p, idx_c, self.cpk / dt, l_size);
         }
 
-        // --- Plate Current Math (Part A) ---
+        // Plate Current Math (Part A)
         let mut i_p = T::zero();
         let mut g_p = T::zero();
         let mut g_m = T::zero();
@@ -287,7 +287,7 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
             g_m = g_base * de1_dvgk;
         }
 
-        // --- Grid Diode Math (Part B) ---
+        // Grid Diode Math (Part B)
         let (exp_val, exp_deriv) = exp_safe_deriv(v_xc / self.vt);
 
         let i_d = self.i_s * (exp_val - T::one());

@@ -17,9 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
-use crate::model::{
-    CircuitScalar, NodeId, SimulationContext,
-};
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::math::{exp_safe, exp_safe_deriv, pn_junction_limit};
 use crate::util::mna::{
     get_voltage, stamp_conductance, stamp_matrix_element, stamp_vector_element,

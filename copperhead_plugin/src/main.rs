@@ -17,11 +17,18 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod audio;
-pub mod circuit;
-pub mod components;
-pub mod descriptor;
-pub mod model;
-pub mod processor;
-pub mod signals;
-pub mod util;
+use nih_plug::prelude::*;
+#[cfg(feature = "profiling")]
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+
+use copperhead_plugin::CopperheadPlugin;
+
+fn main() {
+    #[cfg(feature = "profiling")]
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+    )
+    .expect("Failed to set up Tracy");
+
+    nih_export_standalone::<CopperheadPlugin>();
+}

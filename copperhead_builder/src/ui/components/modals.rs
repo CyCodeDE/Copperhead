@@ -19,10 +19,10 @@
 use crate::ui::ComponentBuildData;
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::util::{format_si_single, parse_si};
-use egui::{Align, ComboBox, Id, Sense, StrokeKind, TextEdit, Vec2};
 use copperhead_core::components::diode::DiodeModel;
 use copperhead_core::components::transistor::bjt::BjtModel;
 use copperhead_core::components::triode::TriodeModel;
+use egui::{Align, ComboBox, Id, Sense, StrokeKind, TextEdit, Vec2};
 
 pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
     if let Some(id) = app.editing_component_id {

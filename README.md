@@ -62,6 +62,12 @@ The core simulation engine is dual-licensed:
 * **Indie Commercial (Free)**: If you are an independent creator or small business generating less than €50,000 EUR/year in gross revenue, you may use this engine in closed-source commercial software plugins for free. Please contact us so we can keep track of projects that depend on us :).
 * **Enterprise & Hardware (Paid)**: If your revenue exceeds €50,000 EUR/year, or if you intend to use the engine in commercial hardware products, reach out to us to negotiate terms.
 
+DISCLAIMER: While the dependencies are all vetted for commercial use, the VST3 bindings used by nih-plug fall under the GPL-3.0 license.
+If you intend to use the plugin in a commercial product, you must either:
+1. Use the GPL-3.0 license and comply with its terms
+2. Use another plugin format (CLAP)
+3. Use different bindings for VST3
+
 ### Models / Schematics
 
 The ability to create and sell your own compiled schematics is completely unrestricted. You own your data.

@@ -17,15 +17,21 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
-use crate::ui::{CircuitMetadata, ComponentBuildData, GridPos, Netlist, Schematic, SimCommand, SimState, VisualWire};
+use crate::ui::netlist::compile_netlist;
+use crate::ui::{
+    CircuitMetadata, ComponentBuildData, GridPos, Netlist, Schematic, SimCommand, SimState,
+    VisualWire,
+};
+use copperhead_core::descriptor::ComponentDescriptor;
+use copperhead_core::model::{NodeId, SimBatchData};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use crossbeam::channel::{unbounded, Receiver, Sender};
-use copperhead_core::model::{NodeId, SimBatchData};
-use crate::simulation::run_simulation_loop;
 
 pub struct AppTheme {
     pub background: Color32,
@@ -201,6 +207,7 @@ pub enum FileDialogState {
     LoadSchem,
     LoadAudio,
     SaveAudio,
+    SaveNetlist,
     Closed,
 }
 
@@ -345,6 +352,21 @@ impl CircuitApp {
         self.zoom = 30.0;
         self.selected_tool = Tool::Select;
         self.current_file = Some(path);
+    }
+
+    pub fn save_netlist(&self, path: PathBuf) {
+        #[derive(Serialize)]
+        struct ShortenedNetlist {
+            pub instructions: Vec<ComponentDescriptor>,
+        }
+
+        let netlist = compile_netlist(&self);
+        let shortened = ShortenedNetlist {
+            instructions: netlist.instructions,
+        };
+
+        let serialized = serde_json::to_string(&shortened).unwrap();
+        std::fs::write(path, serialized).unwrap();
     }
 
     /// Converts a Grid Position (logical) to Screen Position (pixels)

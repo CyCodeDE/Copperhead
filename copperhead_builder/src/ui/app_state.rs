@@ -78,6 +78,9 @@ impl CircuitApp {
                     FileDialogState::SaveSchem => {
                         self.save_to_path(path);
                     }
+                    FileDialogState::SaveNetlist => {
+                        self.save_netlist(path);
+                    }
                     FileDialogState::LoadAudio => {
                         self.temp_audio_path = Some(path);
                     }

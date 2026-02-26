@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::drawing::check_line_rect_intersection;
-use crate::ui::GridPos;
 use egui::{Color32, CursorIcon, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub fn handle(

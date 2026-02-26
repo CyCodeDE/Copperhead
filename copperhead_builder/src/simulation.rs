@@ -17,17 +17,17 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use copperhead_core::audio::write_to_wav;
-use copperhead_core::circuit::{Circuit, CircuitElement};
 use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentMetadata, SimCommand};
-use crossbeam::channel::{Receiver, Sender};
-use log::info;
-use copperhead_core::descriptor::{add_probe_to_circuit, ComponentDescriptor};
-#[cfg(feature = "profiling")]
-use tracy_client::Client;
+use copperhead_core::audio::write_to_wav;
+use copperhead_core::circuit::{Circuit, CircuitElement};
+use copperhead_core::descriptor::{ComponentDescriptor, add_probe_to_circuit};
 use copperhead_core::model::SimBatchData;
 use copperhead_core::processor::CircuitProcessor;
+use crossbeam::channel::{Receiver, Sender};
+use log::info;
+#[cfg(feature = "profiling")]
+use tracy_client::Client;
 
 pub fn run_simulation_loop(
     rx: Receiver<SimCommand>,
@@ -41,14 +41,14 @@ pub fn run_simulation_loop(
     tracy.set_thread_name("Simulation Loop");
 
     let mut realtime_mode = false;
-    let sample_rate = 96000;
+    let sample_rate = 96000.;
     let mut processor: Option<CircuitProcessor<f64>> = None;
     let mut running = false;
     state.send(StateUpdate::UpdateRunning(false));
-    let dt = 1. / sample_rate as f64;
+    let dt = 1. / sample_rate;
 
     // Batch size: Push data to UI roughly at 60fps
-    let steps_per_batch = (sample_rate as f64 / 60.0f64).ceil() as usize;
+    let steps_per_batch = (sample_rate / 60.0f64).ceil() as usize;
 
     let mut current_step: usize = 0;
     let mut max_steps: usize = usize::MAX;
@@ -165,7 +165,8 @@ pub fn run_simulation_loop(
                 {
                     while steps_performed < steps_per_batch && current_step < max_steps {
                         //let _solve_span = tracing::info_span!("solve_call").entered();
-                        proc.tick();
+                        let ctx = proc.tick();
+                        proc.get_circuit_mut().record_state(&ctx);
 
                         current_step += 1;
                         steps_performed += 1;
