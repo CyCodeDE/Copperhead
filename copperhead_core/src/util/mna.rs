@@ -89,9 +89,7 @@ pub fn stamp_current_source<T: CircuitScalar>(
     idx_b: Option<usize>,
     val: T,
     offset: usize,
-) where
-    T: Copy + std::ops::AddAssign + std::ops::SubAssign,
-{
+) {
     let t = |n: usize| n - offset;
 
     if let Some(i) = idx_a {

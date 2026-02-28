@@ -23,6 +23,7 @@ use copperhead_core::components::transistor::bjt::BjtModel;
 use copperhead_core::components::triode::TriodeModel;
 use egui::{Button, Checkbox, Frame, Id, Key, Label};
 use std::path::PathBuf;
+use copperhead_core::components::pentode::PentodeModel;
 
 pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
     let running = app.sim_state.running;
@@ -133,6 +134,10 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
             if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Triode { model: _ })), Button::new("Triode")).clicked()
             {
                 app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Triode { model: TriodeModel::T12AX7 });
+            }
+            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Pentode { model: _ })), Button::new("Pentode")).clicked()
+            {
+                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Pentode { model: PentodeModel::P6L6GC });
             }
             ui.separator();
             if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: _ })), Button::new("Audio Probe")).clicked()

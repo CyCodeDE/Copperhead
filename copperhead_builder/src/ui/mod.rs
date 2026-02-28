@@ -37,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::path::PathBuf;
+use copperhead_core::components::pentode::PentodeModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
@@ -113,6 +114,9 @@ pub enum ComponentBuildData {
     Triode {
         model: TriodeModel,
     },
+    Pentode {
+        model: PentodeModel,
+    },
     AudioProbe {
         path: PathBuf,
     },
@@ -133,6 +137,7 @@ impl ComponentBuildData {
             Self::AudioProbe { .. } => "Probe",
             Self::Label { .. } => "",
             Self::Triode { .. } => "T", // Just "T" for Triode to avoid confusion with "V" for voltage sources
+            Self::Pentode { .. } => "P",
             Self::Ground => "",
         }
     }
@@ -174,6 +179,7 @@ impl VisualComponent {
                 false => vec![(1, 1), (-1, 0), (1, -1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E  | PNP
             },
             ComponentBuildData::Triode { .. } => vec![(0, -1), (-1, 0), (0, 1)], // 3 Pins (Plate, Grid, Cathode) -> P, G, K
+            ComponentBuildData::Pentode { .. } => vec![(0, -2), (-1, 0), (1, -1), (0, 1)], // 4 Pins (Plate, Control Grid, Screen Grid, Cathode) -> P, G1, G2, K
         };
 
         local_pins

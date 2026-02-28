@@ -61,6 +61,7 @@ pub fn handle(
 
         ComponentBuildData::Bjt { .. } => (GridPos { x: 2, y: 2 }, (0., 0.)),
         ComponentBuildData::Triode { .. } => (GridPos { x: 2, y: 2 }, (0., 0.)),
+        ComponentBuildData::Pentode { .. } => (GridPos { x: 2, y: 3 }, (0., 0.)),
     };
 
     let rotated_size = match app.current_rotation % 4 {

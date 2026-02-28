@@ -28,6 +28,7 @@ use crate::signals::{AudioBufferSignal, ConstantSignal, SignalType, SineSignal};
 use portable_atomic::AtomicUsize;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use crate::components::pentode::Pentode;
 
 // The values here are only "visual". They are constrained to T when the circuit is executed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -113,6 +114,24 @@ pub enum ComponentDescriptor {
         cgp: f64,
         cgk: f64,
         cpk: f64,
+        i_s: f64,
+        vt: f64,
+    },
+    Pentode {
+        p: usize,
+        g_1: usize,
+        g_2: usize,
+        c: usize,
+        mu: f64,
+        ex: f64,
+        kg1: f64,
+        kg2: f64,
+        kp: f64,
+        kvb: f64,
+        rgi: f64,
+        c_g1p: f64,
+        c_g1k: f64,
+        c_pk: f64,
         i_s: f64,
         vt: f64,
     },
@@ -336,6 +355,51 @@ impl ComponentDescriptor {
                 );
                 circuit.add_component(comp);
             }
+            ComponentDescriptor::Pentode {
+                p,
+                g_1,
+                g_2,
+                c,
+                mu,
+                ex,
+                kg1,
+                kg2,
+                kp,
+                kvb,
+                rgi,
+                c_g1p,
+                c_g1k,
+                c_pk,
+                i_s,
+                vt,
+            } => {
+                let comp = Pentode::new(
+                    NodeId(p),
+                    NodeId(g_1),
+                    NodeId(g_2),
+                    NodeId(c),
+                    num_traits::cast(mu)
+                        .expect("Failed to cast amplification factor to circuit scalar type"),
+                    num_traits::cast(ex).expect("Failed to cast exponent to circuit scalar type"),
+                    num_traits::cast(kg1).expect("Failed to cast kg1 to circuit scalar type"),
+                    num_traits::cast(kg2).expect("Failed to cast kg2 to circuit scalar type"),
+                    num_traits::cast(kp).expect("Failed to cast kp to circuit scalar type"),
+                    num_traits::cast(kvb).expect("Failed to cast kvb to circuit scalar type"),
+                    num_traits::cast(rgi)
+                        .expect("Failed to cast grid resistance to circuit scalar type"),
+                    num_traits::cast(c_g1p)
+                        .expect("Failed to cast g1-plate capacitance to circuit scalar type"),
+                    num_traits::cast(c_g1k)
+                        .expect("Failed to cast g1-cathode capacitance to circuit scalar type"),
+                    num_traits::cast(c_pk)
+                        .expect("Failed to cast plate-cathode capacitance to circuit scalar type"),
+                    num_traits::cast(i_s)
+                        .expect("Failed to cast saturation current to circuit scalar type"),
+                    num_traits::cast(vt)
+                        .expect("Failed to cast thermal voltage to circuit scalar type"),
+                );
+                circuit.add_component(comp);
+            },
             _ => { /* Probes require the simulation length for allocation */ }
         }
     }
