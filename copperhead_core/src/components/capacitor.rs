@@ -41,32 +41,42 @@ pub struct Capacitor<T: CircuitScalar> {
     /// The equivalent current source value (history state)
     /// Represents I_eq in the Norton equivalent model
     eq_current: T,
+
+    // BDF2 history states
+    /// Internal capacitor voltage at t[n-1]
+    v_c_m1: T,
+
+    /// Internal capacitor voltage at t[n-2]
+    v_c_m2: T,
 }
 
 impl<T: CircuitScalar> Capacitor<T> {
     /// Creates a new Capacitor.
     pub fn new(a: NodeId, b: NodeId, capacitance: T, esr: T, dt: T) -> Self {
-        // Trapezoidal rule equivalent conductance: G = 2C / dt
-        let two = T::from(2.0).unwrap();
-        let r_step = dt / (two * capacitance);
-        let conductance = T::one() / (esr + r_step);
-
-        Self {
+        let mut cap = Self {
             node_a: a,
             node_b: b,
             cached_idx_a: None,
             cached_idx_b: None,
             capacitance,
             esr,
-            conductance,
-            eq_current: T::zero(), // Assumes capacitor is initially uncharged
-        }
+            conductance: T::zero(),
+            eq_current: T::zero(),
+            v_c_m1: T::zero(),
+            v_c_m2: T::zero(),
+        };
+
+        cap.update_conductance(dt);
+        cap
     }
 
     fn update_conductance(&mut self, dt: T) {
         let two = T::from(2.0).unwrap();
-        let r_step = dt / (two * self.capacitance);
-        self.conductance = T::one() / (self.esr + r_step);
+        let three = T::from(3.0).unwrap();
+
+        let r_c = (two * dt) / (three * self.capacitance);
+
+        self.conductance = T::one() / (self.esr + r_c);
     }
 }
 
@@ -97,7 +107,6 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
             return;
         }
 
-        // A discretized capacitor looks like a resistor of conductance G_eq in the A matrix
         let g = self.conductance;
         let idx_a = self.cached_idx_a;
         let idx_b = self.cached_idx_b;
@@ -143,17 +152,37 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
         let v_terminal =
             get_voltage_diff(current_node_voltages, self.cached_idx_a, self.cached_idx_b);
+
         let i_through = if ctx.is_dc_analysis {
             T::zero()
         } else {
             (v_terminal * self.conductance) + self.eq_current
         };
 
-        let two = T::from(2.0).unwrap();
-        let r_step = ctx.dt / (two * self.capacitance);
+        // Extract the voltage across the pure capacitor by subtracting the ESR voltage drop
+        let v_c = if ctx.is_dc_analysis {
+            v_terminal
+        } else {
+            v_terminal - (i_through * self.esr)
+        };
 
-        let term = v_terminal + (i_through * (r_step - self.esr));
-        self.eq_current = -(term * self.conductance);
+        if ctx.is_dc_analysis {
+            // Steady-state assumption for initialization
+            self.v_c_m1 = v_c;
+            self.v_c_m2 = v_c;
+        } else {
+            // Shift history
+            self.v_c_m2 = self.v_c_m1;
+            self.v_c_m1 = v_c;
+        }
+
+        let three = T::from(3.0).unwrap();
+        let four = T::from(4.0).unwrap();
+
+        let v_th_c = ((four * self.v_c_m1) - self.v_c_m2) / three;
+
+        // Convert Thevenin voltage to Norton equivalent current source
+        self.eq_current = -(v_th_c * self.conductance);
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
