@@ -18,7 +18,7 @@
  */
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::mna::get_voltage_diff;
+use crate::util::mna::{get_voltage_diff, stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
 
@@ -108,24 +108,14 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         }
 
         let g = self.conductance;
-        let idx_a = self.cached_idx_a;
-        let idx_b = self.cached_idx_b;
 
-        // Diagonal: Node A
-        if let Some(i) = idx_a {
-            matrix[(i, i)] = matrix[(i, i)] + g;
-        }
-
-        // Diagonal: Node B
-        if let Some(j) = idx_b {
-            matrix[(j, j)] = matrix[(j, j)] + g;
-        }
-
-        // Coupling
-        if let (Some(i), Some(j)) = (idx_a, idx_b) {
-            matrix[(i, j)] = matrix[(i, j)] - g;
-            matrix[(j, i)] = matrix[(j, i)] - g;
-        }
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            g,
+            0,
+        );
     }
 
     fn stamp_dynamic(
@@ -138,15 +128,13 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
             return;
         }
 
-        let i_eq = self.eq_current;
-
-        if let Some(i) = self.cached_idx_a {
-            rhs[i] = rhs[i] - i_eq;
-        }
-
-        if let Some(j) = self.cached_idx_b {
-            rhs[j] = rhs[j] + i_eq;
-        }
+        stamp_current_source(
+            rhs,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.eq_current,
+            0,
+        );
     }
 
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {

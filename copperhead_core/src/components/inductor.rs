@@ -20,6 +20,7 @@ use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use crate::util::mna::{stamp_conductance, stamp_current_source};
 
 pub struct Inductor<T> {
     node_a: NodeId,
@@ -32,12 +33,17 @@ pub struct Inductor<T> {
 
     series_resistance: T,
 
-    // Cached geometric conductance g_eq = dt / (2L)
-    g_eq: T,
+    /// Discrete equivalent conductance
+    conductance: T,
 
-    // History states
-    prev_current: T,
-    prev_voltage: T,
+    /// Norton equivalent current source value (history state)
+    eq_current: T,
+
+    // BDF2 history states
+    /// Inductor current at t[n-1]
+    i_l_m1: T,
+    /// Inductor current at t[n-2]
+    i_l_m2: T
 }
 
 impl<T: CircuitScalar> Inductor<T> {
@@ -49,9 +55,10 @@ impl<T: CircuitScalar> Inductor<T> {
             cached_idx_b: None,
             inductance: l,
             series_resistance: r,
-            g_eq: T::zero(),
-            prev_current: T::zero(),
-            prev_voltage: T::zero(),
+            conductance: T::zero(),
+            eq_current: T::zero(),
+            i_l_m1: T::zero(),
+            i_l_m2: T::zero(),
         };
 
         inductor.update_conductance(dt);
@@ -60,13 +67,12 @@ impl<T: CircuitScalar> Inductor<T> {
 
     fn update_conductance(&mut self, dt: T) {
         let two = T::from(2.0).unwrap();
+        let three = T::from(3.0).unwrap();
 
-        let r_step = (two * self.inductance) / dt;
-
+        let r_step = (three * self.inductance) / (two * dt);
         let total_imp = self.series_resistance + r_step;
 
-        // Guard against zero impedance
-        self.g_eq = if total_imp.abs() < T::from(1e-12).unwrap() {
+        self.conductance = if total_imp.abs() < T::from(1e-12).unwrap() {
             T::from(1.0e12).unwrap()
         } else {
             T::one() / total_imp
@@ -88,14 +94,6 @@ impl<T: CircuitScalar> Inductor<T> {
         };
 
         v1 - v2
-    }
-
-    fn calculate_history_current(&self) -> T {
-        let two = T::from(2.0).unwrap();
-
-        let resistive_drop_term = two * self.series_resistance * self.prev_current;
-
-        self.prev_current + (self.g_eq * (self.prev_voltage - resistive_drop_term))
     }
 }
 
@@ -133,27 +131,16 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
                 T::one() / self.series_resistance
             }
         } else {
-            self.g_eq
+            self.conductance
         };
 
-        let idx_a = self.cached_idx_a;
-        let idx_b = self.cached_idx_b;
-
-        // Diagonal A
-        if let Some(i) = idx_a {
-            matrix[(i, i)] = matrix[(i, i)] + g;
-        }
-
-        // Diagonal B
-        if let Some(j) = idx_b {
-            matrix[(j, j)] = matrix[(j, j)] + g;
-        }
-
-        // Off-Diagonals
-        if let (Some(i), Some(j)) = (idx_a, idx_b) {
-            matrix[(i, j)] = matrix[(i, j)] - g;
-            matrix[(j, i)] = matrix[(j, i)] - g;
-        }
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            g,
+            0
+        );
     }
 
     fn stamp_dynamic(
@@ -166,39 +153,51 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
             return;
         }
 
-        let i_source = self.calculate_history_current();
-
-        if let Some(idx) = self.cached_idx_a {
-            rhs[idx] = rhs[idx] - i_source;
-        }
-        if let Some(idx) = self.cached_idx_b {
-            rhs[idx] = rhs[idx] + i_source;
-        }
+        stamp_current_source(
+            rhs,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.eq_current,
+            0,
+        );
     }
 
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
         let v_new = self.get_voltage_diff(current_node_voltages);
 
-        if ctx.is_dc_analysis {
-            // Calculate DC Current: I = V / R_series
+        let i_new = if ctx.is_dc_analysis {
             let g_dc = if self.series_resistance.abs() < T::from(1e-12).unwrap() {
                 T::from(1.0e12).unwrap()
             } else {
                 T::one() / self.series_resistance
             };
-
-            let i_dc = v_new * g_dc;
-
-            self.prev_voltage = v_new;
-            self.prev_current = i_dc;
+            v_new * g_dc
         } else {
-            // Transient update
-            let i_history_term = self.calculate_history_current();
-            let i_new = (self.g_eq * v_new) + i_history_term;
+            (v_new * self.conductance) + self.eq_current
+        };
 
-            self.prev_voltage = v_new;
-            self.prev_current = i_new;
+        if ctx.is_dc_analysis {
+            // Steady-state assumption for initialization
+            self.i_l_m1 = i_new;
+            self.i_l_m2 = i_new;
+        } else {
+            // Shift history
+            self.i_l_m2 = self.i_l_m1;
+            self.i_l_m1 = i_new;
         }
+
+        let two = T::from(2.0).unwrap();
+        let three = T::from(3.0).unwrap();
+        let four = T::from(4.0).unwrap();
+
+        let r_step = (three * self.inductance) / (two * ctx.dt);
+
+        let i_history_pure = ((four * self.i_l_m1) - self.i_l_m2) / three;
+
+        let v_history = r_step * i_history_pure;
+
+        // Convert Thevenin voltage to Norton equivalent current source
+        self.eq_current = v_history * self.conductance;
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
@@ -234,11 +233,11 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
             };
             v_new * g_dc
         } else {
-            let i_history_term = self.calculate_history_current();
-            (self.g_eq * v_new) + i_history_term
+            (v_new * self.conductance) + self.eq_current
         };
 
         let p_new = v_new * i_new;
+
         out_observables[0] = v_new;
         out_observables[1] = i_new;
         out_observables[2] = p_new;
@@ -253,19 +252,14 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         let v_new = self.get_voltage_diff(node_voltages);
 
         let i_flow = if ctx.is_dc_analysis {
-            // DC Mode: Calculate current based on Series Resistance
-            // (I = V / R)
             let g_dc = if self.series_resistance.abs() < T::from(1e-12).unwrap() {
-                T::from(1.0e12).unwrap() // Finite short approximation
+                T::from(1.0e12).unwrap()
             } else {
                 T::one() / self.series_resistance
             };
             v_new * g_dc
         } else {
-            // Transient Mode: Calculate current based on discretized companion model
-            // (I = G_eq * V + I_history)
-            let i_history_term = self.calculate_history_current();
-            (self.g_eq * v_new) + i_history_term
+            (v_new * self.conductance) + self.eq_current
         };
 
         out_currents[0] = i_flow;

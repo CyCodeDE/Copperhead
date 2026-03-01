@@ -20,6 +20,7 @@ use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::ColRef;
 use std::collections::HashMap;
+use crate::util::mna::stamp_conductance;
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
@@ -86,26 +87,13 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
     }
 
     fn stamp_static(&self, matrix: &mut faer::MatMut<T>, _ctx: &SimulationContext<T>) {
-        let g = self.conductance;
-
-        let idx_a = self.cached_idx_a;
-        let idx_b = self.cached_idx_b;
-
-        // Diagonal: Node A
-        if let Some(i) = idx_a {
-            matrix[(i, i)] = matrix[(i, i)] + g;
-        }
-
-        // Diagonal: Node B
-        if let Some(j) = idx_b {
-            matrix[(j, j)] = matrix[(j, j)] + g;
-        }
-
-        // Off-Diagonals: Coupling
-        if let (Some(i), Some(j)) = (idx_a, idx_b) {
-            matrix[(i, j)] = matrix[(i, j)] - g;
-            matrix[(j, i)] = matrix[(j, i)] - g;
-        }
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            0,
+        );
     }
 
     fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
@@ -144,7 +132,7 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
     fn calculate_observables(
         &self,
         node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
+        _ctx: &SimulationContext<T>,
         out_observables: &mut [T],
     ) {
         let v_a = self.get_voltage(self.node_a, node_voltages);

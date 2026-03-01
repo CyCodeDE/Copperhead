@@ -216,7 +216,7 @@ impl<T: CircuitScalar> Diode<T> {
             -self.bv + (self.emission_coefficient * self.vt * T::from(50.0).unwrap());
 
         // Handle breakdown
-        // for performacne and floating point safety, only compute when necessary, as it is negligible otherwise
+        // for performance and floating point safety, only compute when necessary, as it is negligible otherwise
         if v_d < v_breakdown_onset {
             let v_bwd_arg = -(v_d + self.bv) / vt_n;
 
@@ -413,7 +413,6 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
     }
 
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
-        // Calculate the exact state at the converged solution
         let v_d = self.get_intrinsic_voltage(current_node_voltages);
         let (_, _, q_new, _) = self.calculate_operating_point(v_d);
 
