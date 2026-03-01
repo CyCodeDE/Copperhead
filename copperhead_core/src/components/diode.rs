@@ -86,20 +86,20 @@ pub struct Diode<T: CircuitScalar> {
 
     /// Voltage across the intrinsic diode at the end of the previous time step
     prev_voltage: T,
-    /// Total charge (Q_jun + Q_diff) at the end of the previous time step
-    prev_charge: T,
-    /// Capacitor current at the end of the previous time step (for Trapezoidal integration)
-    prev_cap_current: T,
+
+    /// Total charge at t[n-1]
+    q_m1: T,
+
+    /// Total charge at t[n-2]
+    q_m2: T,
 
     internal_node_idx: Option<usize>,
 
     g_min: T,
     /// Critical voltage for limiting algorithm (Pre-calculated)
     v_crit: T,
-    // Critical voltage for breakdown limiting
-    v_crit_bwd: T,
 
-    iter_state: Cell<IterationState<T>>, // TODO: potential bottleneck, use atomic instead or let the solve loop handle state concurrency
+    iter_state: Cell<IterationState<T>>,
 }
 
 impl<T: CircuitScalar> Diode<T> {
@@ -118,12 +118,9 @@ impl<T: CircuitScalar> Diode<T> {
         let vt = T::from(0.02585).unwrap(); // ~300K thermal voltage at room temp (kT/q)
         // TODO: calculate the temperature dynamically based on the environment or allow user to set it, and calculate vt = kT/q accordingly
 
-        // Pre-calculate V_crit for pnjlim
-        // V_crit = N*Vt * ln( N*Vt / (Is * sqrt(2)) )
         let vt_n = n * vt;
         let sqrt_2 = T::from(2.0).unwrap().sqrt();
         let v_crit = vt_n * (vt_n / (is * sqrt_2)).ln();
-        let v_crit_bwd = vt_n * (vt_n / (ibv * sqrt_2)).ln();
 
         Self {
             node_a,
@@ -143,13 +140,13 @@ impl<T: CircuitScalar> Diode<T> {
             ibv,
 
             prev_voltage: T::zero(),
-            prev_charge: T::zero(),
-            prev_cap_current: T::zero(),
+
+            q_m1: T::zero(),
+            q_m2: T::zero(),
 
             internal_node_idx: None,
             g_min: T::from(1.0e-12).unwrap(), // 1pA/V leakage
             v_crit,
-            v_crit_bwd,
 
             iter_state: Cell::new(IterationState {
                 last_iter_voltage: T::zero(),
@@ -200,18 +197,20 @@ impl<T: CircuitScalar> Diode<T> {
 
         let vt_n = self.emission_coefficient * self.vt;
 
-        // Clamp exponential argument for safety
         let max_exp_arg = T::from(80.0).unwrap();
         let exp_arg = (v_d / vt_n).min(max_exp_arg);
 
-        // I = Is * (e^(V/nVt) - 1)
         let evd_minus_one = exp_arg.exp_m1();
         let evd = evd_minus_one + one;
 
-        let mut i_dc = self.saturation_current * evd_minus_one + self.g_min * v_d;
+        let i_fw = self.saturation_current * evd_minus_one;
+        let g_fw = (self.saturation_current / vt_n) * evd;
 
-        // G = Is/(nVt) * e^(V/nVt)
-        let mut g_dc = (self.saturation_current / vt_n) * evd + self.g_min;
+        let q_diff = self.transit_time * i_fw;
+        let c_diff = self.transit_time * g_fw;
+
+        let mut i_dc = i_fw + self.g_min * v_d;
+        let mut g_dc = g_fw + self.g_min;
 
         let v_breakdown_onset =
             -self.bv + (self.emission_coefficient * self.vt * T::from(50.0).unwrap());
@@ -221,23 +220,17 @@ impl<T: CircuitScalar> Diode<T> {
         if v_d < v_breakdown_onset {
             let v_bwd_arg = -(v_d + self.bv) / vt_n;
 
-            // Clamp to avoid overflow if voltage goes insanely negative before limiting kicks in
             let v_bwd_arg_clamped = v_bwd_arg.min(max_exp_arg);
 
             let exp_bwd = v_bwd_arg_clamped.exp();
 
-            // I_bwd flows cathode -> anode (negative sign)
             let i_bwd = -self.ibv * exp_bwd;
 
-            // G_bwd is positive (slope is positive in IV curve)
             let g_bwd = (self.ibv / vt_n) * exp_bwd;
 
             i_dc = i_dc + i_bwd;
             g_dc = g_dc + g_bwd;
         }
-
-        let q_diff = self.transit_time * i_dc;
-        let c_diff = self.transit_time * g_dc;
 
         let phi = self.junction_potential;
         let fc_phi = self.fc * phi;
@@ -250,13 +243,10 @@ impl<T: CircuitScalar> Diode<T> {
             let ratio = v_d / phi;
             let term = one - ratio;
 
-            // Cj = Cjo / (1 - V/phi)^M
-            // Qj = Cjo * phi * (1 - (1-V/phi)^(1-M)) / (1-M)
-
             if (self.m - T::from(0.5).unwrap()).abs() < T::epsilon() {
                 let s = term.sqrt();
                 c_jun = self.cjo / s;
-                q_jun = self.cjo * phi * (one - s) * T::from(2.0).unwrap(); // 1/(1-0.5) = 2
+                q_jun = self.cjo * phi * (one - s) * T::from(2.0).unwrap();
             } else {
                 let s = term.powf(-self.m);
                 c_jun = self.cjo * s;
@@ -269,26 +259,18 @@ impl<T: CircuitScalar> Diode<T> {
             let one_plus_m = one + self.m;
             let one_minus_fc = one - self.fc;
 
-            // Constants at the transition point
-            let term_fc = one_minus_fc.powf(-(one_plus_m)); // (1-FC)^-(1+M)
+            let term_fc = one_minus_fc.powf(-(one_plus_m));
             let c_fc = self.cjo * one_minus_fc.powf(-self.m);
 
-            // Slope of Capacitance
-            // m_grad = Cjo * M / (phi * (1-FC)^(1+M))
             let c_gradient = (self.cjo / phi) * self.m * term_fc;
 
-            // Delta Voltage from transition point
             let d_v = v_d - fc_phi;
 
-            // C = C_fc + slope * dV
             c_jun = c_fc + c_gradient * d_v;
 
-            // Q calculation (Area under C curve)
-            // Q_fc = Charge accumulated up to FC*phi
             let one_minus_m = one - self.m;
             let q_fc = (self.cjo * phi) * (one - one_minus_fc.powf(one_minus_m)) / one_minus_m;
 
-            // Q = Q_fc + C_fc*dV + 0.5*slope*dV^2
             let half = T::from(0.5).unwrap();
             q_jun = q_fc + (c_fc * d_v) + (half * c_gradient * d_v * d_v);
         }
@@ -302,11 +284,17 @@ impl<T: CircuitScalar> Diode<T> {
         let v_d = self.get_intrinsic_voltage(solution);
         let (i_dc, _, q_tot, _) = self.calculate_operating_point(v_d);
 
-        // I_cap = (2/dt) * (Q_new - Q_old) - I_cap_old
-        let ag = T::from(2.0).unwrap() / dt;
-        let i_cap = ag * (q_tot - self.prev_charge) - self.prev_cap_current;
+        let two = T::from(2.0).unwrap();
+        let three = T::from(3.0).unwrap();
+        let four = T::from(4.0).unwrap();
 
-        // Total Current = DC + Transient
+        let ag = three / (two * dt);
+
+        let q_history = (four * self.q_m1) - self.q_m2;
+        let i_eq = -(q_history / (two * dt));
+
+        let i_cap = (ag * q_tot) + i_eq;
+
         i_dc + i_cap
     }
 }
@@ -385,9 +373,17 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
             i_total_flowing = i_dc;
         } else {
             let dt = ctx.dt;
-            let ag = T::from(2.0).unwrap() / dt;
+            let two = T::from(2.0).unwrap();
+            let three = T::from(3.0).unwrap();
+            let four = T::from(4.0).unwrap();
+
+            let ag = three / (two * dt);
             let g_dyn = ag * c_tot;
-            let i_cap = ag * (q_tot - self.prev_charge) - self.prev_cap_current;
+
+            let q_history = (four * self.q_m1) - self.q_m2;
+            let i_eq = -(q_history / (two * dt));
+
+            let i_cap = (ag * q_tot) + i_eq;
 
             g_total = g_dc + g_dyn;
             i_total_flowing = i_dc + i_cap;
@@ -421,18 +417,15 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         let v_d = self.get_intrinsic_voltage(current_node_voltages);
         let (_, _, q_new, _) = self.calculate_operating_point(v_d);
 
-        if ctx.is_dc_analysis {
-            self.prev_voltage = v_d;
-            self.prev_charge = q_new;
-            self.prev_cap_current = T::zero();
-        } else {
-            let dt = ctx.dt;
-            let ag = T::from(2.).unwrap() / dt;
-            let i_cap_new = ag * (q_new - self.prev_charge) - self.prev_cap_current;
+        self.prev_voltage = v_d;
 
-            self.prev_voltage = v_d;
-            self.prev_charge = q_new;
-            self.prev_cap_current = i_cap_new;
+        if ctx.is_dc_analysis {
+            self.q_m1 = q_new;
+            self.q_m2 = q_new;
+        } else {
+            // Shift BDF2 history
+            self.q_m2 = self.q_m1;
+            self.q_m1 = q_new;
         }
 
         let mut state = self.iter_state.get();
