@@ -348,9 +348,86 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
     fn terminal_currents(
         &self,
         node_voltages: &ColRef<T>,
-        _ctx: &SimulationContext<T>,
+        ctx: &SimulationContext<T>,
         out_currents: &mut [T],
     ) {
+        let v_p = get_voltage(node_voltages, self.cached_idx_p);
+        let v_g = get_voltage(node_voltages, self.cached_idx_g);
+        let v_c = get_voltage(node_voltages, self.cached_idx_c);
+        let v_x = get_voltage(node_voltages, self.aux_start_index);
+
+        let v_pk = v_p - v_c;
+        let v_gk = v_g - v_c;
+        let v_gp = v_g - v_p;
+        let v_xc = v_x - v_c;
+        let v_gx = v_g - v_x;
+
+        let two = T::from(2.0).unwrap();
+        let three = T::from(3.0).unwrap();
+        let four = T::from(4.0).unwrap();
+
+        // Grid to Auxiliary Node DC Current
+        let i_rgi = v_gx / self.rgi;
+
+        // Auxiliary to Cathode DC Current (Shockley Diode)
+        let state = self.iter_state.get();
+        let prev_v_xc = state.prev_v_x - state.prev_v_c;
+        let v_crit = self.vt * (self.vt / (T::from(SQRT_2).unwrap() * self.i_s)).ln();
+        let v_xc_limited = pn_junction_limit(v_xc, prev_v_xc, self.vt, v_crit);
+        let (exp_val, _exp_deriv) = exp_safe_deriv(v_xc_limited / self.vt);
+        let i_d = self.i_s * (exp_val - T::one());
+
+        // Plate to Cathode DC Current (Koren Equation + Convergence Resistor)
+        let v_pk_sq = v_pk * v_pk;
+        let denom = (self.kvb + v_pk_sq).sqrt();
+        let u = (T::one() / self.mu) + (v_gk / denom);
+
+        let (ln_term, _) = softplus_safe_deriv(self.kp * u);
+        let e1 = (v_pk / self.kp) * ln_term;
+
+        let mut i_koren = T::zero();
+        if e1 > T::zero() {
+            let e1_ex = e1.powf(self.ex);
+            i_koren = (two / self.kg1) * e1_ex;
+        }
+        let i_p_dc = i_koren + self.g_min * v_pk;
+
+        // Inter-electrode Capacitor Currents
+        let mut i_cap_ccg = T::zero();
+        let mut i_cap_cgp = T::zero();
+        let mut i_cap_ccp = T::zero();
+
+        if !ctx.is_dc_analysis {
+            let dt2 = two * ctx.dt;
+
+            let g_eq_ccg = (three * self.ccg) / dt2;
+            let g_eq_cgp = (three * self.cgp) / dt2;
+            let g_eq_ccp = (three * self.ccp) / dt2;
+
+            let i_eq_ccg = (self.ccg / dt2) * (four * self.v_ccg_m1 - self.v_ccg_m2);
+            let i_eq_cgp = (self.cgp / dt2) * (four * self.v_cgp_m1 - self.v_cgp_m2);
+            let i_eq_ccp = (self.ccp / dt2) * (four * self.v_ccp_m1 - self.v_ccp_m2);
+
+            // Instantaneous BDF2 current: I = G_eq * V - I_eq
+            i_cap_ccg = g_eq_ccg * v_gk - i_eq_ccg;
+            i_cap_cgp = g_eq_cgp * v_gp - i_eq_cgp;
+            i_cap_ccp = g_eq_ccp * v_pk - i_eq_ccp;
+        }
+
+        // Aggregate Terminal Currents
+
+        // Plate current: DC current leaves P, Ccp leaves P, Cgp enters P
+        let i_p = i_p_dc + i_cap_ccp - i_cap_cgp;
+
+        // Grid current: DC current (rgi) leaves G, Ccg leaves G, Cgp leaves G
+        let i_g = i_rgi + i_cap_ccg + i_cap_cgp;
+
+        // Cathode current: Everything that flows out of P, X, and G towards C
+        let i_c = -(i_p_dc + i_d + i_cap_ccg + i_cap_ccp);
+
+        out_currents[0] = i_p;
+        out_currents[1] = i_g;
+        out_currents[2] = i_c;
     }
 
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
