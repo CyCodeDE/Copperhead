@@ -23,6 +23,7 @@ use copperhead_core::components::diode::DiodeModel;
 use copperhead_core::components::transistor::bjt::BjtModel;
 use copperhead_core::components::triode::TriodeModel;
 use egui::{Align, ComboBox, Id, Sense, StrokeKind, TextEdit, Vec2};
+use copperhead_core::components::pentode::PentodeModel;
 
 pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
     if let Some(id) = app.editing_component_id {
@@ -63,6 +64,7 @@ pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
                                 ComponentBuildData::Label => "Label",
                                 ComponentBuildData::AudioProbe { .. } => "Audio Probe",
                                 ComponentBuildData::Triode { .. } => "Triode",
+                                ComponentBuildData::Pentode { .. } => "Pentode",
                                 _ => "Component",
                             }
                         ));
@@ -404,6 +406,25 @@ pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
                                                 &mut *model,
                                                 TriodeModel::T12AX7,
                                                 TriodeModel::T12AX7.format_name(),
+                                            );
+                                        });
+                                });
+                            }
+                            ComponentBuildData::Pentode { model } => {
+                                ui.horizontal(|ui| {
+                                    ui.label("Model:");
+                                    ComboBox::from_id_salt("pentode_combo")
+                                        .selected_text(model.format_name())
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut *model,
+                                                PentodeModel::_6L6GC,
+                                                PentodeModel::_6L6GC.format_name(),
+                                            );
+                                            ui.selectable_value(
+                                                &mut *model,
+                                                PentodeModel::EL34,
+                                                PentodeModel::EL34.format_name(),
                                             );
                                         });
                                 });

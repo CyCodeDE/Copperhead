@@ -137,7 +137,7 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
             }
             if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Pentode { model: _ })), Button::new("Pentode")).clicked()
             {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Pentode { model: PentodeModel::P6L6GC });
+                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Pentode { model: PentodeModel::_6L6GC });
             }
             ui.separator();
             if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: _ })), Button::new("Audio Probe")).clicked()

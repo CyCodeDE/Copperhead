@@ -23,7 +23,7 @@ use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use crate::components::{Component, ComponentLinearity};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::math::{exp_safe, exp_safe_deriv, softplus_safe_deriv};
+use crate::util::math::{exp_safe, exp_safe_deriv, pn_junction_limit, softplus_safe_deriv};
 use crate::util::mna::{get_voltage, stamp_conductance, stamp_transconductance};
 
 /// Internal state for the Pentode during Newton-Raphson iterations.
@@ -38,7 +38,8 @@ struct PentodeIterationState<T: CircuitScalar> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PentodeModel {
-    P6L6GC,
+    _6L6GC,
+    EL34,
 }
 
 impl PentodeModel {
@@ -48,8 +49,7 @@ impl PentodeModel {
         let i_s = T::from(1e-9).unwrap();
 
         match self {
-            PentodeModel::P6L6GC => {
-                // Typical Norman Koren parameters for a 12AX7
+            PentodeModel::_6L6GC => {
                 (
                     T::from(8.7).unwrap(),      // MU
                     T::from(1.35).unwrap(),     // EX
@@ -65,12 +65,29 @@ impl PentodeModel {
                     vt,
                 )
             }
+            PentodeModel::EL34 => {
+                (
+                    T::from(11.0).unwrap(),     // MU
+                    T::from(1.35).unwrap(),     // EX
+                    T::from(650.0).unwrap(),    // KG1
+                    T::from(4200.0).unwrap(),   // KG2
+                    T::from(60.0).unwrap(),     // KP
+                    T::from(24.0).unwrap(),     // KVB
+                    T::from(1000.0).unwrap(),   // RGI
+                    T::from(1.0e-12).unwrap(),  // CG1P 
+                    T::from(15.0e-12).unwrap(), // CG1K
+                    T::from(8.0e-12).unwrap(),  // CPK 
+                    i_s,
+                    vt,
+                )
+            }
         }
     }
 
     pub fn format_name(&self) -> &'static str {
         match self {
-            PentodeModel::P6L6GC => "6L6GC",
+            PentodeModel::_6L6GC => "6L6GC",
+            PentodeModel::EL34 => "EL34",
         }
     }
 }
@@ -107,6 +124,17 @@ pub struct Pentode<T: CircuitScalar> {
 
     // Simulation State
     iter_state: Cell<PentodeIterationState<T>>,
+
+    // BDF2 history states
+    /// Internal capacitor voltage at t[n-1]
+    v_cg1p_m1: T,
+    v_cg1k_m1: T,
+    v_cpk_m1: T,
+
+    /// Internal capacitor voltage at t[n-2]
+    v_cg1p_m2: T,
+    v_cg1k_m2: T,
+    v_cpk_m2: T,
 }
 
 impl<T: CircuitScalar> Pentode<T> {
@@ -158,6 +186,12 @@ impl<T: CircuitScalar> Pentode<T> {
                 prev_v_c: T::zero(),
                 prev_v_x: T::zero(),
             }),
+            v_cg1p_m1: T::zero(),
+            v_cg1k_m1: T::zero(),
+            v_cpk_m1: T::zero(),
+            v_cg1p_m2: T::zero(),
+            v_cg1k_m2: T::zero(),
+            v_cpk_m2: T::zero(),
         }
     }
 }
@@ -208,22 +242,6 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
         if ctx.is_dc_analysis {
             return;
         }
-
-        let dt = ctx.dt;
-        let prev_v_p = get_voltage(prev_node_voltages, self.cached_idx_p);
-        let prev_v_g1 = get_voltage(prev_node_voltages, self.cached_idx_g1);
-        let prev_v_c = get_voltage(prev_node_voltages, self.cached_idx_c);
-
-        let inject_cap_history =
-            |rhs: &mut ColMut<T>, n1: Option<usize>, n2: Option<usize>, c: T, v1: T, v2: T| {
-                let i_hist = (c / dt) * (v1 - v2);
-                if let Some(i) = n1 { rhs[i] += i_hist; }
-                if let Some(j) = n2 { rhs[j] -= i_hist; }
-            };
-
-        inject_cap_history(rhs, self.cached_idx_g1, self.cached_idx_p, self.c_g1p, prev_v_g1, prev_v_p);
-        inject_cap_history(rhs, self.cached_idx_g1, self.cached_idx_c, self.c_g1k, prev_v_g1, prev_v_c);
-        inject_cap_history(rhs, self.cached_idx_p, self.cached_idx_c, self.c_pk, prev_v_p, prev_v_c);
     }
 
     fn stamp_nonlinear(
@@ -234,28 +252,68 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
         ctx: &SimulationContext<T>,
         l_size: usize,
     ) {
-        let dt = ctx.dt;
-        let v_p = get_voltage(current_node_voltages, self.cached_idx_p);
-        let v_g1 = get_voltage(current_node_voltages, self.cached_idx_g1);
-        let v_g2 = get_voltage(current_node_voltages, self.cached_idx_g2);
-        let v_c = get_voltage(current_node_voltages, self.cached_idx_c);
-        let v_x = get_voltage(current_node_voltages, self.aux_start_index);
+        let idx_p = self.cached_idx_p;
+        let idx_g1 = self.cached_idx_g1;
+        let idx_g2 = self.cached_idx_g2;
+        let idx_c = self.cached_idx_c;
+        let idx_x = self.aux_start_index;
+
+        let v_p = get_voltage(current_node_voltages, idx_p);
+        let v_g1 = get_voltage(current_node_voltages, idx_g1);
+        let v_g2 = get_voltage(current_node_voltages, idx_g2);
+        let v_c = get_voltage(current_node_voltages, idx_c);
+        let v_x = get_voltage(current_node_voltages, idx_x);
 
         let v_pk = v_p - v_c;
         let v_g1k = v_g1 - v_c;
         let v_g2k = v_g2 - v_c;
         let v_xc = v_x - v_c;
 
+        let two = T::from(2.0).unwrap();
+        let three = T::from(3.0).unwrap();
+        let four = T::from(4.0).unwrap();
+
+        let t = |n: usize| n - l_size;
+
+        // Capacitors
         if !ctx.is_dc_analysis {
-            stamp_conductance(matrix, self.cached_idx_g1, self.cached_idx_p, self.c_g1p / dt, l_size);
-            stamp_conductance(matrix, self.cached_idx_g1, self.cached_idx_c, self.c_g1k / dt, l_size);
-            stamp_conductance(matrix, self.cached_idx_p, self.cached_idx_c, self.c_pk / dt, l_size);
+            let dt2 = two * ctx.dt;
+
+            let g_eq_cg1k = (three * self.c_g1k) / dt2;
+            let g_eq_cg1p = (three * self.c_g1p) / dt2;
+            let g_eq_cpk = (three * self.c_pk) / dt2;
+
+            stamp_conductance(matrix, idx_g1, idx_c, g_eq_cg1k, l_size);
+            stamp_conductance(matrix, idx_g1, idx_p, g_eq_cg1p, l_size);
+            stamp_conductance(matrix, idx_p, idx_c, g_eq_cpk, l_size);
+
+            let i_eq_cg1k = (self.c_g1k / dt2) * (four * self.v_cg1k_m1 - self.v_cg1k_m2);
+            let i_eq_cg1p = (self.c_g1p / dt2) * (four * self.v_cg1p_m1 - self.v_cg1p_m2);
+            let i_eq_cpk = (self.c_pk / dt2) * (four * self.v_cpk_m1 - self.v_cpk_m2);
+
+            if let Some(i) = idx_g1 { rhs[t(i)] = rhs[t(i)] + i_eq_cg1k + i_eq_cg1p; }
+            if let Some(i) = idx_c { rhs[t(i)] = rhs[t(i)] - i_eq_cg1k - i_eq_cpk; }
+            if let Some(i) = idx_p { rhs[t(i)] = rhs[t(i)] - i_eq_cg1p + i_eq_cpk; }
         }
 
-        // Clamp V_G2K to prevent division by zero in u calculation
+        // Grid Diode
+        let state = self.iter_state.get();
+        let prev_v_xc = state.prev_v_x - state.prev_v_c;
+        let v_crit = self.vt * (self.vt / (T::from(std::f64::consts::SQRT_2).unwrap() * self.i_s)).ln();
+        let v_xc_limited = pn_junction_limit(v_xc, prev_v_xc, self.vt, v_crit);
+
+        let (exp_val, exp_deriv) = exp_safe_deriv(v_xc_limited / self.vt);
+        let i_d = self.i_s * (exp_val - T::one());
+        let g_d = (self.i_s / self.vt) * exp_deriv;
+        let i_eq_d = i_d - g_d * v_xc_limited;
+
+        stamp_conductance(matrix, idx_x, idx_c, g_d, l_size);
+        if let Some(i) = idx_x { rhs[t(i)] = rhs[t(i)] - i_eq_d; }
+        if let Some(i) = idx_c { rhs[t(i)] = rhs[t(i)] + i_eq_d; }
+
+        // Plate Current Math
         let v_g2k_safe = v_g2k.max(T::from(1e-3).unwrap());
 
-        // --- Plate Current Math ---
         let mut i_p = T::zero();
         let mut g_p = T::zero();
         let mut g_m1 = T::zero();
@@ -269,24 +327,21 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
             let e1_pow_ex_minus_1 = e1.powf(self.ex - T::one());
             let atan_term = (v_pk / self.kvb).atan();
 
-            i_p = (T::from(2.0).unwrap() / self.kg1) * e1.powf(self.ex) * atan_term;
+            i_p = (two / self.kg1) * e1.powf(self.ex) * atan_term;
 
-            // Transconductance calculations
             let de1_dvg1k = l_deriv;
             let de1_dvg2k = (T::one() / self.kp) * ln_term - l_deriv * (v_g1k / v_g2k_safe);
 
-            let g_base = (T::from(2.0).unwrap() * self.ex / self.kg1) * e1_pow_ex_minus_1 * atan_term;
+            let g_base = (two * self.ex / self.kg1) * e1_pow_ex_minus_1 * atan_term;
 
             g_m1 = g_base * de1_dvg1k;
-            // Smooth gradient cutoff for G2
             g_m2 = if v_g2k > T::from(1e-3).unwrap() { g_base * de1_dvg2k } else { T::zero() };
 
-            // Plate Conductance calculation
             let d_atan_dvpk = self.kvb / (self.kvb * self.kvb + v_pk * v_pk);
-            g_p = (T::from(2.0).unwrap() / self.kg1) * e1.powf(self.ex) * d_atan_dvpk;
+            g_p = (two / self.kg1) * e1.powf(self.ex) * d_atan_dvpk;
         }
 
-        // --- Screen Grid Current Math (I_G2) ---
+        // Screen Grid Current Math (I_G2)
         let mut i_g2 = T::zero();
         let mut g_g2_g2 = T::zero();
         let mut g_g2_g1 = T::zero();
@@ -301,45 +356,20 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
             g_g2_g2 = g_g2_base / self.mu;
         }
 
-        // --- Grid Diode Math ---
-        let (exp_val, exp_deriv) = exp_safe_deriv(v_xc / self.vt);
-        let i_d = self.i_s * (exp_val - T::one());
-        let g_d = (self.i_s / self.vt) * exp_deriv;
+        // Plate & Screen
+        stamp_conductance(matrix, idx_p, idx_c, g_p, l_size);
+        stamp_transconductance(matrix, idx_p, idx_c, idx_g1, idx_c, g_m1, l_size);
+        stamp_transconductance(matrix, idx_p, idx_c, idx_g2, idx_c, g_m2, l_size);
 
-        // --- MNA Matrix Stamping ---
+        stamp_conductance(matrix, idx_g2, idx_c, g_g2_g2, l_size);
+        stamp_transconductance(matrix, idx_g2, idx_c, idx_g1, idx_c, g_g2_g1, l_size);
 
-        // Plate Conductances
-        stamp_conductance(matrix, self.cached_idx_p, self.cached_idx_c, g_p, l_size);
-        stamp_transconductance(matrix, self.cached_idx_p, self.cached_idx_c, self.cached_idx_g1, self.cached_idx_c, g_m1, l_size);
-        stamp_transconductance(matrix, self.cached_idx_p, self.cached_idx_c, self.cached_idx_g2, self.cached_idx_c, g_m2, l_size);
-
-        // Screen Grid Conductances
-        stamp_conductance(matrix, self.cached_idx_g2, self.cached_idx_c, g_g2_g2, l_size);
-        stamp_transconductance(matrix, self.cached_idx_g2, self.cached_idx_c, self.cached_idx_g1, self.cached_idx_c, g_g2_g1, l_size);
-
-        // Grid Diode Dynamic Conductance
-        stamp_conductance(matrix, self.aux_start_index, self.cached_idx_c, g_d, l_size);
-
-        // --- RHS Equivalent Currents ---
         let i_eq_p = i_p - (g_p * v_pk + g_m1 * v_g1k + g_m2 * v_g2k);
         let i_eq_g2 = i_g2 - (g_g2_g2 * v_g2k + g_g2_g1 * v_g1k);
-        let i_eq_d = i_d - (g_d * v_xc);
 
-        let t = |n: usize| n - l_size;
-
-        if let Some(i) = self.cached_idx_p { rhs[t(i)] -= i_eq_p; }
-        if let Some(i) = self.cached_idx_g2 { rhs[t(i)] -= i_eq_g2; }
-        if let Some(i) = self.aux_start_index { rhs[t(i)] -= i_eq_d; }
-        if let Some(i) = self.cached_idx_c { rhs[t(i)] += i_eq_p + i_eq_g2 + i_eq_d; }
-
-        let state = self.iter_state.get();
-        self.iter_state.set(PentodeIterationState {
-            prev_v_p: v_p,
-            prev_v_g1: v_g1,
-            prev_v_g2: v_g2,
-            prev_v_c: v_c,
-            prev_v_x: v_x,
-        });
+        if let Some(i) = idx_p { rhs[t(i)] = rhs[t(i)] - i_eq_p; }
+        if let Some(i) = idx_g2 { rhs[t(i)] = rhs[t(i)] - i_eq_g2; }
+        if let Some(i) = idx_c { rhs[t(i)] = rhs[t(i)] + i_eq_p + i_eq_g2; }
     }
 
     fn is_converged(&self, current_node_voltages: &ColRef<T>) -> bool {
@@ -380,7 +410,7 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
     fn terminal_currents(
         &self,
         node_voltages: &ColRef<T>,
-        _ctx: &SimulationContext<T>,
+        ctx: &SimulationContext<T>,
         out_currents: &mut [T],
     ) {
         let v_p = get_voltage(node_voltages, self.cached_idx_p);
@@ -397,37 +427,92 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
 
         let v_g2k_safe = v_g2k.max(T::from(1e-3).unwrap());
 
-        // Plate Current
-        let mut i_p_internal = T::zero();
+        let two = T::from(2.0).unwrap();
+        let three = T::from(3.0).unwrap();
+        let four = T::from(4.0).unwrap();
+
+        // Core DC Currents
+        let mut i_p_dc = T::zero();
         let u = self.kp * (T::one() / self.mu + v_g1k / v_g2k_safe);
-        let e1 = (v_g2k_safe / self.kp) * (T::one() + exp_safe(u)).ln();
+        let (ln_term, _) = softplus_safe_deriv(u);
+        let e1 = (v_g2k_safe / self.kp) * ln_term;
 
         if e1 > T::zero() {
-            let e1_clamped = e1.max(T::from(1e-12).unwrap());
-            i_p_internal = (T::from(2.0).unwrap() / self.kg1) * e1_clamped.powf(self.ex) * (v_pk / self.kvb).atan();
+            i_p_dc = (two / self.kg1) * e1.powf(self.ex) * (v_pk / self.kvb).atan();
         }
 
-        // Screen Current
-        let mut i_g2_internal = T::zero();
+        let mut i_g2_dc = T::zero();
         let arg_g2 = v_g2k / self.mu + v_g1k;
         if arg_g2 > T::zero() && v_g2k > T::zero() {
-            i_g2_internal = (T::one() / self.kg2) * arg_g2.powf(self.ex);
+            i_g2_dc = (T::one() / self.kg2) * arg_g2.powf(self.ex);
         }
 
-        // Resistors and Diodes
-        let i_gmin_p = v_pk * self.g_min;
-        let i_gmin_g2 = v_g2k * self.g_min;
+        // Grid Diode & Resistors
+        let state = self.iter_state.get();
+        let prev_v_xc = state.prev_v_x - state.prev_v_c;
+        let v_crit = self.vt * (self.vt / (T::from(std::f64::consts::SQRT_2).unwrap() * self.i_s)).ln();
+        let v_xc_limited = pn_junction_limit(v_xc, prev_v_xc, self.vt, v_crit);
 
-        let total_i_p = i_p_internal + i_gmin_p;
-        let total_i_g2 = i_g2_internal + i_gmin_g2;
-        let total_i_g1 = v_g1x / self.rgi;
+        let (exp_val, _) = exp_safe_deriv(v_xc_limited / self.vt);
+        let i_d = self.i_s * (exp_val - T::one());
 
-        let i_d = self.i_s * (exp_safe(v_xc / self.vt) - T::one());
-        let total_i_c = -i_p_internal - i_gmin_p - i_g2_internal - i_gmin_g2 - i_d;
+        let i_rgi = v_g1x / self.rgi;
+        let i_p_gmin = v_pk * self.g_min;
+        let i_g2_gmin = v_g2k * self.g_min;
+
+        // Capacitive Dynamic Currents
+        let mut i_cap_cg1k = T::zero();
+        let mut i_cap_cg1p = T::zero();
+        let mut i_cap_cpk = T::zero();
+
+        if !ctx.is_dc_analysis {
+            let dt2 = two * ctx.dt;
+
+            let g_eq_cg1k = (three * self.c_g1k) / dt2;
+            let g_eq_cg1p = (three * self.c_g1p) / dt2;
+            let g_eq_cpk = (three * self.c_pk) / dt2;
+
+            let i_eq_cg1k = (self.c_g1k / dt2) * (four * self.v_cg1k_m1 - self.v_cg1k_m2);
+            let i_eq_cg1p = (self.c_g1p / dt2) * (four * self.v_cg1p_m1 - self.v_cg1p_m2);
+            let i_eq_cpk = (self.c_pk / dt2) * (four * self.v_cpk_m1 - self.v_cpk_m2);
+
+            i_cap_cg1k = g_eq_cg1k * v_g1k - i_eq_cg1k;
+            i_cap_cg1p = g_eq_cg1p * (v_g1 - v_p) - i_eq_cg1p;
+            i_cap_cpk = g_eq_cpk * v_pk - i_eq_cpk;
+        }
+
+        let total_i_p = i_p_dc + i_p_gmin + i_cap_cpk - i_cap_cg1p;
+        let total_i_g1 = i_rgi + i_cap_cg1k + i_cap_cg1p;
+        let total_i_g2 = i_g2_dc + i_g2_gmin;
+        let total_i_c = -(i_p_dc + i_p_gmin + i_g2_dc + i_g2_gmin + i_d + i_cap_cg1k + i_cap_cpk);
 
         out_currents[0] = total_i_p;
         out_currents[1] = total_i_g1;
         out_currents[2] = total_i_g2;
         out_currents[3] = total_i_c;
+    }
+
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
+        let v_p = get_voltage(current_node_voltages, self.cached_idx_p);
+        let v_g1 = get_voltage(current_node_voltages, self.cached_idx_g1);
+        let v_c = get_voltage(current_node_voltages, self.cached_idx_c);
+        let v_x = get_voltage(current_node_voltages, self.aux_start_index);
+
+        // Advance BDF2 history states
+        self.v_cg1p_m2 = self.v_cg1p_m1;
+        self.v_cg1k_m2 = self.v_cg1k_m1;
+        self.v_cpk_m2 = self.v_cpk_m1;
+
+        self.v_cg1p_m1 = v_g1 - v_p;
+        self.v_cg1k_m1 = v_g1 - v_c;
+        self.v_cpk_m1 = v_p - v_c;
+
+        self.iter_state.set(PentodeIterationState {
+            prev_v_p: v_p,
+            prev_v_g1: v_g1,
+            prev_v_g2: get_voltage(current_node_voltages, self.cached_idx_g2),
+            prev_v_c: v_c,
+            prev_v_x: v_x,
+        });
     }
 }
