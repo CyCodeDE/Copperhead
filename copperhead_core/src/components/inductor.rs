@@ -20,7 +20,29 @@ use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use num_traits::cast;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
 use crate::util::mna::{stamp_conductance, stamp_current_source};
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InductorDef {
+    pub inductance: f64,
+    pub series_resistance: f64,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for InductorDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let comp = Inductor::new(
+            nodes[0],
+            nodes[1],
+            cast(self.inductance).expect("Failed to cast inductance"),
+            cast(self.series_resistance).expect("Failed to cast series resistance"),
+            dt,
+        );
+        circuit.add_component(comp);
+    }
+}
 
 pub struct Inductor<T> {
     node_a: NodeId,

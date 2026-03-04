@@ -26,6 +26,35 @@ use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BjtDef {
+    pub model: BjtModel,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for BjtDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let (is, bf, br, vt, vaf, var, rc, rb, re, polarity) = self.model.parameters();
+        let comp = Bjt::new(
+            nodes[0],
+            nodes[1],
+            nodes[2],
+            is,
+            bf,
+            br,
+            vt,
+            vaf,
+            var,
+            rc,
+            rb,
+            re,
+            polarity,
+        );
+        circuit.add_component(comp);
+    }
+}
 
 /// Internal state for the BJT during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]

@@ -18,18 +18,26 @@
  */
 use copperhead_core::circuit::Circuit;
 use copperhead_core::components::ComponentId;
-use copperhead_core::components::voltage_source::VoltageSource;
-use copperhead_core::descriptor::ComponentDescriptor;
+use copperhead_core::components::voltage_source::{VoltageSource, VoltageSourceType};
+use copperhead_core::descriptor::{ComponentDef};
 use copperhead_core::model::NodeId;
 use copperhead_core::processor::CircuitProcessor;
 use copperhead_core::signals::{RealtimeInputSignal, SignalType};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::BufReader;
 use std::path::PathBuf;
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NetlistEntry {
+    /// The component parameters
+    pub component: ComponentDef,
+    /// The solver nodes this component connects to
+    pub nodes: Vec<NodeId>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct ShortenedNetlist {
-    pub instructions: Vec<ComponentDescriptor>,
+    pub entries: Vec<NetlistEntry>,
 }
 
 pub fn build_circuit(
@@ -46,25 +54,30 @@ pub fn build_circuit(
     // the voltage probe
     let mut probe: Option<NodeId> = None;
 
-    for instr in netlist.instructions {
-        if let ComponentDescriptor::AudioProbe { node, .. } = instr {
+    for instr in netlist.entries {
+        if let ComponentDef::AudioProbe(probe_def) = &instr.component {
             if probe.is_some() {
                 return Err("Multiple audio probes found in netlist".into());
             }
 
-            probe = Some(NodeId(node));
-        } else if let ComponentDescriptor::AudioSource {
-            pos,
-            neg,
-            file_path,
-        } = instr
-        {
+            let target_node = instr.nodes[0];
+            probe = Some(target_node);
+        } else if let ComponentDef::VoltageSource(vs_def) = &instr.component && matches!(vs_def.source_type, VoltageSourceType::AudioBuffer { .. }) {
+            // We just change out the voltage source for a audio buffer into a realtime input
+            // TODO: Make this less hacky by introducing a proper netlist format
+
+            let pos = instr.nodes[0];
+            let neg = instr.nodes[1];
             let signal = SignalType::RealtimeInput(RealtimeInputSignal { current_value: 0.0 });
-            let comp = VoltageSource::new(NodeId(pos), NodeId(neg), signal);
+            let comp = VoltageSource::new(pos, neg, signal);
 
             circuit.add_component(comp);
         } else {
-            instr.add_to_circuit(dt, &mut circuit);
+            instr.component.instantiate(instr.nodes.as_slice(), dt, &mut circuit, 1000);
+            // ATTENTION: The max_steps is hardcoded because it technically doesn't matter,
+            // since in the plugin, the AudioProbe is essentially just the node we are reading from. In the builder it instead serves as a file writer that needs the steps
+            // to know how large the pre-allocated buffer has to be. This is a bit of a hack and should be refactored in the future to be more elegant, but it works for now.
+            // No other component currently needs the max_steps.
         }
     }
 

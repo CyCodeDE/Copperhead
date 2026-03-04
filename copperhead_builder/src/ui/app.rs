@@ -20,11 +20,7 @@
 use crate::simulation::run_simulation_loop;
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::netlist::compile_netlist;
-use crate::ui::{
-    CircuitMetadata, ComponentBuildData, GridPos, Netlist, Schematic, SimCommand, SimState,
-    VisualWire,
-};
-use copperhead_core::descriptor::ComponentDescriptor;
+use crate::ui::{CircuitMetadata, GridPos, Netlist, NetlistEntry, Schematic, SimCommand, SimState, VisualWire};
 use copperhead_core::model::{NodeId, SimBatchData};
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use egui::style::{Selection, WidgetVisuals, Widgets};
@@ -32,6 +28,7 @@ use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use crate::ui::SchematicElement;
 
 pub struct AppTheme {
     pub background: Color32,
@@ -153,7 +150,7 @@ impl<T: Clone> UndoStack<T> {
 #[derive(Clone)]
 pub enum Tool {
     Select,
-    PlaceComponent(ComponentBuildData),
+    PlaceComponent(SchematicElement),
     PlaceWire(Option<GridPos>), // Optionally stores the starting point. None means waiting for 1st click.
     Erase,
 }
@@ -357,12 +354,12 @@ impl CircuitApp {
     pub fn save_netlist(&self, path: PathBuf) {
         #[derive(Serialize)]
         struct ShortenedNetlist {
-            pub instructions: Vec<ComponentDescriptor>,
+            pub entries: Vec<NetlistEntry>,
         }
 
         let netlist = compile_netlist(&self);
         let shortened = ShortenedNetlist {
-            instructions: netlist.instructions,
+            entries: netlist.entries,
         };
 
         let serialized = serde_json::to_string(&shortened).unwrap();

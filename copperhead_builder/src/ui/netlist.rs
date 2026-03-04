@@ -17,14 +17,15 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::CircuitApp;
-use crate::ui::{ComponentBuildData, GridPos, Netlist};
-use copperhead_core::descriptor::ComponentDescriptor;
+use crate::ui::{GridPos, Netlist, NetlistEntry};
+use copperhead_core::descriptor::{ComponentDef};
 use copperhead_core::model::NodeId;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use crate::ui::components::definitions::SchematicElement;
 
 /// Turns a netlist into a circuit that can be executed
 pub fn compile_netlist(app: &CircuitApp) -> Netlist {
-    let mut instructions = Vec::new();
+    let mut entries = Vec::new();
     let mut point_map: BTreeMap<GridPos, usize> = BTreeMap::new();
     let mut next_point_id = 0;
 
@@ -63,7 +64,7 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
     let mut label_groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
     for comp in &app.state.schematic.components {
-        if matches!(&comp.component, ComponentBuildData::Label) {
+        if matches!(&comp.element, SchematicElement::Label(_)) {
             let name = comp.name.clone();
 
             if let Some(pos) = comp.get_pin_locations().first() {
@@ -86,7 +87,7 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
     let mut grounded_roots = HashSet::new();
 
     for comp in &app.state.schematic.components {
-        if let ComponentBuildData::Ground = comp.component {
+        if let SchematicElement::Ground(_) = comp.element {
             if let Some(pin_pos) = comp.get_pin_locations().first() {
                 if let Some(&pt_id) = point_map.get(pin_pos) {
                     grounded_roots.insert(dsu.find_p(pt_id));
@@ -129,137 +130,34 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
     for comp in &app.state.schematic.components {
         // Skip the Ground and Label components in instructions, it's not a circuit element,
         // it's just a constraint we applied above.
-        match comp.component {
-            ComponentBuildData::Ground => continue,
-            ComponentBuildData::Label => continue,
-            _ => {}
-        }
+        let core_def = match &comp.element {
+            SchematicElement::Ground(_) => continue,
+            SchematicElement::Label(_) => continue,
+            SchematicElement::Core(def) => def,
+        };
 
         let pins = comp.get_pin_locations();
 
-        let node_a = pins.get(0).and_then(|p| final_node_map.get(p)).cloned();
-        let node_b = pins.get(1).and_then(|p| final_node_map.get(p)).cloned();
-        let node_c = pins.get(2).and_then(|p| final_node_map.get(p)).cloned();
+        let resolved_nodes: Vec<NodeId> = pins
+            .iter()
+            .map(|pos| {
+                final_node_map
+                    .get(pos)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("Pin at position {:?} was not registered in node map", pos))
+            })
+            .collect();
 
-        let c = node_c.map(|n| n.0);
 
-        let descriptor = match comp.component.clone() {
-            ComponentBuildData::Resistor { resistance } => ComponentDescriptor::Resistor {
-                a: node_a.expect("A is not mapped").0,
-                b: node_b.expect("B is not mapped").0,
-                ohms: resistance,
-            },
-            ComponentBuildData::DCSource { voltage } => ComponentDescriptor::DCSource {
-                pos: node_a.expect("A is not mapped").0,
-                neg: node_b.expect("B is not mapped").0,
-                volts: voltage,
-            },
-            ComponentBuildData::ASource {
-                amplitude,
-                frequency,
-            } => ComponentDescriptor::ASource {
-                pos: node_a.expect("A is not mapped").0,
-                neg: node_b.expect("B is not mapped").0,
-                amp: amplitude,
-                freq: frequency,
-            },
-            ComponentBuildData::AudioSource { path } => ComponentDescriptor::AudioSource {
-                pos: node_a.expect("A is not mapped").0,
-                neg: node_b.expect("B is not mapped").0,
-                file_path: path,
-            },
-            ComponentBuildData::Capacitor { capacitance, esr } => ComponentDescriptor::Capacitor {
-                a: node_a.expect("A is not mapped").0,
-                b: node_b.expect("B is not mapped").0,
-                capacitance,
-                esr,
-            },
-            ComponentBuildData::Inductor {
-                inductance,
-                series_resistance,
-            } => ComponentDescriptor::Inductor {
-                a: node_a.expect("A is not mapped").0,
-                b: node_b.expect("B is not mapped").0,
-                inductance,
-                series_resistance,
-            },
-            ComponentBuildData::Diode { model } => {
-                let (
-                    saturation_current,
-                    emission_coefficient,
-                    series_resistance,
-                    cjo,
-                    m,
-                    transit_time,
-                    breakdown_voltage,
-                    breakdown_current,
-                ) = model.parameters();
-
-                ComponentDescriptor::Diode {
-                    a: node_a.expect("A is not mapped").0,
-                    b: node_b.expect("B is not mapped").0,
-                    saturation_current,
-                    emission_coefficient,
-                    series_resistance,
-                    cjo,
-                    m,
-                    transit_time,
-                    breakdown_voltage,
-                    breakdown_current,
-                }
-            }
-            ComponentBuildData::Bjt { model } => {
-                assert!(c.is_some(), "BJT must have 3 pins");
-                let (is, bf, br, vt, vaf, var, rc, rb, re, polarity) = model.parameters();
-
-                ComponentDescriptor::Bjt {
-                    c: node_a.expect("A is not mapped").0,
-                    b: node_b.expect("B is not mapped").0,
-                    e: c.unwrap(),
-                    saturation_current: is,
-                    beta_f: bf,
-                    beta_r: br,
-                    vt,
-                    vaf,
-                    var,
-                    rc,
-                    rb,
-                    re,
-                    polarity,
-                }
-            }
-            ComponentBuildData::Triode { model } => {
-                assert!(c.is_some(), "Triode must have 3 pins");
-                let (mu, ex, kg1, kp, kvb, rgi, cgp, cgk, cpk, i_s, vt) = model.parameters();
-
-                ComponentDescriptor::Triode {
-                    p: node_a.expect("A is not mapped").0,
-                    g: node_b.expect("B is not mapped").0,
-                    c: c.unwrap(),
-                    mu,
-                    ex,
-                    kg1,
-                    kp,
-                    kvb,
-                    rgi,
-                    cgp,
-                    cgk,
-                    cpk,
-                    i_s,
-                    vt,
-                }
-            }
-            ComponentBuildData::AudioProbe { path } => ComponentDescriptor::AudioProbe {
-                file_path: path,
-                node: node_a.expect("A is not mapped").0,
-            },
-            _ => continue,
+        let entry = NetlistEntry {
+            component: core_def.clone(),
+            nodes: resolved_nodes,
         };
 
         component_map.insert(comp.id, sim_comp_index);
         sim_comp_index += 1;
 
-        instructions.push(descriptor);
+        entries.push(entry);
     }
 
     // Error check: Did we have a ground?
@@ -270,7 +168,7 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
     }
 
     Netlist {
-        instructions,
+        entries,
         node_map: final_node_map,
         component_map,
     }

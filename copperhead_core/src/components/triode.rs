@@ -16,15 +16,45 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity};
+use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::math::{exp_safe, exp_safe_deriv, pn_junction_limit, softplus_safe_deriv};
+use crate::util::math::{exp_safe_deriv, pn_junction_limit, softplus_safe_deriv};
 use crate::util::mna::{get_voltage, stamp_conductance, stamp_transconductance};
 use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::f64::consts::SQRT_2;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TriodeDef {
+    pub model: TriodeModel,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for TriodeDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let (mu, ex, kg1, kp, kvb, rgi, ccg, cgp, ccp, is, vt) = self.model.parameters();
+        let comp = Triode::new(
+            nodes[0],
+            nodes[1],
+            nodes[2],
+            mu,
+            ex,
+            kg1,
+            kp,
+            kvb,
+            rgi,
+            ccg,
+            cgp,
+            ccp,
+            is,
+            vt,
+        );
+        circuit.add_component(comp);
+    }
+}
 
 /// Internal state for the Triode during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]
@@ -37,7 +67,7 @@ struct TriodeIterationState<T: CircuitScalar> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TriodeModel {
-    T12AX7,
+    _12AX7,
 }
 
 impl TriodeModel {
@@ -47,7 +77,7 @@ impl TriodeModel {
         let i_s = T::from(1e-9).unwrap();
 
         match self {
-            TriodeModel::T12AX7 => {
+            TriodeModel::_12AX7 => {
                 // Typical Norman Koren parameters for a 12AX7
                 (
                     T::from(100.0).unwrap(),    // MU
@@ -68,7 +98,7 @@ impl TriodeModel {
 
     pub fn format_name(&self) -> &'static str {
         match self {
-            TriodeModel::T12AX7 => "12AX7",
+            TriodeModel::_12AX7 => "12AX7",
         }
     }
 }

@@ -19,10 +19,11 @@
 
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::components::modals::handle_properties;
-use crate::ui::drawing::{draw_component, draw_component_labels};
+use crate::ui::drawing::{draw_component};
 use crate::ui::lerp_color;
 use egui::Context;
 use egui::{Color32, CornerRadius, Frame, Margin, Sense, Stroke};
+use crate::ui::components::definitions::ComponentUIExt;
 
 pub fn show(app: &mut CircuitApp, ctx: &Context) {
     let running = app.sim_state.running;
@@ -89,22 +90,6 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                     app.theme.dot_color,
                 );
 
-                // Draw Existing Components
-                for comp in &app.state.schematic.components {
-                    draw_component(
-                        &painter,
-                        comp,
-                        |p| app.to_screen(p),
-                        app.zoom,
-                        app.theme
-                            .component_body
-                            .blend(app.theme.disabled_text_color),
-                        app.theme.component_body,
-                    );
-
-                    draw_component_labels(&comp, &painter, |p| app.to_screen(p), app.zoom);
-                }
-
                 // Draw Wires (really naive rn)
                 if running {
                     if let Some(netlist) = &app.active_netlist {
@@ -163,6 +148,31 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                         painter.line_segment([start, end], Stroke::new(2.0, app.theme.wire_off));
                     }
                 }
+
+                // Draw Existing Components
+                for comp in &app.state.schematic.components {
+                    draw_component(
+                        &painter,
+                        comp,
+                        |p| app.to_screen(p),
+                        app.zoom,
+                        app.theme
+                            .component_body
+                            .blend(app.theme.disabled_text_color),
+                        app.theme.component_body,
+                    );
+
+                    let center = app.to_screen(comp.pos);
+
+                    comp.element.draw_labels(
+                        &painter,
+                        center,
+                        comp.rotation % 4,
+                        app.zoom,
+                        &comp.name,
+                    );
+                }
+
 
                 // Tool Interaction & Ghost Drawing
                 if let Some(mouse_pos) = response.hover_pos() {

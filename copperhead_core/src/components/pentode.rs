@@ -17,14 +17,46 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cell::Cell;
-use std::collections::HashMap;
-use faer::{ColMut, ColRef, MatMut};
-use serde::{Deserialize, Serialize};
 use crate::components::{Component, ComponentLinearity};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::math::{exp_safe, exp_safe_deriv, pn_junction_limit, softplus_safe_deriv};
+use crate::util::math::{exp_safe_deriv, pn_junction_limit, softplus_safe_deriv};
 use crate::util::mna::{get_voltage, stamp_conductance, stamp_transconductance};
+use faer::{ColMut, ColRef, MatMut};
+use serde::{Deserialize, Serialize};
+use std::cell::Cell;
+use std::collections::HashMap;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PentodeDef {
+    pub model: PentodeModel,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for PentodeDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let (mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k, cpk, is, vt) = self.model.parameters();
+        let comp = Pentode::new(
+            nodes[0],
+            nodes[1],
+            nodes[2],
+            nodes[3],
+            mu,
+            ex,
+            kg1,
+            kg2,
+            kp,
+            kvb,
+            rgi,
+            cg1p,
+            cg1k,
+            cpk,
+            is,
+            vt,
+        );
+        circuit.add_component(comp);
+    }
+}
 
 /// Internal state for the Pentode during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]

@@ -22,6 +22,30 @@ use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::ColRef;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AudioProbeDef {
+    pub file_path: std::path::PathBuf,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for AudioProbeDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, max_steps: usize) {
+        let target_sample_rate = (T::from(1.0).unwrap() / dt)
+            .round()
+            .to_u32()
+            .expect("Failed to convert target sample rate");
+
+        let comp = AudioProbe::new(
+            nodes[0],
+            self.file_path.clone(),
+            max_steps,
+            target_sample_rate
+        );
+        circuit.add_component(comp);
+    }
+}
 
 pub struct AudioProbe<T: CircuitScalar> {
     a: NodeId,

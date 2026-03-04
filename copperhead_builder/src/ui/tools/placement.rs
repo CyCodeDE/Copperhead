@@ -18,8 +18,9 @@
  */
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::drawing::draw_component;
-use crate::ui::{ComponentBuildData, GridPos, VisualComponent};
+use crate::ui::{GridPos, VisualComponent};
 use egui::{Color32, Id, Pos2};
+use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -27,12 +28,12 @@ pub fn handle(
     ctx: &egui::Context,
     response: &egui::Response,
     painter: &egui::Painter,
-    comp_data: &ComponentBuildData,
+    element: &SchematicElement,
     grid_pos: GridPos,
     snap_pos: Pos2,
 ) {
-    let name = match comp_data {
-        ComponentBuildData::Label => {
+    let name = match element {
+        SchematicElement::Label(_) => {
             let name = ctx
                 .data(|d| {
                     d.get_temp::<String>(Id::new("label_tool_text"))
@@ -41,35 +42,19 @@ pub fn handle(
                 .clone();
             name
         }
-        _ => app.state.schematic.generate_next_name(&comp_data.prefix()),
+        _ => app.state.schematic.generate_next_name(element.prefix()),
     };
 
     // calculate size in grid units depending on the type of component
-    let (size, offset) = match comp_data {
-        ComponentBuildData::Resistor { .. }
-        | ComponentBuildData::Capacitor { .. }
-        | ComponentBuildData::Inductor { .. }
-        | ComponentBuildData::Diode { .. } => (GridPos { x: 2, y: 1 }, (0., 0.)),
-        ComponentBuildData::DCSource { .. }
-        | ComponentBuildData::ASource { .. }
-        | ComponentBuildData::AudioSource { .. } => (GridPos { x: 1, y: 2 }, (0., 0.)),
-
-        ComponentBuildData::Ground | ComponentBuildData::Label => {
-            (GridPos { x: 1, y: 1 }, (0., 0.))
-        }
-        ComponentBuildData::AudioProbe { .. } => (GridPos { x: 1, y: 2 }, (0., -0.75)),
-
-        ComponentBuildData::Bjt { .. } => (GridPos { x: 2, y: 2 }, (0., 0.)),
-        ComponentBuildData::Triode { .. } => (GridPos { x: 2, y: 2 }, (0., 0.)),
-        ComponentBuildData::Pentode { .. } => (GridPos { x: 2, y: 3 }, (0., 0.)),
-    };
+    let size = element.size();
+    let offset = element.offset();
 
     let rotated_size = match app.current_rotation % 4 {
         0 | 2 => size,
-        1 | 3 => GridPos {
-            x: size.y,
-            y: size.x,
-        },
+        1 | 3 => (
+            size.1,
+            size.0,
+        ),
         _ => unreachable!(),
     };
 
@@ -84,7 +69,7 @@ pub fn handle(
     let ghost_comp = VisualComponent {
         name: name.clone(),
         id: 0,
-        component: comp_data.clone(),
+        element: element.clone(),
         pos: grid_pos,
         size: rotated_size,
         rotation: app.current_rotation,
@@ -105,7 +90,7 @@ pub fn handle(
     if response.clicked_by(egui::PointerButton::Primary) {
         app.undo_stack.push(app.state.clone());
         app.state.schematic.add_component_with_name(
-            comp_data.clone(),
+            element.clone(),
             grid_pos,
             app.current_rotation,
             name,
@@ -118,7 +103,7 @@ pub fn handle(
         if ui.input(|i| i.modifiers.shift) {
             // Keep placing the same component
         } else {
-            if matches!(comp_data, ComponentBuildData::Label) {
+            if matches!(element, SchematicElement::Label(_)) {
                 ctx.data_mut(|d| d.remove_temp::<String>(Id::new("label_tool_text")));
             }
             app.selected_tool = Tool::Select;

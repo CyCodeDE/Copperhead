@@ -20,7 +20,26 @@ use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::ColRef;
 use std::collections::HashMap;
+use num_traits::cast;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
 use crate::util::mna::stamp_conductance;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ResistorDef {
+    pub resistance: f64,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for ResistorDef {
+    fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let comp = Resistor::new(
+            nodes[0],
+            nodes[1],
+            cast(self.resistance).expect("Failed to cast resistance"),
+        );
+        circuit.add_component(comp);
+    }
+}
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,

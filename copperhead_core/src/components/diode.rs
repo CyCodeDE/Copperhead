@@ -24,6 +24,32 @@ use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DiodeDef {
+    pub model: DiodeModel,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for DiodeDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let (is, n, rs, cjo, m, tt, bv, ibv) = self.model.parameters();
+        let comp = Diode::new(
+            nodes[0],
+            nodes[1],
+            is,
+            n,
+            rs,
+            cjo,
+            m,
+            tt,
+            bv,
+            ibv
+        );
+        circuit.add_component(comp);
+    }
+}
 
 /// Internal state used only during the Newton-Raphson iteration loop.
 /// Grouping these reduces lock contention overhead.
@@ -38,13 +64,13 @@ struct IterationState<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DiodeModel {
     // 1N4148
-    D1N4148,
+    _1N4148,
 }
 
 impl DiodeModel {
     pub fn parameters<T: CircuitScalar>(&self) -> (T, T, T, T, T, T, T, T) {
         match self {
-            DiodeModel::D1N4148 => {
+            DiodeModel::_1N4148 => {
                 let is = T::from(2.52e-9).unwrap(); // Saturation Current | typical 2.52nA
                 let n = T::from(1.752).unwrap(); // Emission Coefficient | typical 1.752
                 let rs = T::from(0.568).unwrap(); // Series Resistance | typical 0.568 Ohms
@@ -60,7 +86,7 @@ impl DiodeModel {
 
     pub fn format_name(&self) -> &'static str {
         match self {
-            DiodeModel::D1N4148 => "1N4148",
+            DiodeModel::_1N4148 => "1N4148",
         }
     }
 }

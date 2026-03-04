@@ -17,13 +17,20 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::{CircuitApp, Tool};
-use crate::ui::{ComponentBuildData, SimCommand};
-use copperhead_core::components::diode::DiodeModel;
+use crate::ui::{SimCommand};
+use copperhead_core::components::diode::{DiodeDef, DiodeModel};
 use copperhead_core::components::transistor::bjt::BjtModel;
 use copperhead_core::components::triode::TriodeModel;
 use egui::{Button, Checkbox, Frame, Id, Key, Label};
 use std::path::PathBuf;
+use copperhead_core::components::capacitor::CapacitorDef;
+use copperhead_core::components::inductor::InductorDef;
 use copperhead_core::components::pentode::PentodeModel;
+use copperhead_core::components::resistor::ResistorDef;
+use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
+use copperhead_core::descriptor::ComponentDef;
+use crate::ui::components::definitions::SchematicElement;
+use crate::ui::components::palette::PaletteItem;
 
 pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
     let running = app.sim_state.running;
@@ -54,96 +61,83 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
             ui.add(Label::new("Controls:\nMB to Pan\nScroll to Zoom\n'CTRL+R' to Rotate\n'Esc and RMB' to Cancel").selectable(false));
             ui.separator();
 
-            if ui.button("Select (S)").clicked() || ui.input(|i| i.key_pressed(Key::S) && !app.keybinds_locked) {
-                app.selected_tool = Tool::Select;
-            }
-            if ui.button("Erase (E/DEL)").clicked()
-                || ui.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::E) && !app.keybinds_locked)
-            {
-                app.selected_tool = Tool::Erase;
-            }
-            ui.separator();
-
             // TODO: make a grid with icons for each component type instead of label buttons
 
+
             // Component Buttons
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceWire(_)), Button::new("Draw Wire (W)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::W)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool = Tool::PlaceWire(None);
+            let palette = PaletteItem::get_standard_palette();
+
+            if !app.keybinds_locked && ui.input(|i| i.modifiers.is_none()) {
+                if ui.input(|i| i.key_pressed(Key::W)) {
+                    app.selected_tool = Tool::PlaceWire(None);
+                } else if ui.input(|i| i.key_pressed(Key::E) || i.key_pressed(Key::Delete)) {
+                    app.selected_tool = Tool::Erase;
+                } else if ui.input(|i| i.key_pressed(Key::S)) {
+                    app.selected_tool = Tool::Select;
+                }
+
+                for item in &palette {
+                    if let Some(key) = item.shortcut_key {
+                        if ui.input(|i| i.key_pressed(key)) {
+                            if matches!(item.element, SchematicElement::Label(_)) {
+                                ui.memory_mut(|mem| mem.data.insert_temp(Id::new("label_tool_open"), true));
+                                app.keybinds_locked = true;
+                            }
+                            app.selected_tool = Tool::PlaceComponent(item.element.clone());
+                        }
+                    }
+                }
             }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Resistor { resistance: _ })), Button::new("Resistor (R)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::R)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool =
-                    Tool::PlaceComponent(ComponentBuildData::Resistor { resistance: 1000.0 }); // 1k Ohm
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: _, esr: _ })), Button::new("Capacitor (C)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::C)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool =
-                    Tool::PlaceComponent(ComponentBuildData::Capacitor { capacitance: 1e-6, esr: 0f64 }); // 1 uF
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: _, series_resistance: _ })), Button::new("Inductor (L)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::L)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool =
-                    Tool::PlaceComponent(ComponentBuildData::Inductor { inductance: 1e-3, series_resistance: 0f64 }); // 1 mH
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Diode { model: _ })), Button::new("Diode (D)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::D)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Diode {
-                    model: DiodeModel::D1N4148,
-                });
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::DCSource { voltage: _ })), Button::new("DC Source (Y)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::Y)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool =
-                    Tool::PlaceComponent(ComponentBuildData::DCSource { voltage: 5.0 }); // 5V default
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::ASource { amplitude: _, frequency: _ })), Button::new("AC Source (A)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::A)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::ASource {
-                    amplitude: 5.0,
-                    frequency: 60.0,
-                }); // 5V, 60Hz default
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioSource { path: _ })), Button::new("Audio Source")).clicked()
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::AudioSource { path: PathBuf::new() });
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Ground)), Button::new("Ground (G)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::G)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Ground);
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Label)), Button::new("Label (N)")).clicked()
-                || (ui.input(|i| i.key_pressed(Key::N)) && ui.input(|i| i.modifiers.is_none()) && !app.keybinds_locked)
-            {
-                // set a variable to determine that a modal should be opened until closed
-                ui.memory_mut(|mem| mem.data.insert_temp(Id::new("label_tool_open"), true));
-                app.keybinds_locked = true;
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Bjt { model: _ })), Button::new("Bjt")).clicked()
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Bjt { model: BjtModel::GenericNPN });
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Triode { model: _ })), Button::new("Triode")).clicked()
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Triode { model: TriodeModel::T12AX7 });
-            }
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::Pentode { model: _ })), Button::new("Pentode")).clicked()
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::Pentode { model: PentodeModel::_6L6GC });
-            }
+
+            let size = egui::vec2(ui.available_width(), 28.0);
+            let select_button = Button::new("Select (S)").shortcut_text("S");
+            let erase_button = Button::new("Erase (E/DEL)").shortcut_text("E / DEL");
+            let wire_button = Button::new("Place Wire (W)").shortcut_text("W");
+
+            let is_select_active = matches!(app.selected_tool, Tool::Select);
+            if ui.add_enabled_ui(!is_select_active, |ui| ui.add_sized(size, select_button)).inner.clicked() {
+                app.selected_tool = Tool::Select;
+            };
+            let is_erase_active = matches!(app.selected_tool, Tool::Erase);
+            if ui.add_enabled_ui(!is_erase_active, |ui| ui.add_sized(size, erase_button)).inner.clicked() {
+                app.selected_tool = Tool::Erase;
+            };
+            let is_wire_active = matches!(app.selected_tool, Tool::PlaceWire(_));
+
             ui.separator();
-            if ui.add_enabled(!matches!(app.selected_tool, Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: _ })), Button::new("Audio Probe")).clicked()
-            {
-                app.selected_tool = Tool::PlaceComponent(ComponentBuildData::AudioProbe { path: PathBuf::new() });
-            }
+
+            if ui.add_enabled_ui(!is_wire_active, |ui| ui.add_sized(size, wire_button)).inner.clicked() {
+                app.selected_tool = Tool::PlaceWire(None);
+            };
+
+            ui.separator();
+
+            ui.columns(2, |cols| {
+                for (index, item) in palette.iter().enumerate() {
+                    let col_ui = &mut cols[index % 2];
+
+                    let is_active = match &app.selected_tool {
+                        Tool::PlaceComponent(current_element) => {
+                            // Assumes you implemented the `is_same_category` method from earlier
+                            current_element.is_same_category(&item.element)
+                        },
+                        _ => false,
+                    };
+
+                    let button_size = egui::vec2(col_ui.available_width(), 28.0);
+                    let button = Button::new(item.label.to_string()).shortcut_text(item.shortcut_name);
+
+                    // Draw the button and handle clicks
+                    if col_ui.add_enabled_ui(!is_active, |ui| ui.add_sized(button_size, button)).inner.clicked() {
+                        if matches!(item.element, SchematicElement::Label(_)) {
+                            // Handle modal state
+                            col_ui.memory_mut(|mem| mem.data.insert_temp(Id::new("label_tool_open"), true));
+                            app.keybinds_locked = true;
+                        }
+                        app.selected_tool = Tool::PlaceComponent(item.element.clone());
+                    }
+                }
+            });
 
             ui.separator();
             ui.label(format!("State: {:?}", app.selected_tool.get_name()));

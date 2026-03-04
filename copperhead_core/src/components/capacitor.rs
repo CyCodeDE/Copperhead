@@ -21,6 +21,28 @@ use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::mna::{get_voltage_diff, stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use num_traits::cast;
+use crate::circuit::Circuit;
+use crate::descriptor::Instantiable;
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CapacitorDef {
+    pub capacitance: f64,
+    pub esr: f64,
+}
+
+impl<T: CircuitScalar> Instantiable<T> for CapacitorDef {
+    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let comp = Capacitor::new(
+            nodes[0],
+            nodes[1],
+            cast(self.capacitance).expect("Failed to cast Capacitance"),
+            cast(self.esr).expect("Failed to cast ESR"),
+            dt,
+        );
+        circuit.add_component(comp);
+    }
+}
 
 pub struct Capacitor<T: CircuitScalar> {
     node_a: NodeId,

@@ -27,17 +27,13 @@ pub mod ui;
 pub mod util;
 
 use copperhead_core::components::ComponentProbe;
-use copperhead_core::components::diode::DiodeModel;
-use copperhead_core::components::transistor::bjt::BjtModel;
-use copperhead_core::components::triode::TriodeModel;
-use copperhead_core::descriptor::ComponentDescriptor;
+use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{NodeId, SimStepData};
 use egui::{Color32, Pos2, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
-use std::path::PathBuf;
-use copperhead_core::components::pentode::PentodeModel;
+use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
@@ -82,75 +78,14 @@ impl Into<Pos2> for GridPos {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ComponentBuildData {
-    Resistor {
-        resistance: f64,
-    },
-    Capacitor {
-        capacitance: f64,
-        esr: f64,
-    },
-    DCSource {
-        voltage: f64,
-    },
-    ASource {
-        amplitude: f64,
-        frequency: f64,
-    },
-    AudioSource {
-        path: PathBuf,
-    },
-    Inductor {
-        inductance: f64,
-        series_resistance: f64,
-    },
-    Diode {
-        model: DiodeModel,
-    },
-    Bjt {
-        model: BjtModel,
-    },
-    Triode {
-        model: TriodeModel,
-    },
-    Pentode {
-        model: PentodeModel,
-    },
-    AudioProbe {
-        path: PathBuf,
-    },
-    Label,
-    Ground,
-}
-
-impl ComponentBuildData {
-    pub fn prefix(&self) -> &'static str {
-        match self {
-            Self::Resistor { .. } => "R",
-            Self::Capacitor { .. } => "C",
-            Self::Inductor { .. } => "L",
-            Self::DCSource { .. } | Self::ASource { .. } => "V",
-            Self::AudioSource { .. } => "WAV",
-            Self::Diode { .. } => "D",
-            Self::Bjt { .. } => "Q",
-            Self::AudioProbe { .. } => "Probe",
-            Self::Label { .. } => "",
-            Self::Triode { .. } => "T", // Just "T" for Triode to avoid confusion with "V" for voltage sources
-            Self::Pentode { .. } => "P",
-            Self::Ground => "",
-        }
-    }
-}
-
 /// Represents a component on the grid
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VisualComponent {
     pub id: usize, // UID to map to the solver
     pub name: String,
-    pub component: ComponentBuildData,
+    pub element: SchematicElement,
     pub pos: GridPos,
-    pub size: GridPos, // width and height in grid units at rotation 0, rotation has to be applied beforehand
+    pub size: (isize, isize), // width and height in grid units at rotation 0, rotation has to be applied beforehand
     pub rotation: u8,  // 0, 1, 2, 3 (90 degree steps)
     pub offset: (f32, f32), // Tells the UI how to offset the size for the bounding box
 }
@@ -162,25 +97,8 @@ impl VisualComponent {
     pub fn get_pin_locations(&self) -> Vec<GridPos> {
         // Define local offsets for a generic 2-port component (e.g. width 2 units)
         // Left pin: (-1, 0), Right pin: (1, 0)
-        // ATTENTION: These order needs to match the order of ports() in the Component implementation or else the mapping of UI pins to simulation nodes will be wrong!
-        let local_pins = match &self.component {
-            ComponentBuildData::Ground => vec![(0, 0)],       // 1 Pin
-            ComponentBuildData::Label { .. } => vec![(0, 0)], // 1 Pin (for positioning)
-            ComponentBuildData::AudioProbe { .. } => vec![(0, 0)], // 1 Pin (for positioning)
-            ComponentBuildData::Resistor { .. } => vec![(-1, 0), (1, 0)], // 2 Pins -> A and B
-            ComponentBuildData::DCSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
-            ComponentBuildData::ASource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
-            ComponentBuildData::AudioSource { .. } => vec![(0, -1), (0, 1)], // 2 Pins (Top, Bottom) -> Pos and Neg
-            ComponentBuildData::Capacitor { .. } => vec![(-1, 0), (1, 0)],   // 2 Pins -> A and B
-            ComponentBuildData::Inductor { .. } => vec![(-1, 0), (1, 0)],    // 2 Pins -> A and B
-            ComponentBuildData::Diode { .. } => vec![(-1, 0), (1, 0)], // 2 Pins (Anode, Cathode) -> A and B
-            ComponentBuildData::Bjt { model } => match model.polarity() {
-                true => vec![(1, -1), (-1, 0), (1, 1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E   | NPN
-                false => vec![(1, 1), (-1, 0), (1, -1)], // 3 Pins (Collector, Base, Emitter) -> C, B, E  | PNP
-            },
-            ComponentBuildData::Triode { .. } => vec![(0, -1), (-1, 0), (0, 1)], // 3 Pins (Plate, Grid, Cathode) -> P, G, K
-            ComponentBuildData::Pentode { .. } => vec![(0, -2), (-1, 0), (1, -1), (0, 1)], // 4 Pins (Plate, Control Grid, Screen Grid, Cathode) -> P, G1, G2, K
-        };
+        // ATTENTION: The order needs to match the order of ports() in the Component implementation or else the mapping of UI pins to simulation nodes will be wrong!
+        let local_pins = self.element.local_pins();
 
         local_pins
             .iter()
@@ -282,17 +200,17 @@ impl Schematic {
 
     pub fn add_component(
         &mut self,
-        data: ComponentBuildData,
+        data: SchematicElement,
         pos: GridPos,
         rotation: u8,
-        size: GridPos,
+        size: (isize, isize),
         offset: (f32, f32),
     ) {
         let name = self.generate_next_name(data.prefix());
         self.components.push(VisualComponent {
             id: self.next_component_id,
             name,
-            component: data,
+            element: data,
             size,
             pos,
             rotation,
@@ -303,17 +221,17 @@ impl Schematic {
 
     pub fn add_component_with_name(
         &mut self,
-        data: ComponentBuildData,
+        data: SchematicElement,
         pos: GridPos,
         rotation: u8,
         name: String,
-        size: GridPos,
+        size: (isize, isize),
         offset: (f32, f32),
     ) {
         self.components.push(VisualComponent {
             id: self.next_component_id,
             name,
-            component: data,
+            element: data,
             pos,
             size,
             rotation,
@@ -358,8 +276,8 @@ impl Schematic {
 
             // Include the bottom-right corner based on size
             include_point(
-                (comp.pos.x + comp.size.x) as i64,
-                (comp.pos.y + comp.size.y) as i64,
+                (comp.pos.x + comp.size.0) as i64,
+                (comp.pos.y + comp.size.1) as i64,
             );
         }
 
@@ -401,18 +319,26 @@ pub enum SimCommand {
     /// Update the value of a component in the simulation. The ComponentType must match the existing component type.
     UpdateValue {
         component_id: usize,
-        updated: ComponentBuildData,
+        updated: ComponentDef,
     },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Netlist {
     /// A list of component ready to be built into the simulation
-    pub instructions: Vec<ComponentDescriptor>,
+    pub entries: Vec<NetlistEntry>,
     /// Maps Grid Position -> Node ID in the simulation
     pub node_map: HashMap<GridPos, NodeId>,
     /// Maps UI Component ID (usize) -> Simulation Component Index (usize)
     pub component_map: HashMap<usize, usize>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NetlistEntry {
+    /// The component parameters
+    pub component: ComponentDef,
+    /// The solver nodes this component connects to
+    pub nodes: Vec<NodeId>
 }
 
 pub struct SimState {
