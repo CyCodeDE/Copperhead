@@ -17,8 +17,8 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::CircuitApp;
-use egui::{Align, Id, TextEdit, Vec2};
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
+use egui::{Align, Id, TextEdit, Vec2};
 
 pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
     if let Some(id) = app.editing_component_id {
@@ -46,10 +46,7 @@ pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
 
                         let prefix = comp.element.prefix().to_string();
 
-                        ui.heading(format!(
-                            "{} Properties",
-                            comp.element.ui_name()
-                        ));
+                        ui.heading(format!("{} Properties", comp.element.ui_name()));
 
                         ui.horizontal(|ui| {
                             ui.label("Name:");

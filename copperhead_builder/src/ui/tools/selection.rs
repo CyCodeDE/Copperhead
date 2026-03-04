@@ -33,7 +33,8 @@ pub fn handle(
         for comp in &app.state.schematic.components {
             let comp_screen_pos = app.to_screen(comp.pos);
             // add a small tolerance to the size for easier selection
-            let size = (Vec2::new(comp.size.0 as f32, comp.size.1 as f32) + Vec2::splat(0.5)) * app.zoom;
+            let size =
+                (Vec2::new(comp.size.0 as f32, comp.size.1 as f32) + Vec2::splat(0.5)) * app.zoom;
             let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
                 comp.offset.0 * app.zoom,
                 comp.offset.1 * app.zoom,

@@ -18,10 +18,10 @@
  */
 
 use crate::ui::app::{CircuitApp, Tool};
+use crate::ui::components::definitions::SchematicElement;
+use crate::ui::components::definitions::label::LabelDef;
 use crate::ui::components::oscilloscope::draw_oscilloscope;
 use egui::{CornerRadius, Frame, Id, Key, Margin};
-use crate::ui::components::definitions::label::LabelDef;
-use crate::ui::components::definitions::SchematicElement;
 
 impl Tool {
     pub(crate) fn get_name(&self) -> &str {
@@ -130,7 +130,8 @@ impl eframe::App for CircuitApp {
                             .data(|d| d.get_temp::<String>(Id::new("label_tool_text")))
                             .unwrap_or_default();
                         if !label_text.is_empty() {
-                            self.selected_tool = Tool::PlaceComponent(SchematicElement::Label(LabelDef));
+                            self.selected_tool =
+                                Tool::PlaceComponent(SchematicElement::Label(LabelDef));
                             // clear the stored text
                             // update the stored text to the final value
                             ctx.data_mut(|d| {

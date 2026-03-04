@@ -21,13 +21,13 @@ use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentMetadata, SimCommand};
 use copperhead_core::audio::write_to_wav;
 use copperhead_core::circuit::{Circuit, CircuitElement};
+use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::SimBatchData;
 use copperhead_core::processor::CircuitProcessor;
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
 #[cfg(feature = "profiling")]
 use tracy_client::Client;
-use copperhead_core::descriptor::ComponentDef;
 
 pub fn run_simulation_loop(
     rx: Receiver<SimCommand>,
@@ -82,7 +82,12 @@ pub fn run_simulation_loop(
 
                     let mut new_ckt = Circuit::<f64>::new();
                     for instr in netlist.entries {
-                        instr.component.instantiate(instr.nodes.as_slice(), dt, &mut new_ckt, max_steps);
+                        instr.component.instantiate(
+                            instr.nodes.as_slice(),
+                            dt,
+                            &mut new_ckt,
+                            max_steps,
+                        );
                     }
 
                     processor = Some(CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap());

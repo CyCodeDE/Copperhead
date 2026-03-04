@@ -20,7 +20,7 @@
 use crate::CopperheadPluginParams;
 use crate::build_circuit::build_circuit;
 use nih_plug::prelude::Editor;
-use rfd::{AsyncFileDialog, FileDialog};
+use rfd::FileDialog;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

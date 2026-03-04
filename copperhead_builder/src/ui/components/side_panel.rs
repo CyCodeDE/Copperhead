@@ -16,21 +16,11 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::ui::SimCommand;
 use crate::ui::app::{CircuitApp, Tool};
-use crate::ui::{SimCommand};
-use copperhead_core::components::diode::{DiodeDef, DiodeModel};
-use copperhead_core::components::transistor::bjt::BjtModel;
-use copperhead_core::components::triode::TriodeModel;
-use egui::{Button, Checkbox, Frame, Id, Key, Label};
-use std::path::PathBuf;
-use copperhead_core::components::capacitor::CapacitorDef;
-use copperhead_core::components::inductor::InductorDef;
-use copperhead_core::components::pentode::PentodeModel;
-use copperhead_core::components::resistor::ResistorDef;
-use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
-use copperhead_core::descriptor::ComponentDef;
 use crate::ui::components::definitions::SchematicElement;
 use crate::ui::components::palette::PaletteItem;
+use egui::{Button, Checkbox, Frame, Id, Key, Label};
 
 pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
     let running = app.sim_state.running;

@@ -18,9 +18,9 @@
  */
 
 pub mod canvas;
+pub mod definitions;
 pub mod modals;
 pub mod oscilloscope;
+pub mod palette;
 pub mod side_panel;
 pub mod top_bar;
-pub mod definitions;
-pub mod palette;

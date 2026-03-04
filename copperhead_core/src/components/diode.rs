@@ -16,7 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
+use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::math;
 use crate::util::mna::{stamp_conductance, stamp_current_source};
@@ -24,8 +26,6 @@ use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use crate::circuit::Circuit;
-use crate::descriptor::Instantiable;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DiodeDef {
@@ -35,18 +35,7 @@ pub struct DiodeDef {
 impl<T: CircuitScalar> Instantiable<T> for DiodeDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (is, n, rs, cjo, m, tt, bv, ibv) = self.model.parameters();
-        let comp = Diode::new(
-            nodes[0],
-            nodes[1],
-            is,
-            n,
-            rs,
-            cjo,
-            m,
-            tt,
-            bv,
-            ibv
-        );
+        let comp = Diode::new(nodes[0], nodes[1], is, n, rs, cjo, m, tt, bv, ibv);
         circuit.add_component(comp);
     }
 }

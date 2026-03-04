@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use eframe::emath::Pos2;
-use eframe::epaint::Color32;
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::pentode::{PentodeDef, PentodeModel};
+use eframe::emath::Pos2;
+use eframe::epaint::Color32;
 use egui::{ComboBox, Painter, Stroke, Ui, Vec2};
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
 
 impl ComponentUIExt for PentodeDef {
     fn prefix(&self) -> &'static str {
@@ -86,7 +86,15 @@ impl ComponentUIExt for PentodeDef {
         engine.draw_pin_marker(Vec2::new(0.5, 1.0), "C");
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let stroke = Stroke::new(2.0, stroke_color);
 
         // Draw the Glass Envelope (Circle)
@@ -144,7 +152,8 @@ impl ComponentUIExt for PentodeDef {
             let num_dashes = 4;
             let total_grid_width = 0.7;
             let gap_width = 0.08;
-            let dash_width = (total_grid_width - (gap_width * (num_dashes - 1) as f32)) / num_dashes as f32;
+            let dash_width =
+                (total_grid_width - (gap_width * (num_dashes - 1) as f32)) / num_dashes as f32;
 
             let mut current_x = -total_grid_width / 2.0;
 
@@ -176,48 +185,75 @@ impl ComponentUIExt for PentodeDef {
         // --- Control Grid / G1 (Pin 1) ---
         let g1_pin = Vec2::new(-1.0, 0.0);
         // Route: Pin -> Right to x=-0.6 -> Up to G1 height -> Right to grid edge
-        painter.line_segment([
-                                 center + rotate_vec(g1_pin * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(-0.6, 0.0) * zoom, rotation)
-                             ], stroke);
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(-0.6, 0.0) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(-0.6, g1_y) * zoom, rotation)
-                             ], stroke);
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(-0.6, g1_y) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(-0.35, g1_y) * zoom, rotation)
-                             ], stroke);
+        painter.line_segment(
+            [
+                center + rotate_vec(g1_pin * zoom, rotation),
+                center + rotate_vec(Vec2::new(-0.6, 0.0) * zoom, rotation),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(-0.6, 0.0) * zoom, rotation),
+                center + rotate_vec(Vec2::new(-0.6, g1_y) * zoom, rotation),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(-0.6, g1_y) * zoom, rotation),
+                center + rotate_vec(Vec2::new(-0.35, g1_y) * zoom, rotation),
+            ],
+            stroke,
+        );
 
         // --- Screen Grid / G2 (Pin 2) ---
         let g2_pin = Vec2::new(1.0, -1.0);
         // Route: Pin -> Left to x=0.6 -> Down to G2 height -> Left to grid edge
-        painter.line_segment([
-                                 center + rotate_vec(g2_pin * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(0.6, -1.0) * zoom, rotation)
-                             ], stroke);
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(0.6, -1.0) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(0.6, g2_y) * zoom, rotation)
-                             ], stroke);
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(0.6, g2_y) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(0.35, g2_y) * zoom, rotation)
-                             ], stroke);
+        painter.line_segment(
+            [
+                center + rotate_vec(g2_pin * zoom, rotation),
+                center + rotate_vec(Vec2::new(0.6, -1.0) * zoom, rotation),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(0.6, -1.0) * zoom, rotation),
+                center + rotate_vec(Vec2::new(0.6, g2_y) * zoom, rotation),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(0.6, g2_y) * zoom, rotation),
+                center + rotate_vec(Vec2::new(0.35, g2_y) * zoom, rotation),
+            ],
+            stroke,
+        );
 
         // --- Suppressor Grid / G3 (Internal tie to Cathode) ---
         // Route: Left edge of G3 -> Left to x=-0.65 -> Down to Cathode height -> Right to Cathode edge
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(-0.35, g3_y) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(-0.65, g3_y) * zoom, rotation)
-                             ], stroke);
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(-0.65, g3_y) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(-0.65, cathode_y) * zoom, rotation)
-                             ], stroke);
-        painter.line_segment([
-                                 center + rotate_vec(Vec2::new(-0.65, cathode_y) * zoom, rotation),
-                                 center + rotate_vec(Vec2::new(-0.35, cathode_y) * zoom, rotation)
-                             ], stroke);
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(-0.35, g3_y) * zoom, rotation),
+                center + rotate_vec(Vec2::new(-0.65, g3_y) * zoom, rotation),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(-0.65, g3_y) * zoom, rotation),
+                center + rotate_vec(Vec2::new(-0.65, cathode_y) * zoom, rotation),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                center + rotate_vec(Vec2::new(-0.65, cathode_y) * zoom, rotation),
+                center + rotate_vec(Vec2::new(-0.35, cathode_y) * zoom, rotation),
+            ],
+            stroke,
+        );
     }
 }

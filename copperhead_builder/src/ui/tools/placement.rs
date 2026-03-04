@@ -17,10 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::{CircuitApp, Tool};
+use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 use crate::ui::drawing::draw_component;
 use crate::ui::{GridPos, VisualComponent};
 use egui::{Color32, Id, Pos2};
-use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -51,10 +51,7 @@ pub fn handle(
 
     let rotated_size = match app.current_rotation % 4 {
         0 | 2 => size,
-        1 | 3 => (
-            size.1,
-            size.0,
-        ),
+        1 | 3 => (size.1, size.0),
         _ => unreachable!(),
     };
 

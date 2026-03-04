@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::components::{Component, ComponentLinearity, ComponentProbe};
-use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use faer::ColRef;
-use std::collections::HashMap;
-use num_traits::cast;
 use crate::circuit::Circuit;
+use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::mna::stamp_conductance;
+use faer::ColRef;
+use num_traits::cast;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ResistorDef {

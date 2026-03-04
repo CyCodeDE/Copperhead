@@ -37,20 +37,7 @@ impl<T: CircuitScalar> Instantiable<T> for TriodeDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (mu, ex, kg1, kp, kvb, rgi, ccg, cgp, ccp, is, vt) = self.model.parameters();
         let comp = Triode::new(
-            nodes[0],
-            nodes[1],
-            nodes[2],
-            mu,
-            ex,
-            kg1,
-            kp,
-            kvb,
-            rgi,
-            ccg,
-            cgp,
-            ccp,
-            is,
-            vt,
+            nodes[0], nodes[1], nodes[2], mu, ex, kg1, kp, kvb, rgi, ccg, cgp, ccp, is, vt,
         );
         circuit.add_component(comp);
     }
@@ -80,15 +67,15 @@ impl TriodeModel {
             TriodeModel::_12AX7 => {
                 // Typical Norman Koren parameters for a 12AX7
                 (
-                    T::from(100.0).unwrap(),    // MU
-                    T::from(1.4).unwrap(),      // EX
-                    T::from(1060.0).unwrap(),   // KG1
-                    T::from(600.0).unwrap(),    // KP
-                    T::from(300.0).unwrap(),    // KVB
-                    T::from(2000.0).unwrap(),   // RGI (2k Ohms)
-                    T::from(2.3e-12).unwrap(),  // CCG (2.3 pF)
-                    T::from(2.4e-12).unwrap(),  // CGP (2.4 pF)
-                    T::from(0.9e-12).unwrap(),  // CCP (0.9 pF)
+                    T::from(100.0).unwrap(),   // MU
+                    T::from(1.4).unwrap(),     // EX
+                    T::from(1060.0).unwrap(),  // KG1
+                    T::from(600.0).unwrap(),   // KP
+                    T::from(300.0).unwrap(),   // KVB
+                    T::from(2000.0).unwrap(),  // RGI (2k Ohms)
+                    T::from(2.3e-12).unwrap(), // CCG (2.3 pF)
+                    T::from(2.4e-12).unwrap(), // CGP (2.4 pF)
+                    T::from(0.9e-12).unwrap(), // CCP (0.9 pF)
                     i_s,
                     vt,
                 )
@@ -303,9 +290,15 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
             let i_eq_ccp = (self.ccp / dt2) * (four * self.v_ccp_m1 - self.v_ccp_m2);
 
             // Add parallel currents to RHS (Entering positive node, leaving negative)
-            if let Some(i) = idx_g { rhs[i - l_size] = rhs[i - l_size] + i_eq_ccg + i_eq_cgp; }
-            if let Some(i) = idx_c { rhs[i - l_size] = rhs[i - l_size] - i_eq_ccg - i_eq_ccp; }
-            if let Some(i) = idx_p { rhs[i - l_size] = rhs[i - l_size] - i_eq_cgp + i_eq_ccp; }
+            if let Some(i) = idx_g {
+                rhs[i - l_size] = rhs[i - l_size] + i_eq_ccg + i_eq_cgp;
+            }
+            if let Some(i) = idx_c {
+                rhs[i - l_size] = rhs[i - l_size] - i_eq_ccg - i_eq_ccp;
+            }
+            if let Some(i) = idx_p {
+                rhs[i - l_size] = rhs[i - l_size] - i_eq_cgp + i_eq_ccp;
+            }
         }
 
         // Shockley Diode (between Auxiliary and Cathode)
@@ -319,8 +312,12 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
         let i_eq_d = i_d - g_d * v_xc_limited;
 
         stamp_conductance(matrix, idx_x, idx_c, g_d, l_size);
-        if let Some(i) = idx_x { rhs[i - l_size] = rhs[i - l_size] - i_eq_d; }
-        if let Some(i) = idx_c { rhs[i - l_size] = rhs[i - l_size] + i_eq_d; }
+        if let Some(i) = idx_x {
+            rhs[i - l_size] = rhs[i - l_size] - i_eq_d;
+        }
+        if let Some(i) = idx_c {
+            rhs[i - l_size] = rhs[i - l_size] + i_eq_d;
+        }
 
         // Koren Triode Plate Currents (between Plate and Cathode, controlled by G and Plate
         let v_pk_sq = v_pk * v_pk;
@@ -356,8 +353,12 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
         stamp_conductance(matrix, idx_p, idx_c, g_p, l_size);
         stamp_transconductance(matrix, idx_p, idx_c, idx_g, idx_c, g_m, l_size);
 
-        if let Some(i) = idx_p { rhs[i - l_size] = rhs[i - l_size] - i_eq_p; }
-        if let Some(i) = idx_c { rhs[i - l_size] = rhs[i - l_size] + i_eq_p; }
+        if let Some(i) = idx_p {
+            rhs[i - l_size] = rhs[i - l_size] - i_eq_p;
+        }
+        if let Some(i) = idx_c {
+            rhs[i - l_size] = rhs[i - l_size] + i_eq_p;
+        }
     }
 
     /// Called after each newton raphson iteration to check if the solution has converged.
@@ -369,10 +370,10 @@ impl<T: CircuitScalar> Component<T> for Triode<T> {
         let v_x = get_voltage(current_node_voltages, self.aux_start_index);
 
         let tol = T::from(1e-6).unwrap(); // Absolute tolerance for simplicity, adjust to your solver's standards
-        (v_p - state.prev_v_p).abs() < tol &&
-            (v_g - state.prev_v_g).abs() < tol &&
-            (v_c - state.prev_v_c).abs() < tol &&
-            (v_x - state.prev_v_x).abs() < tol
+        (v_p - state.prev_v_p).abs() < tol
+            && (v_g - state.prev_v_g).abs() < tol
+            && (v_c - state.prev_v_c).abs() < tol
+            && (v_x - state.prev_v_x).abs() < tol
     }
 
     fn terminal_currents(

@@ -17,11 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::CircuitApp;
+use crate::ui::components::definitions::SchematicElement;
 use crate::ui::{GridPos, Netlist, NetlistEntry};
-use copperhead_core::descriptor::{ComponentDef};
 use copperhead_core::model::NodeId;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use crate::ui::components::definitions::SchematicElement;
 
 /// Turns a netlist into a circuit that can be executed
 pub fn compile_netlist(app: &CircuitApp) -> Netlist {
@@ -141,13 +140,11 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
         let resolved_nodes: Vec<NodeId> = pins
             .iter()
             .map(|pos| {
-                final_node_map
-                    .get(pos)
-                    .cloned()
-                    .unwrap_or_else(|| panic!("Pin at position {:?} was not registered in node map", pos))
+                final_node_map.get(pos).cloned().unwrap_or_else(|| {
+                    panic!("Pin at position {:?} was not registered in node map", pos)
+                })
             })
             .collect();
-
 
         let entry = NetlistEntry {
             component: core_def.clone(),

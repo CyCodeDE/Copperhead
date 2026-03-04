@@ -17,7 +17,9 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity};
+use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::math::{exp_safe_deriv, pn_junction_limit, softplus_safe_deriv};
 use crate::util::mna::{get_voltage, stamp_conductance, stamp_transconductance};
@@ -25,8 +27,6 @@ use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use crate::circuit::Circuit;
-use crate::descriptor::Instantiable;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PentodeDef {
@@ -37,22 +37,8 @@ impl<T: CircuitScalar> Instantiable<T> for PentodeDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k, cpk, is, vt) = self.model.parameters();
         let comp = Pentode::new(
-            nodes[0],
-            nodes[1],
-            nodes[2],
-            nodes[3],
-            mu,
-            ex,
-            kg1,
-            kg2,
-            kp,
-            kvb,
-            rgi,
-            cg1p,
-            cg1k,
-            cpk,
-            is,
-            vt,
+            nodes[0], nodes[1], nodes[2], nodes[3], mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k,
+            cpk, is, vt,
         );
         circuit.add_component(comp);
     }
@@ -106,9 +92,9 @@ impl PentodeModel {
                     T::from(60.0).unwrap(),     // KP
                     T::from(24.0).unwrap(),     // KVB
                     T::from(1000.0).unwrap(),   // RGI
-                    T::from(1.0e-12).unwrap(),  // CG1P 
+                    T::from(1.0e-12).unwrap(),  // CG1P
                     T::from(15.0e-12).unwrap(), // CG1K
-                    T::from(8.0e-12).unwrap(),  // CPK 
+                    T::from(8.0e-12).unwrap(),  // CPK
                     i_s,
                     vt,
                 )
@@ -126,10 +112,10 @@ impl PentodeModel {
 
 pub struct Pentode<T: CircuitScalar> {
     // External Nodes
-    pub node_p: NodeId, // Plate (Anode)
+    pub node_p: NodeId,  // Plate (Anode)
     pub node_g1: NodeId, // Control Grid
     pub node_g2: NodeId, // Screen Grid
-    pub node_c: NodeId, // Cathode
+    pub node_c: NodeId,  // Cathode
 
     pub cached_idx_p: Option<usize>,
     pub cached_idx_g1: Option<usize>,
@@ -323,15 +309,22 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
             let i_eq_cg1p = (self.c_g1p / dt2) * (four * self.v_cg1p_m1 - self.v_cg1p_m2);
             let i_eq_cpk = (self.c_pk / dt2) * (four * self.v_cpk_m1 - self.v_cpk_m2);
 
-            if let Some(i) = idx_g1 { rhs[t(i)] = rhs[t(i)] + i_eq_cg1k + i_eq_cg1p; }
-            if let Some(i) = idx_c { rhs[t(i)] = rhs[t(i)] - i_eq_cg1k - i_eq_cpk; }
-            if let Some(i) = idx_p { rhs[t(i)] = rhs[t(i)] - i_eq_cg1p + i_eq_cpk; }
+            if let Some(i) = idx_g1 {
+                rhs[t(i)] = rhs[t(i)] + i_eq_cg1k + i_eq_cg1p;
+            }
+            if let Some(i) = idx_c {
+                rhs[t(i)] = rhs[t(i)] - i_eq_cg1k - i_eq_cpk;
+            }
+            if let Some(i) = idx_p {
+                rhs[t(i)] = rhs[t(i)] - i_eq_cg1p + i_eq_cpk;
+            }
         }
 
         // Grid Diode
         let state = self.iter_state.get();
         let prev_v_xc = state.prev_v_x - state.prev_v_c;
-        let v_crit = self.vt * (self.vt / (T::from(std::f64::consts::SQRT_2).unwrap() * self.i_s)).ln();
+        let v_crit =
+            self.vt * (self.vt / (T::from(std::f64::consts::SQRT_2).unwrap() * self.i_s)).ln();
         let v_xc_limited = pn_junction_limit(v_xc, prev_v_xc, self.vt, v_crit);
 
         let (exp_val, exp_deriv) = exp_safe_deriv(v_xc_limited / self.vt);
@@ -340,8 +333,12 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
         let i_eq_d = i_d - g_d * v_xc_limited;
 
         stamp_conductance(matrix, idx_x, idx_c, g_d, l_size);
-        if let Some(i) = idx_x { rhs[t(i)] = rhs[t(i)] - i_eq_d; }
-        if let Some(i) = idx_c { rhs[t(i)] = rhs[t(i)] + i_eq_d; }
+        if let Some(i) = idx_x {
+            rhs[t(i)] = rhs[t(i)] - i_eq_d;
+        }
+        if let Some(i) = idx_c {
+            rhs[t(i)] = rhs[t(i)] + i_eq_d;
+        }
 
         // Plate Current Math
         let v_g2k_safe = v_g2k.max(T::from(1e-3).unwrap());
@@ -367,7 +364,11 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
             let g_base = (two * self.ex / self.kg1) * e1_pow_ex_minus_1 * atan_term;
 
             g_m1 = g_base * de1_dvg1k;
-            g_m2 = if v_g2k > T::from(1e-3).unwrap() { g_base * de1_dvg2k } else { T::zero() };
+            g_m2 = if v_g2k > T::from(1e-3).unwrap() {
+                g_base * de1_dvg2k
+            } else {
+                T::zero()
+            };
 
             let d_atan_dvpk = self.kvb / (self.kvb * self.kvb + v_pk * v_pk);
             g_p = (two / self.kg1) * e1.powf(self.ex) * d_atan_dvpk;
@@ -399,9 +400,15 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
         let i_eq_p = i_p - (g_p * v_pk + g_m1 * v_g1k + g_m2 * v_g2k);
         let i_eq_g2 = i_g2 - (g_g2_g2 * v_g2k + g_g2_g1 * v_g1k);
 
-        if let Some(i) = idx_p { rhs[t(i)] = rhs[t(i)] - i_eq_p; }
-        if let Some(i) = idx_g2 { rhs[t(i)] = rhs[t(i)] - i_eq_g2; }
-        if let Some(i) = idx_c { rhs[t(i)] = rhs[t(i)] + i_eq_p + i_eq_g2; }
+        if let Some(i) = idx_p {
+            rhs[t(i)] = rhs[t(i)] - i_eq_p;
+        }
+        if let Some(i) = idx_g2 {
+            rhs[t(i)] = rhs[t(i)] - i_eq_g2;
+        }
+        if let Some(i) = idx_c {
+            rhs[t(i)] = rhs[t(i)] + i_eq_p + i_eq_g2;
+        }
     }
 
     fn is_converged(&self, current_node_voltages: &ColRef<T>) -> bool {
@@ -482,7 +489,8 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
         // Grid Diode & Resistors
         let state = self.iter_state.get();
         let prev_v_xc = state.prev_v_x - state.prev_v_c;
-        let v_crit = self.vt * (self.vt / (T::from(std::f64::consts::SQRT_2).unwrap() * self.i_s)).ln();
+        let v_crit =
+            self.vt * (self.vt / (T::from(std::f64::consts::SQRT_2).unwrap() * self.i_s)).ln();
         let v_xc_limited = pn_junction_limit(v_xc, prev_v_xc, self.vt, v_crit);
 
         let (exp_val, _) = exp_safe_deriv(v_xc_limited / self.vt);

@@ -26,6 +26,7 @@ mod tools;
 pub mod ui;
 pub mod util;
 
+use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 use copperhead_core::components::ComponentProbe;
 use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{NodeId, SimStepData};
@@ -33,7 +34,6 @@ use egui::{Color32, Pos2, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
-use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
@@ -86,8 +86,8 @@ pub struct VisualComponent {
     pub element: SchematicElement,
     pub pos: GridPos,
     pub size: (isize, isize), // width and height in grid units at rotation 0, rotation has to be applied beforehand
-    pub rotation: u8,  // 0, 1, 2, 3 (90 degree steps)
-    pub offset: (f32, f32), // Tells the UI how to offset the size for the bounding box
+    pub rotation: u8,         // 0, 1, 2, 3 (90 degree steps)
+    pub offset: (f32, f32),   // Tells the UI how to offset the size for the bounding box
 }
 
 impl VisualComponent {
@@ -338,7 +338,7 @@ pub struct NetlistEntry {
     /// The component parameters
     pub component: ComponentDef,
     /// The solver nodes this component connects to
-    pub nodes: Vec<NodeId>
+    pub nodes: Vec<NodeId>,
 }
 
 pub struct SimState {

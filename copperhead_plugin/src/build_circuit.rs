@@ -19,7 +19,7 @@
 use copperhead_core::circuit::Circuit;
 use copperhead_core::components::ComponentId;
 use copperhead_core::components::voltage_source::{VoltageSource, VoltageSourceType};
-use copperhead_core::descriptor::{ComponentDef};
+use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::NodeId;
 use copperhead_core::processor::CircuitProcessor;
 use copperhead_core::signals::{RealtimeInputSignal, SignalType};
@@ -32,7 +32,7 @@ pub struct NetlistEntry {
     /// The component parameters
     pub component: ComponentDef,
     /// The solver nodes this component connects to
-    pub nodes: Vec<NodeId>
+    pub nodes: Vec<NodeId>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -62,7 +62,9 @@ pub fn build_circuit(
 
             let target_node = instr.nodes[0];
             probe = Some(target_node);
-        } else if let ComponentDef::VoltageSource(vs_def) = &instr.component && matches!(vs_def.source_type, VoltageSourceType::AudioBuffer { .. }) {
+        } else if let ComponentDef::VoltageSource(vs_def) = &instr.component
+            && matches!(vs_def.source_type, VoltageSourceType::AudioBuffer { .. })
+        {
             // We just change out the voltage source for a audio buffer into a realtime input
             // TODO: Make this less hacky by introducing a proper netlist format
 
@@ -73,7 +75,9 @@ pub fn build_circuit(
 
             circuit.add_component(comp);
         } else {
-            instr.component.instantiate(instr.nodes.as_slice(), dt, &mut circuit, 1000);
+            instr
+                .component
+                .instantiate(instr.nodes.as_slice(), dt, &mut circuit, 1000);
             // ATTENTION: The max_steps is hardcoded because it technically doesn't matter,
             // since in the plugin, the AudioProbe is essentially just the node we are reading from. In the builder it instead serves as a file writer that needs the steps
             // to know how large the pre-allocated buffer has to be. This is a bit of a hack and should be refactored in the future to be more elegant, but it works for now.

@@ -16,17 +16,17 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::audio::load_and_resample_audio;
+use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
+use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::signals::{AudioBufferSignal, ConstantSignal, Signal, SignalType, SineSignal};
 use faer::{ColMut, ColRef, MatMut};
-use std::collections::HashMap;
-use std::path::PathBuf;
 use num_traits::cast;
 use portable_atomic::AtomicUsize;
-use crate::audio::load_and_resample_audio;
-use crate::circuit::Circuit;
-use crate::descriptor::Instantiable;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VoltageSourceDef {
@@ -35,26 +35,43 @@ pub struct VoltageSourceDef {
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum VoltageSourceType {
-    DC { voltage: f64 },
-    AC { amplitude: f64, frequency: f64, phase: f64 },
-    AudioBuffer { file_path: PathBuf }
+    DC {
+        voltage: f64,
+    },
+    AC {
+        amplitude: f64,
+        frequency: f64,
+        phase: f64,
+    },
+    AudioBuffer {
+        file_path: PathBuf,
+    },
 }
 
 impl<T: CircuitScalar> Instantiable<T> for VoltageSourceDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         match self.source_type {
             VoltageSourceType::DC { voltage } => {
-                let signal = SignalType::Constant(ConstantSignal { voltage: cast(voltage).expect("Failed to cast Voltage") });
+                let signal = SignalType::Constant(ConstantSignal {
+                    voltage: cast(voltage).expect("Failed to cast Voltage"),
+                });
                 let comp = VoltageSource::new(nodes[0], nodes[1], signal);
                 circuit.add_component(comp);
             }
-            VoltageSourceType::AC { amplitude, frequency, phase } => {
+            VoltageSourceType::AC {
+                amplitude,
+                frequency,
+                phase,
+            } => {
                 let freq = cast(frequency).expect("Failed to cast Frequency");
                 let signal = SignalType::Sine(SineSignal {
                     amplitude: cast(amplitude).expect("Failed to cast Amplitude"),
                     frequency: freq,
                     phase: cast(phase).expect("Failed to cast Phase"),
-                    omega: cast(T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * freq).expect("Failed to cast angular frequency")
+                    omega: cast(
+                        T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * freq,
+                    )
+                    .expect("Failed to cast angular frequency"),
                 });
                 let comp = VoltageSource::new(nodes[0], nodes[1], signal);
                 circuit.add_component(comp);

@@ -17,13 +17,13 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity};
+use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::ColRef;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::circuit::Circuit;
-use crate::descriptor::Instantiable;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AudioProbeDef {
@@ -41,7 +41,7 @@ impl<T: CircuitScalar> Instantiable<T> for AudioProbeDef {
             nodes[0],
             self.file_path.clone(),
             max_steps,
-            target_sample_rate
+            target_sample_rate,
         );
         circuit.add_component(comp);
     }

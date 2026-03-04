@@ -19,8 +19,7 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
-use copperhead_core::components::diode::DiodeModel;
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::transistor::bjt::{BjtDef, BjtModel};
 use egui::{Color32, ComboBox, Painter, Pos2, Shape, Stroke, Ui, Vec2};
 
@@ -86,19 +85,26 @@ impl ComponentUIExt for BjtDef {
         let is_npn = self.model.polarity();
         let (top_char, bot_char) = if is_npn { ("C", "E") } else { ("E", "C") };
 
-        engine.draw_pin_marker(Vec2::new(0.7, -1.0), top_char);  // Top right pin
-        engine.draw_pin_marker(Vec2::new(-1.0, -0.3), "B");// Left pin
-        engine.draw_pin_marker(Vec2::new(0.7, 1.0), bot_char);  // Bottom right pin
+        engine.draw_pin_marker(Vec2::new(0.7, -1.0), top_char); // Top right pin
+        engine.draw_pin_marker(Vec2::new(-1.0, -0.3), "B"); // Left pin
+        engine.draw_pin_marker(Vec2::new(0.7, 1.0), bot_char); // Bottom right pin
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         match self.model.polarity() {
             true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
             false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
         }
     }
 }
-
 
 fn draw_bjt_npn(
     painter: &Painter,

@@ -69,14 +69,8 @@ pub fn draw_component<F>(
     let rotation = comp.rotation % 4;
 
     // Draw the specific symbol
-    comp.element.draw_icon(
-        painter,
-        center,
-        rotation,
-        zoom,
-        fill_color,
-        stroke_color,
-    );
+    comp.element
+        .draw_icon(painter, center, rotation, zoom, fill_color, stroke_color);
 
     // Draw Pins (Red Dots) on top of everything
     let pin_color = Color32::RED;
@@ -222,7 +216,9 @@ impl<'a> LabelEngine<'a> {
 
     /// Base method to draw text relative to the bounding box
     pub fn draw_text_at_anchor(&self, text: &str, anchor: Anchor, is_strong: bool, color: Color32) {
-        if text.is_empty() { return; }
+        if text.is_empty() {
+            return;
+        }
 
         // Find the absolute coordinate on the bounding box
         let anchor_pos = match anchor {
@@ -240,13 +236,8 @@ impl<'a> LabelEngine<'a> {
         let font_id = egui::FontId::monospace(self.zoom * 0.4);
 
         // You can build a LayoutJob here or use painter.text
-        self.painter.text(
-            final_pos,
-            anchor.text_align(),
-            text,
-            font_id,
-            color,
-        );
+        self.painter
+            .text(final_pos, anchor.text_align(), text, font_id, color);
     }
 
     pub fn draw_stacked_labels(&self, name: &str, value: &str, anchor: Anchor) {
@@ -288,8 +279,8 @@ impl<'a> LabelEngine<'a> {
             Anchor::Bottom => (
                 Align2::CENTER_TOP,
                 Align2::CENTER_TOP,
-                Vec2::new(0.0, 0.0),                  // Name sits right on the line
-                Vec2::new(0.0, font_size + spacing),  // Value sits below Name
+                Vec2::new(0.0, 0.0), // Name sits right on the line
+                Vec2::new(0.0, font_size + spacing), // Value sits below Name
             ),
             _ => return,
         };
@@ -324,7 +315,8 @@ impl<'a> LabelEngine<'a> {
         } else {
             // Vertical: Both on the right, centered vertically together.
             // Get the center-right point of the bounding box and apply padding
-            let right_center = self.bounds.right_center() + (Anchor::Right.push_dir() * self.padding);
+            let right_center =
+                self.bounds.right_center() + (Anchor::Right.push_dir() * self.padding);
 
             let font_size = self.zoom * 0.4;
             let spacing = self.zoom * 0.5;

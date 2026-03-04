@@ -16,17 +16,21 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use egui::{Color32, Painter, Pos2, Shape, Stroke, Vec2};
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
+use egui::{Color32, Painter, Pos2, Shape, Stroke, Vec2};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LabelDef;
 
 impl ComponentUIExt for LabelDef {
-    fn prefix(&self) -> &'static str { "" }
-    fn ui_name(&self) -> &'static str { "Label" }
+    fn prefix(&self) -> &'static str {
+        ""
+    }
+    fn ui_name(&self) -> &'static str {
+        "Label"
+    }
 
     fn size(&self) -> (isize, isize) {
         (1, 1)
@@ -36,9 +40,21 @@ impl ComponentUIExt for LabelDef {
         (0., 0.)
     }
 
-    fn local_pins(&self) -> Vec<(isize, isize)> { vec![(0, 0)] }
-    fn draw_modal(&mut self, _app: &mut CircuitApp, _ui: &mut egui::Ui) -> bool { false }
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn local_pins(&self) -> Vec<(isize, isize)> {
+        vec![(0, 0)]
+    }
+    fn draw_modal(&mut self, _app: &mut CircuitApp, _ui: &mut egui::Ui) -> bool {
+        false
+    }
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let w = 0.6;
         let h = -0.5;
 
@@ -75,4 +91,3 @@ impl ComponentUIExt for LabelDef {
         engine.draw_text_at_anchor(name, label_anchor, false, Color32::WHITE);
     }
 }
-

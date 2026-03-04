@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
+use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::mna::{get_voltage_diff, stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
-use std::collections::HashMap;
 use num_traits::cast;
-use crate::circuit::Circuit;
-use crate::descriptor::Instantiable;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CapacitorDef {
@@ -131,13 +131,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
 
         let g = self.conductance;
 
-        stamp_conductance(
-            matrix,
-            self.cached_idx_a,
-            self.cached_idx_b,
-            g,
-            0,
-        );
+        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_b, g, 0);
     }
 
     fn stamp_dynamic(

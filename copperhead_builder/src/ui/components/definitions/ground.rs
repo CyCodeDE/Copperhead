@@ -16,20 +16,36 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use egui::{Color32, Painter, Pos2, Stroke, Vec2};
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::rotate_vec;
+use egui::{Color32, Painter, Pos2, Stroke, Vec2};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GroundDef;
 
 impl ComponentUIExt for GroundDef {
-    fn prefix(&self) -> &'static str { "" }
-    fn ui_name(&self) -> &'static str { "Ground" }
-    fn local_pins(&self) -> Vec<(isize, isize)> { vec![(0, 0)] }
-    fn draw_modal(&mut self, _app: &mut CircuitApp, _ui: &mut egui::Ui) -> bool { false }
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn prefix(&self) -> &'static str {
+        ""
+    }
+    fn ui_name(&self) -> &'static str {
+        "Ground"
+    }
+    fn local_pins(&self) -> Vec<(isize, isize)> {
+        vec![(0, 0)]
+    }
+    fn draw_modal(&mut self, _app: &mut CircuitApp, _ui: &mut egui::Ui) -> bool {
+        false
+    }
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let stroke = Stroke::new(2.0, stroke_color);
 
         let l1_start = center + rotate_vec(Vec2::new(-0.4, 0.0) * zoom, rotation);
@@ -47,4 +63,3 @@ impl ComponentUIExt for GroundDef {
         painter.line_segment([l3_start, l3_end], stroke);
     }
 }
-

@@ -16,14 +16,14 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::components::{Component, ComponentLinearity, ComponentProbe};
-use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use faer::{ColMut, ColRef, MatMut};
-use std::collections::HashMap;
-use num_traits::cast;
 use crate::circuit::Circuit;
+use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
+use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::util::mna::{stamp_conductance, stamp_current_source};
+use faer::{ColMut, ColRef, MatMut};
+use num_traits::cast;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InductorDef {
@@ -65,7 +65,7 @@ pub struct Inductor<T> {
     /// Inductor current at t[n-1]
     i_l_m1: T,
     /// Inductor current at t[n-2]
-    i_l_m2: T
+    i_l_m2: T,
 }
 
 impl<T: CircuitScalar> Inductor<T> {
@@ -156,13 +156,7 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
             self.conductance
         };
 
-        stamp_conductance(
-            matrix,
-            self.cached_idx_a,
-            self.cached_idx_b,
-            g,
-            0
-        );
+        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_b, g, 0);
     }
 
     fn stamp_dynamic(

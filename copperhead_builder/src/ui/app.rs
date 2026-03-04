@@ -18,9 +18,12 @@
  */
 
 use crate::simulation::run_simulation_loop;
+use crate::ui::SchematicElement;
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::netlist::compile_netlist;
-use crate::ui::{CircuitMetadata, GridPos, Netlist, NetlistEntry, Schematic, SimCommand, SimState, VisualWire};
+use crate::ui::{
+    CircuitMetadata, GridPos, Netlist, NetlistEntry, Schematic, SimCommand, SimState, VisualWire,
+};
 use copperhead_core::model::{NodeId, SimBatchData};
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use egui::style::{Selection, WidgetVisuals, Widgets};
@@ -28,7 +31,6 @@ use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use crate::ui::SchematicElement;
 
 pub struct AppTheme {
     pub background: Color32,

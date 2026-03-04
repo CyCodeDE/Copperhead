@@ -16,8 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use std::path::PathBuf;
-use egui::Key;
+use crate::ui::components::definitions::SchematicElement;
+use crate::ui::components::definitions::ground::GroundDef;
+use crate::ui::components::definitions::label::LabelDef;
 use copperhead_core::components::audio_probe::AudioProbeDef;
 use copperhead_core::components::capacitor::CapacitorDef;
 use copperhead_core::components::diode::{DiodeDef, DiodeModel};
@@ -28,9 +29,8 @@ use copperhead_core::components::transistor::bjt::{BjtDef, BjtModel};
 use copperhead_core::components::triode::{TriodeDef, TriodeModel};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
 use copperhead_core::descriptor::ComponentDef;
-use crate::ui::components::definitions::ground::GroundDef;
-use crate::ui::components::definitions::label::LabelDef;
-use crate::ui::components::definitions::SchematicElement;
+use egui::Key;
+use std::path::PathBuf;
 
 pub struct PaletteItem {
     pub label: &'static str,
@@ -46,67 +46,97 @@ impl PaletteItem {
                 label: "Resistor",
                 shortcut_key: Some(Key::R),
                 shortcut_name: "R",
-                element: SchematicElement::Core(ComponentDef::Resistor(ResistorDef { resistance: 1000. })),
+                element: SchematicElement::Core(ComponentDef::Resistor(ResistorDef {
+                    resistance: 1000.,
+                })),
             },
             PaletteItem {
                 label: "Capacitor",
                 shortcut_key: Some(Key::C),
                 shortcut_name: "C",
-                element: SchematicElement::Core(ComponentDef::Capacitor(CapacitorDef { capacitance: 1e-6, esr: 0. })),
+                element: SchematicElement::Core(ComponentDef::Capacitor(CapacitorDef {
+                    capacitance: 1e-6,
+                    esr: 0.,
+                })),
             },
             PaletteItem {
                 label: "Inductor",
                 shortcut_key: Some(Key::L),
                 shortcut_name: "L",
-                element: SchematicElement::Core(ComponentDef::Inductor(InductorDef { inductance: 1e-3, series_resistance: 0. })),
+                element: SchematicElement::Core(ComponentDef::Inductor(InductorDef {
+                    inductance: 1e-3,
+                    series_resistance: 0.,
+                })),
             },
             PaletteItem {
                 label: "Diode",
                 shortcut_key: Some(Key::D),
                 shortcut_name: "D",
-                element: SchematicElement::Core(ComponentDef::Diode(DiodeDef { model: DiodeModel::_1N4148 })),
+                element: SchematicElement::Core(ComponentDef::Diode(DiodeDef {
+                    model: DiodeModel::_1N4148,
+                })),
             },
             PaletteItem {
                 label: "Bjt",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::Bjt(BjtDef { model: BjtModel::GenericNPN })),
+                element: SchematicElement::Core(ComponentDef::Bjt(BjtDef {
+                    model: BjtModel::GenericNPN,
+                })),
             },
             PaletteItem {
                 label: "Triode",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::Triode(TriodeDef { model: TriodeModel::_12AX7 })),
+                element: SchematicElement::Core(ComponentDef::Triode(TriodeDef {
+                    model: TriodeModel::_12AX7,
+                })),
             },
             PaletteItem {
                 label: "Pentode",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::Pentode(PentodeDef { model: PentodeModel::_6L6GC })),
+                element: SchematicElement::Core(ComponentDef::Pentode(PentodeDef {
+                    model: PentodeModel::_6L6GC,
+                })),
             },
             PaletteItem {
                 label: "DC Source",
                 shortcut_key: Some(Key::Y),
                 shortcut_name: "Y",
-                element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef { source_type: VoltageSourceType::DC { voltage: 5. }})),
+                element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef {
+                    source_type: VoltageSourceType::DC { voltage: 5. },
+                })),
             },
             PaletteItem {
                 label: "AC Source",
                 shortcut_key: Some(Key::A),
                 shortcut_name: "A",
-                element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef { source_type: VoltageSourceType::AC { amplitude: 5., frequency: 60., phase: 0. }})),
+                element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef {
+                    source_type: VoltageSourceType::AC {
+                        amplitude: 5.,
+                        frequency: 60.,
+                        phase: 0.,
+                    },
+                })),
             },
             PaletteItem {
                 label: "Audio Source",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef { source_type: VoltageSourceType::AudioBuffer { file_path: PathBuf::new() }})),
+                element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef {
+                    source_type: VoltageSourceType::AudioBuffer {
+                        file_path: PathBuf::new(),
+                    },
+                })),
             },
             PaletteItem {
                 label: "Audio Probe",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::AudioProbe(AudioProbeDef { file_path: PathBuf::new() })),
+                element: SchematicElement::Core(ComponentDef::AudioProbe(AudioProbeDef {
+                    file_path: PathBuf::new(),
+                })),
             },
             PaletteItem {
                 label: "Ground",

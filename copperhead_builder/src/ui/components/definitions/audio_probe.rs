@@ -16,13 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use eframe::emath::Pos2;
-use eframe::epaint::Color32;
-use egui::{Align2, Painter, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
-use copperhead_core::components::audio_probe::AudioProbeDef;
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
+use copperhead_core::components::audio_probe::AudioProbeDef;
+use eframe::emath::Pos2;
+use eframe::epaint::Color32;
+use egui::{Align2, Painter, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 impl ComponentUIExt for AudioProbeDef {
     fn prefix(&self) -> &'static str {
@@ -57,8 +57,7 @@ impl ComponentUIExt for AudioProbeDef {
             Sense::click(),
         );
         let is_hovered = response.hovered();
-        let has_dragged_files =
-            !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
+        let has_dragged_files = !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
         let is_dragged_over = is_hovered && has_dragged_files;
 
         let visuals = ui.style().interact(&response);
@@ -68,17 +67,15 @@ impl ComponentUIExt for AudioProbeDef {
             visuals.bg_fill // Normal button color
         };
 
-        ui.painter().rect(
-            rect,
-            6.0,
-            fill_color,
-            visuals.bg_stroke,
-            StrokeKind::Inside,
-        );
+        ui.painter()
+            .rect(rect, 6.0, fill_color, visuals.bg_stroke, StrokeKind::Inside);
         let display_text = if !self.file_path.is_empty() {
             format!(
                 "🎵 {}",
-                self.file_path.file_name().unwrap_or_default().to_string_lossy()
+                self.file_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
             )
         } else {
             "Select File".to_string()
@@ -92,9 +89,7 @@ impl ComponentUIExt for AudioProbeDef {
             visuals.text_color(),
         );
 
-        if response.clicked()
-            && app.file_dialog_state == FileDialogState::Closed
-        {
+        if response.clicked() && app.file_dialog_state == FileDialogState::Closed {
             app.file_dialog_state = FileDialogState::SaveAudio;
             let tx = app.file_sender.clone();
             let ctx_clone = ui.ctx().clone();
@@ -119,11 +114,19 @@ impl ComponentUIExt for AudioProbeDef {
                 }
             }
         });
-        
+
         false
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let stroke = Stroke::new(2.0, stroke_color);
 
         let radius = 0.4;
@@ -147,7 +150,14 @@ impl ComponentUIExt for AudioProbeDef {
         let shifted_rotation = (rotation + 1) % 4;
         let shifted_offset = rotate_vec(Vec2::new(0.0, -0.75), rotation);
 
-        let engine = LabelEngine::new(painter, center, shifted_rotation, zoom, self.size(), (shifted_offset.x, shifted_offset.y));
+        let engine = LabelEngine::new(
+            painter,
+            center,
+            shifted_rotation,
+            zoom,
+            self.size(),
+            (shifted_offset.x, shifted_offset.y),
+        );
 
         let anchor = match rotation {
             0 => Anchor::Top,
@@ -157,6 +167,14 @@ impl ComponentUIExt for AudioProbeDef {
             _ => Anchor::Top,
         };
 
-        engine.draw_stacked_labels(name, self.file_path.file_name().unwrap_or_default().to_string_lossy().as_ref(), anchor);
+        engine.draw_stacked_labels(
+            name,
+            self.file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .as_ref(),
+            anchor,
+        );
     }
 }

@@ -17,23 +17,23 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::ui::ComponentDef;
+use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ground::GroundDef;
 use crate::ui::components::definitions::label::LabelDef;
-use crate::ui::{ComponentDef};
 use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2};
-use crate::ui::app::CircuitApp;
 
-pub mod resistor;
 pub mod audio_probe;
-pub mod ground;
-pub mod label;
-pub mod capacitor;
-pub mod inductor;
-pub mod diode;
-pub mod voltage_source;
 pub mod bjt;
-pub mod triode;
+pub mod capacitor;
+pub mod diode;
+pub mod ground;
+pub mod inductor;
+pub mod label;
 pub mod pentode;
+pub mod resistor;
+pub mod triode;
+pub mod voltage_source;
 
 pub trait ComponentUIExt {
     /// E.g., "R" for Resistor, "C" for Capacitor
@@ -50,12 +50,7 @@ pub trait ComponentUIExt {
         let (min_x, max_x, min_y, max_y) = pins.iter().fold(
             (isize::MAX, isize::MIN, isize::MAX, isize::MIN),
             |(min_x, max_x, min_y, max_y), &(x, y)| {
-                (
-                    min_x.min(x),
-                    max_x.max(x),
-                    min_y.min(y),
-                    max_y.max(y)
-                )
+                (min_x.min(x), max_x.max(x), min_y.min(y), max_y.max(y))
             },
         );
 
@@ -80,7 +75,15 @@ pub trait ComponentUIExt {
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool;
 
     /// Draws the component on the schematic grid.
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let (base_w, base_h) = (2.0, 1.0);
 
         let (w, h) = if rotation % 2 == 1 {
@@ -238,11 +241,23 @@ impl ComponentUIExt for SchematicElement {
         }
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         match self {
             Self::Core(c) => c.draw_icon(painter, center, rotation, zoom, fill_color, stroke_color),
-            Self::Ground(g) => g.draw_icon(painter, center, rotation, zoom, fill_color, stroke_color),
-            Self::Label(l) => l.draw_icon(painter, center, rotation, zoom, fill_color, stroke_color),
+            Self::Ground(g) => {
+                g.draw_icon(painter, center, rotation, zoom, fill_color, stroke_color)
+            }
+            Self::Label(l) => {
+                l.draw_icon(painter, center, rotation, zoom, fill_color, stroke_color)
+            }
         }
     }
 
@@ -261,14 +276,12 @@ impl SchematicElement {
             // Special case: Differentiate VoltageSource types (AC vs DC vs AudioSource)
             (
                 SchematicElement::Core(ComponentDef::VoltageSource(v1)),
-                SchematicElement::Core(ComponentDef::VoltageSource(v2))
-            ) => {
-                std::mem::discriminant(&v1.source_type) == std::mem::discriminant(&v2.source_type)
-            },
+                SchematicElement::Core(ComponentDef::VoltageSource(v2)),
+            ) => std::mem::discriminant(&v1.source_type) == std::mem::discriminant(&v2.source_type),
             // General case: Compare Core components
             (SchematicElement::Core(c1), SchematicElement::Core(c2)) => {
                 std::mem::discriminant(c1) == std::mem::discriminant(c2)
-            },
+            }
             // Fallback for Ground, Label, etc.
             (a, b) => std::mem::discriminant(a) == std::mem::discriminant(b),
         }

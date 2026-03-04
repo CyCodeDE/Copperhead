@@ -17,22 +17,9 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::circuit::NodePartition;
-use crate::components::audio_probe::AudioProbe;
-use crate::components::capacitor::Capacitor;
-use crate::components::diode::Diode;
-use crate::components::inductor::Inductor;
-use crate::components::resistor::Resistor;
-use crate::components::transistor::bjt::Bjt;
-use crate::components::triode::Triode;
-use crate::components::voltage_source::VoltageSource;
-use egui::{Pos2, Vec2};
 use faer::traits::ComplexField;
-use faer::{ColMut, ColRef, MatMut};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::ops::{Add, Sub};
 
 /// The numerical trait.
 /// For inference: T = f32

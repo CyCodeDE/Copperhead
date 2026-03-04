@@ -19,7 +19,7 @@
 
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, LabelEngine};
+use crate::ui::drawing::{LabelEngine, rotate_vec};
 use crate::ui::util::{format_si, format_si_single, parse_si};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
 use egui::{Color32, Painter, Pos2, Sense, Stroke, StrokeKind, Ui, Vec2};
@@ -59,14 +59,16 @@ impl ComponentUIExt for VoltageSourceDef {
                             .speed(0.1)
                             .range(-f64::INFINITY..=f64::INFINITY)
                             .suffix("V")
-                            .custom_formatter(|val, _range| {
-                                format_si_single(val, 3)
-                            })
+                            .custom_formatter(|val, _range| format_si_single(val, 3))
                             .custom_parser(|text| parse_si(text)),
                     );
                 });
             }
-            VoltageSourceType::AC { mut amplitude, mut frequency, mut phase } => {
+            VoltageSourceType::AC {
+                mut amplitude,
+                mut frequency,
+                mut phase,
+            } => {
                 ui.horizontal(|ui| {
                     ui.label("Voltage:");
                     ui.add(
@@ -74,9 +76,7 @@ impl ComponentUIExt for VoltageSourceDef {
                             .speed(0.1)
                             .range(-f64::INFINITY..=f64::INFINITY)
                             .suffix("V")
-                            .custom_formatter(|val, _range| {
-                                format_si_single(val, 3)
-                            })
+                            .custom_formatter(|val, _range| format_si_single(val, 3))
                             .custom_parser(|text| parse_si(text)),
                     );
                 });
@@ -87,9 +87,7 @@ impl ComponentUIExt for VoltageSourceDef {
                             .speed(1.0)
                             .range(0.0..=f64::INFINITY)
                             .suffix("Hz")
-                            .custom_formatter(|val, _range| {
-                                format_si_single(val, 3)
-                            })
+                            .custom_formatter(|val, _range| format_si_single(val, 3))
                             .custom_parser(|text| parse_si(text)),
                     );
                 });
@@ -100,9 +98,7 @@ impl ComponentUIExt for VoltageSourceDef {
                             .speed(1.0)
                             .range(0.0..=360.0)
                             .suffix("°")
-                            .custom_formatter(|val, _range| {
-                                format_si_single(val, 3)
-                            })
+                            .custom_formatter(|val, _range| format_si_single(val, 3))
                             .custom_parser(|text| parse_si(text)),
                     );
                 });
@@ -119,8 +115,7 @@ impl ComponentUIExt for VoltageSourceDef {
                     Sense::click(),
                 );
                 let is_hovered = response.hovered();
-                let has_dragged_files =
-                    !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
+                let has_dragged_files = !ui.ctx().input(|i| i.raw.hovered_files.clone()).is_empty();
                 let is_dragged_over = is_hovered && has_dragged_files;
 
                 let visuals = ui.style().interact(&response);
@@ -130,13 +125,8 @@ impl ComponentUIExt for VoltageSourceDef {
                     visuals.bg_fill
                 };
 
-                ui.painter().rect(
-                    rect,
-                    6.0,
-                    fill_color,
-                    visuals.bg_stroke,
-                    StrokeKind::Inside,
-                );
+                ui.painter()
+                    .rect(rect, 6.0, fill_color, visuals.bg_stroke, StrokeKind::Inside);
                 let display_text = if !file_path.is_empty() {
                     format!(
                         "🎵 {}",
@@ -154,9 +144,7 @@ impl ComponentUIExt for VoltageSourceDef {
                     visuals.text_color(),
                 );
 
-                if response.clicked()
-                    && app.file_dialog_state == FileDialogState::Closed
-                {
+                if response.clicked() && app.file_dialog_state == FileDialogState::Closed {
                     app.file_dialog_state = FileDialogState::LoadAudio;
                     let tx = app.file_sender.clone();
                     let ctx_clone = ui.ctx().clone();
@@ -186,11 +174,25 @@ impl ComponentUIExt for VoltageSourceDef {
         false
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         match self.source_type {
-            VoltageSourceType::DC { .. } => draw_dc_source(painter, center, rotation, zoom, fill_color, stroke_color),
-            VoltageSourceType::AC { .. } => draw_ac_source(painter, center, rotation, zoom, fill_color, stroke_color),
-            VoltageSourceType::AudioBuffer { .. } => draw_audio_source(painter, center, rotation, zoom, fill_color, stroke_color),
+            VoltageSourceType::DC { .. } => {
+                draw_dc_source(painter, center, rotation, zoom, fill_color, stroke_color)
+            }
+            VoltageSourceType::AC { .. } => {
+                draw_ac_source(painter, center, rotation, zoom, fill_color, stroke_color)
+            }
+            VoltageSourceType::AudioBuffer { .. } => {
+                draw_audio_source(painter, center, rotation, zoom, fill_color, stroke_color)
+            }
         }
     }
 
@@ -199,15 +201,26 @@ impl ComponentUIExt for VoltageSourceDef {
         let shifted_size = (self.size().1, self.size().0);
 
         // We lie to the engine about the rotation just for the layout logic
-        let engine = LabelEngine::new(painter, center, shifted_rotation, zoom, shifted_size, self.offset());
+        let engine = LabelEngine::new(
+            painter,
+            center,
+            shifted_rotation,
+            zoom,
+            shifted_size,
+            self.offset(),
+        );
 
         let value = match &self.source_type {
             VoltageSourceType::DC { voltage } => format_si(&[(*voltage, "V")], 0.1, 2),
-            VoltageSourceType::AC { frequency, amplitude, phase } => format_si(&[
-                (*amplitude, "V"),
-                (*frequency, "Hz"),
-                (*phase, "°"),
-            ], 0.1, 2),
+            VoltageSourceType::AC {
+                frequency,
+                amplitude,
+                phase,
+            } => format_si(
+                &[(*amplitude, "V"), (*frequency, "Hz"), (*phase, "°")],
+                0.1,
+                2,
+            ),
             VoltageSourceType::AudioBuffer { file_path } => {
                 if let Some(file_name) = file_path.file_name() {
                     if let Some(file_str) = file_name.to_str() {
@@ -218,14 +231,11 @@ impl ComponentUIExt for VoltageSourceDef {
                 } else {
                     String::new()
                 }
-            },
+            }
         };
-
 
         engine.draw_axial_labels(name, &value);
     }
-
-
 }
 
 fn draw_dc_source(
@@ -297,9 +307,9 @@ fn draw_ac_source(
 
     let c1 = center
         + rotate_vec(
-        Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom,
-        rotation,
-    );
+            Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom,
+            rotation,
+        );
     let c2 = center + rotate_vec(Vec2::new(wave_width / 2.0, wave_amp * 2.0) * zoom, rotation);
 
     let bezier = egui::epaint::CubicBezierShape::from_points_stroke(

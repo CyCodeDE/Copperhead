@@ -18,7 +18,7 @@
  */
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, LabelEngine};
+use crate::ui::drawing::{LabelEngine, rotate_vec};
 use crate::ui::util::{format_si_single, parse_si};
 use copperhead_core::components::resistor::ResistorDef;
 use egui::{Color32, Painter, Pos2, Shape, Stroke, Ui, Vec2};
@@ -52,17 +52,23 @@ impl ComponentUIExt for ResistorDef {
                     .speed(10.0)
                     .range(0.0..=f64::INFINITY)
                     .suffix("Ω")
-                    .custom_formatter(|val, _range| {
-                        format_si_single(val, 3)
-                    })
+                    .custom_formatter(|val, _range| format_si_single(val, 3))
                     .custom_parser(|text| parse_si(text)),
             );
         });
-        
+
         false
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let half_w = 1.0;
         let half_h = 0.5;
 

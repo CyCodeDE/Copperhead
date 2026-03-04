@@ -21,6 +21,7 @@ use crate::components::audio_probe::AudioProbe;
 use crate::components::capacitor::Capacitor;
 use crate::components::diode::Diode;
 use crate::components::inductor::Inductor;
+use crate::components::pentode::Pentode;
 use crate::components::resistor::Resistor;
 use crate::components::transistor::bjt::Bjt;
 use crate::components::triode::Triode;
@@ -28,17 +29,16 @@ use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
-use crate::components::pentode::Pentode;
 
 pub mod audio_probe;
 pub mod capacitor;
 pub mod diode;
 pub mod inductor;
+pub mod pentode;
 pub mod resistor;
 pub mod transistor;
 pub mod triode;
 pub mod voltage_source;
-pub mod pentode;
 
 pub trait InsertIntoSoA<T: CircuitScalar> {
     fn insert_into(self, components: &mut CircuitComponents<T>) -> ComponentId;

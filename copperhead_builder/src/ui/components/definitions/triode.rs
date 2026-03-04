@@ -19,8 +19,7 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
-use crate::ui::util::{format_si_single, parse_si};
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::triode::{TriodeDef, TriodeModel};
 use egui::{Color32, ComboBox, Painter, Pos2, Stroke, Ui, Vec2};
 
@@ -62,7 +61,15 @@ impl ComponentUIExt for TriodeDef {
         false
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let stroke = Stroke::new(2.0, stroke_color);
 
         // Draw the Glass Envelope (Circle)
@@ -130,7 +137,8 @@ impl ComponentUIExt for TriodeDef {
         let num_dashes = 3;
         let total_grid_width = 0.7;
         let gap_width = 0.06;
-        let dash_width = (total_grid_width - (gap_width * (num_dashes - 1) as f32)) / num_dashes as f32;
+        let dash_width =
+            (total_grid_width - (gap_width * (num_dashes - 1) as f32)) / num_dashes as f32;
 
         let mut current_x = -total_grid_width / 2.;
 

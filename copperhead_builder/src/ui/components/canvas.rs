@@ -18,12 +18,12 @@
  */
 
 use crate::ui::app::{CircuitApp, Tool};
+use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::components::modals::handle_properties;
-use crate::ui::drawing::{draw_component};
+use crate::ui::drawing::draw_component;
 use crate::ui::lerp_color;
 use egui::Context;
 use egui::{Color32, CornerRadius, Frame, Margin, Sense, Stroke};
-use crate::ui::components::definitions::ComponentUIExt;
 
 pub fn show(app: &mut CircuitApp, ctx: &Context) {
     let running = app.sim_state.running;
@@ -172,7 +172,6 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                         &comp.name,
                     );
                 }
-
 
                 // Tool Interaction & Ghost Drawing
                 if let Some(mouse_pos) = response.hover_pos() {

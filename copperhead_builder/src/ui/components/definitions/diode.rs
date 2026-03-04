@@ -19,10 +19,9 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, LabelEngine};
-use crate::ui::util::{format_si_single, parse_si};
-use egui::{Color32, ComboBox, Painter, Pos2, Shape, Stroke, Ui, Vec2};
+use crate::ui::drawing::{LabelEngine, rotate_vec};
 use copperhead_core::components::diode::{DiodeDef, DiodeModel};
+use egui::{Color32, ComboBox, Painter, Pos2, Shape, Stroke, Ui, Vec2};
 
 impl ComponentUIExt for DiodeDef {
     fn prefix(&self) -> &'static str {
@@ -62,7 +61,15 @@ impl ComponentUIExt for DiodeDef {
         false
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let stroke = Stroke::new(2.0, stroke_color);
 
         let half_len = 0.5;

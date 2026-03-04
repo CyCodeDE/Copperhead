@@ -19,10 +19,10 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, LabelEngine};
+use crate::ui::drawing::{LabelEngine, rotate_vec};
 use crate::ui::util::{format_si_single, parse_si};
 use copperhead_core::components::capacitor::CapacitorDef;
-use egui::{Color32, Painter, Pos2, Shape, Stroke, Ui, Vec2};
+use egui::{Color32, Painter, Pos2, Stroke, Ui, Vec2};
 
 impl ComponentUIExt for CapacitorDef {
     fn prefix(&self) -> &'static str {
@@ -53,9 +53,7 @@ impl ComponentUIExt for CapacitorDef {
                     .suffix("F")
                     .speed(1e-7)
                     .range(0.0..=f64::INFINITY)
-                    .custom_formatter(|val, _range| {
-                        format_si_single(val, 3)
-                    })
+                    .custom_formatter(|val, _range| format_si_single(val, 3))
                     .custom_parser(|text| parse_si(text)),
             );
         });
@@ -66,9 +64,7 @@ impl ComponentUIExt for CapacitorDef {
                     .suffix("Ω")
                     .speed(1e-4)
                     .range(0.0..=f64::INFINITY)
-                    .custom_formatter(|val, _range| {
-                        format_si_single(val, 3)
-                    })
+                    .custom_formatter(|val, _range| format_si_single(val, 3))
                     .custom_parser(|text| parse_si(text)),
             );
         });
@@ -76,7 +72,15 @@ impl ComponentUIExt for CapacitorDef {
         false
     }
 
-    fn draw_icon(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, fill_color: Color32, stroke_color: Color32) {
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
         let plate_gap = 0.15; // Distance from center to plate
         let plate_height = 0.8; // Total height of the plate
         let stroke = Stroke::new(2.0, stroke_color);
