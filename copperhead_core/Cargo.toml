@@ -1,15 +1,13 @@
 [package]
 name = "copperhead_core"
-version = "0.1.0"
 edition = "2024"
+version = "0.2.0"
 license = "GPL-3.0-or-later"
 
 [lib]
 
 [dependencies]
 faer = "0.24.0"
-egui = "0.33.3"
-serde = { version = "1.0.228", features = ["derive"] }
 hound = "3.5.1"
 num-traits = "0.2.19"
 log = "0.4.29"
