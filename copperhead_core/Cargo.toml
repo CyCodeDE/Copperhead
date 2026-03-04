@@ -22,6 +22,7 @@ tracing-subscriber = { version = "0.3.22", optional = true }
 
 tracing-tracy = { version = "0.11.4", optional = true }
 tracy-client = { version = "0.18.4", optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
 
 [features]
 default = []
