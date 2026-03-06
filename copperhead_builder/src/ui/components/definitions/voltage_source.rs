@@ -26,7 +26,7 @@ use egui::{Color32, Painter, Pos2, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 impl ComponentUIExt for VoltageSourceDef {
     fn prefix(&self) -> &'static str {
-        "R"
+        "V"
     }
 
     fn ui_name(&self) -> &'static str {
@@ -50,12 +50,12 @@ impl ComponentUIExt for VoltageSourceDef {
     }
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
-        match *&mut self.source_type {
-            VoltageSourceType::DC { mut voltage } => {
+        match self.source_type {
+            VoltageSourceType::DC { ref mut voltage } => {
                 ui.horizontal(|ui| {
                     ui.label("Voltage:");
                     ui.add(
-                        egui::DragValue::new(&mut voltage)
+                        egui::DragValue::new(voltage)
                             .speed(0.1)
                             .range(-f64::INFINITY..=f64::INFINITY)
                             .suffix("V")
@@ -65,14 +65,14 @@ impl ComponentUIExt for VoltageSourceDef {
                 });
             }
             VoltageSourceType::AC {
-                mut amplitude,
-                mut frequency,
-                mut phase,
+                ref mut amplitude,
+                ref mut frequency,
+                ref mut phase,
             } => {
                 ui.horizontal(|ui| {
                     ui.label("Voltage:");
                     ui.add(
-                        egui::DragValue::new(&mut amplitude)
+                        egui::DragValue::new(amplitude)
                             .speed(0.1)
                             .range(-f64::INFINITY..=f64::INFINITY)
                             .suffix("V")
@@ -83,7 +83,7 @@ impl ComponentUIExt for VoltageSourceDef {
                 ui.horizontal(|ui| {
                     ui.label("Frequency:");
                     ui.add(
-                        egui::DragValue::new(&mut frequency)
+                        egui::DragValue::new(frequency)
                             .speed(1.0)
                             .range(0.0..=f64::INFINITY)
                             .suffix("Hz")
@@ -94,7 +94,7 @@ impl ComponentUIExt for VoltageSourceDef {
                 ui.horizontal(|ui| {
                     ui.label("Phase:");
                     ui.add(
-                        egui::DragValue::new(&mut phase)
+                        egui::DragValue::new(phase)
                             .speed(1.0)
                             .range(0.0..=360.0)
                             .suffix("°")

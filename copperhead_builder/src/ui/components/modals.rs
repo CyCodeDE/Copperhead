@@ -66,9 +66,7 @@ pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
                             }
                         });
 
-                        if !comp.element.draw_modal(app, ui) {
-                            ui.label("No editable properties for this component.");
-                        }
+                        comp.element.draw_modal(app, ui);
 
                         ui.separator();
 

@@ -16,6 +16,8 @@ petgraph = "0.8.3"
 symphonia = "0.5.5"
 rubato = "1.0.1"
 audioadapter-buffers = "2.0.0"
+strum = "0.28.0"
+strum_macros = "0.28.0"
 
 tracing = { version = "0.1.44", optional = true }
 tracing-subscriber = { version = "0.3.22", optional = true }

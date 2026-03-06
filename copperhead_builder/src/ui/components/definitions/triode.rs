@@ -17,10 +17,11 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
+use strum::IntoEnumIterator;
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
-use copperhead_core::components::triode::{TriodeDef, TriodeModel};
+use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
 use egui::{Color32, ComboBox, Painter, Pos2, Stroke, Ui, Vec2};
 
 impl ComponentUIExt for TriodeDef {
@@ -45,18 +46,31 @@ impl ComponentUIExt for TriodeDef {
     }
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
-        ui.horizontal(|ui| {
-            ui.label("Model:");
-            ComboBox::from_id_salt("triode_combo")
-                .selected_text(self.model.format_name())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.model,
-                        TriodeModel::_12AX7,
-                        TriodeModel::_12AX7.format_name(),
-                    );
-                });
-        });
+        ComboBox::from_label("Triode Type")
+            .selected_text(self.triode_type.format_name())
+            .show_ui(ui, |ui| {
+                for t in TriodeType::iter() {
+                    ui.selectable_value(&mut self.triode_type, t, t.format_name());
+                }
+            });
+
+        let valid_fidelities = self.triode_type.available_fidelities();
+
+        // If the newly selected tube does not support the current fidelity setting,
+        // force a fallback to the first available supported fidelity.
+        if !valid_fidelities.contains(&self.fidelity) {
+            if let Some(fallback) = valid_fidelities.first() {
+                self.fidelity = fallback.clone();
+            }
+        }
+
+        ComboBox::from_label("Fidelity")
+            .selected_text(format!("{:?}", self.fidelity))
+            .show_ui(ui, |ui| {
+                for f in valid_fidelities {
+                    ui.selectable_value(&mut self.fidelity, f.clone(), format!("{:?}", f));
+                }
+            });
 
         false
     }
@@ -169,7 +183,7 @@ impl ComponentUIExt for TriodeDef {
             _ => Anchor::Right,
         };
 
-        engine.draw_stacked_labels(name, self.model.format_name(), label_anchor);
+        engine.draw_stacked_labels(name, self.triode_type.format_name(), label_anchor);
 
         engine.draw_pin_marker(Vec2::new(0.3, -1.0), "P");
         engine.draw_pin_marker(Vec2::new(-1.0, -0.3), "G");

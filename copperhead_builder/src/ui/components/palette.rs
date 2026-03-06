@@ -26,7 +26,7 @@ use copperhead_core::components::inductor::InductorDef;
 use copperhead_core::components::pentode::{PentodeDef, PentodeModel};
 use copperhead_core::components::resistor::ResistorDef;
 use copperhead_core::components::transistor::bjt::{BjtDef, BjtModel};
-use copperhead_core::components::triode::{TriodeDef, TriodeModel};
+use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
 use copperhead_core::descriptor::ComponentDef;
 use egui::Key;
@@ -89,7 +89,8 @@ impl PaletteItem {
                 shortcut_key: None,
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::Triode(TriodeDef {
-                    model: TriodeModel::_12AX7,
+                    fidelity: TriodeFidelity::Precision,
+                    triode_type: TriodeType::_12AX7
                 })),
             },
             PaletteItem {

@@ -420,7 +420,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         let voltage_diff = (v_d - v_d_input).abs();
         let v_converged = voltage_diff < (self.vt * T::from(0.01).unwrap());
         let i_converged = current_diff < (abs_tol + rel_tol * i_total_flowing.abs());
-
+        
         state.last_iter_current = i_total_flowing;
         state.is_converged = v_converged && i_converged;
 

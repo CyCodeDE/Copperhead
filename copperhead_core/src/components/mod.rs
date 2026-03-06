@@ -24,11 +24,12 @@ use crate::components::inductor::Inductor;
 use crate::components::pentode::Pentode;
 use crate::components::resistor::Resistor;
 use crate::components::transistor::bjt::Bjt;
-use crate::components::triode::Triode;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use crate::components::tube::triode::generic_triode::GenericTriode;
+use crate::components::tube::triode::physical_triode::PhysicalTriode;
 
 pub mod audio_probe;
 pub mod capacitor;
@@ -39,6 +40,7 @@ pub mod resistor;
 pub mod transistor;
 pub mod triode;
 pub mod voltage_source;
+pub mod tube;
 
 pub trait InsertIntoSoA<T: CircuitScalar> {
     fn insert_into(self, components: &mut CircuitComponents<T>) -> ComponentId;
@@ -340,8 +342,9 @@ define_circuit_components!(
     voltage_sources: VoltageSource,
     diodes: Diode,
     bjts: Bjt,
-    triodes: Triode,
+    generic_triodes: GenericTriode,
     pentodes: Pentode,
+    physical_triodes: PhysicalTriode,
     audio_probes: AudioProbe,
 );
 
