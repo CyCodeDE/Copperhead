@@ -21,7 +21,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
     *   Capacitors
     *   Diodes (currently the 1N4148 is the only preset available, more coming soon)
     *   Bipolar junction transistors
-    *   Triodes (currently the 12AX7 is the only preset available, more coming soon)
+    *   Triodes and Pentodes (based on the norman koren models)
     *   Voltage Sources (AC and DC)
     *   Net labels
 *   **GUI:** Immediate mode interface built with `egui`.
@@ -83,3 +83,4 @@ The ability to create and sell your own compiled schematics is completely unrest
 
 
 However, the pre-built schematics included in this repository are licensed under **CC BY-NC 4.0**. You may not sell or commercially distribute the built-in schematics without explicit written permission.
+
