@@ -122,8 +122,10 @@ impl CircuitApp {
         }
 
         // Handle Rotate (CTRL + R)
-        if ctx.input(|i| i.modifiers.command && i.key_pressed(Key::R)) {
-            self.current_rotation = (self.current_rotation + 1) % 4;
+        if matches!(self.selected_tool, Tool::PlaceComponent(_)) {
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(Key::R)) {
+                self.current_rotation = (self.current_rotation + 1) % 4;
+            }
         }
     }
 }
