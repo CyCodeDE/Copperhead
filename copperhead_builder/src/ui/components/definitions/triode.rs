@@ -56,7 +56,7 @@ impl ComponentUIExt for TriodeDef {
 
         let valid_fidelities = self.triode_type.available_fidelities();
 
-        // If the newly selected tube does not support the current fidelity setting,
+        // If the newly selected triode does not support the current fidelity setting,
         // force a fallback to the first available supported fidelity.
         if !valid_fidelities.contains(&self.fidelity) {
             if let Some(fallback) = valid_fidelities.first() {

@@ -16,13 +16,17 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 use crate::circuit::Circuit;
-use crate::components::tube::triode::physical_triode::{PhysicalTriode, PhysicalTriodeDef, PhysicalTriodeModel};
-use crate::components::tube::triode::generic_triode::{GenericTriode, GenericTriodeDef, GenericTriodeModel};
+use crate::components::triode::physical_triode::{PhysicalTriode, PhysicalTriodeDef, PhysicalTriodeModel};
+use crate::components::triode::generic_triode::{GenericTriode, GenericTriodeDef, GenericTriodeModel};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId};
+
+pub mod physical_triode;
+pub mod generic_triode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TriodeFidelity {
@@ -37,7 +41,7 @@ pub enum TriodeType {
 }
 
 impl TriodeType {
-    /// Allows to query which fidelities are available for a given tube
+    /// Allows to query which fidelities are available for a given triode
     /// to dynamically populate dropdowns or disable unsupported toggles.
     pub fn available_fidelities(&self) -> Vec<TriodeFidelity> {
         match self {
@@ -81,7 +85,7 @@ impl<T: CircuitScalar> Instantiable<T> for TriodeDef {
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
-            _ => panic!("Unsupported tube type and fidelity combination: {:?} with {:?}", self.triode_type, self.fidelity),
+            _ => panic!("Unsupported triode type and fidelity combination: {:?} with {:?}", self.triode_type, self.fidelity),
         }
     }
 }

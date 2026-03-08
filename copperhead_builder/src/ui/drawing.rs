@@ -341,7 +341,7 @@ impl<'a> LabelEngine<'a> {
         }
     }
 
-    /// Helper for rendering transistor/tube pin indicators (C, B, E, etc.)
+    /// Helper for rendering transistor/triode pin indicators (C, B, E, etc.)
     pub fn draw_pin_marker(&self, local_pin_pos: Vec2, label: &str) {
         // Rotate the local pin position according to the component's rotation
         let rotated_pin = self.rotate_vec(local_pin_pos) * self.zoom;
