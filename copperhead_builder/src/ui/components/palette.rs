@@ -90,7 +90,7 @@ impl PaletteItem {
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::Triode(TriodeDef {
                     fidelity: TriodeFidelity::Precision,
-                    triode_type: TriodeType::_12AX7
+                    triode_type: TriodeType::_12AX7,
                 })),
             },
             PaletteItem {

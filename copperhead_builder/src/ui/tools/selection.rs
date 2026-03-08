@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, DragState};
 use egui::{Color32, PointerButton, Pos2, Rect, Vec2};
-use crate::ui::GridPos;
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -54,7 +54,8 @@ pub fn handle(
     }
 
     if let Some(mouse_pos) = response.hover_pos() {
-        if let Some(netlist) = &app.active_netlist { // Only show if the simulation is or was running
+        if let Some(netlist) = &app.active_netlist {
+            // Only show if the simulation is or was running
             let mut hit_pin = None;
             let mut hit_body = None;
 

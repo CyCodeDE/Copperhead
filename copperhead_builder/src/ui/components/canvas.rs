@@ -205,11 +205,9 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                             );
                         }
 
-                        Tool::Move => {
-                            crate::ui::tools::movement::handle(
-                                app, ui, ctx, &response, &painter, mouse_pos,
-                            )
-                        }
+                        Tool::Move => crate::ui::tools::movement::handle(
+                            app, ui, ctx, &response, &painter, mouse_pos,
+                        ),
                         _ => {}
                     }
                 }

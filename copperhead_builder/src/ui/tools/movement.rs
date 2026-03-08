@@ -17,10 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::ui::app::{CircuitApp, DragState, Tool};
-use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2};
-use crate::ui::drawing::check_line_rect_intersection;
 use crate::ui::GridPos;
+use crate::ui::app::{CircuitApp, DragState, Tool};
+use crate::ui::drawing::check_line_rect_intersection;
+use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -40,9 +40,18 @@ pub fn handle(
     let mut next_drag_state = None;
 
     if right_clicked || escape_pressed {
-        if let DragState::Moving { components, wires, .. } = &current_drag_state {
+        if let DragState::Moving {
+            components, wires, ..
+        } = &current_drag_state
+        {
             for (id, orig_pos, orig_rot) in components {
-                if let Some(comp) = app.state.schematic.components.iter_mut().find(|c| c.id == *id) {
+                if let Some(comp) = app
+                    .state
+                    .schematic
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == *id)
+                {
                     comp.pos = *orig_pos;
                     comp.rotation = *orig_rot;
                 }
@@ -74,15 +83,15 @@ pub fn handle(
 
             if left_clicked && ctx.data(|d| d.get_temp::<Pos2>(move_id)).is_none() {
                 let click_tolerance = 5.0;
-                let selection_rect = Rect::from_center_size(mouse_pos, Vec2::splat(click_tolerance));
+                let selection_rect =
+                    Rect::from_center_size(mouse_pos, Vec2::splat(click_tolerance));
 
                 for comp in &app.state.schematic.components {
                     let comp_screen_pos = app.to_screen(comp.pos);
                     let size = Vec2::new(comp.size.0 as f32, comp.size.1 as f32) * app.zoom;
-                    let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
-                        comp.offset.0 * app.zoom,
-                        comp.offset.1 * app.zoom,
-                    ));
+                    let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(
+                        Vec2::new(comp.offset.0 * app.zoom, comp.offset.1 * app.zoom),
+                    );
 
                     if selection_rect.intersects(comp_rect) {
                         to_move_comps.push((comp.id, comp.pos, comp.rotation));
@@ -125,10 +134,9 @@ pub fn handle(
                     for comp in &app.state.schematic.components {
                         let comp_screen_pos = app.to_screen(comp.pos);
                         let size = Vec2::new(comp.size.0 as f32, comp.size.1 as f32) * app.zoom;
-                        let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
-                            comp.offset.0 * app.zoom,
-                            comp.offset.1 * app.zoom,
-                        ));
+                        let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(
+                            Vec2::new(comp.offset.0 * app.zoom, comp.offset.1 * app.zoom),
+                        );
 
                         if selection_rect.intersects(comp_rect) {
                             to_move_comps.push((comp.id, comp.pos, comp.rotation));
@@ -139,7 +147,11 @@ pub fn handle(
                         let p1 = app.to_screen(wire.start);
                         let p2 = app.to_screen(wire.end);
                         let wire_rect = Rect::from_two_pos(p1, p2);
-                        let hit_rect = wire_rect.expand(if selection_rect.width() < 5.0 { 5.0 } else { 0.0 });
+                        let hit_rect = wire_rect.expand(if selection_rect.width() < 5.0 {
+                            5.0
+                        } else {
+                            0.0
+                        });
 
                         // Note: Ensure check_line_rect_intersection is in scope
                         if selection_rect.intersects(hit_rect) {
@@ -154,8 +166,14 @@ pub fn handle(
             }
 
             if move_started {
-                let first_x = to_move_comps.first().map(|c| c.1.x).unwrap_or_else(|| to_move_wires.first().unwrap().1.start.x);
-                let first_y = to_move_comps.first().map(|c| c.1.y).unwrap_or_else(|| to_move_wires.first().unwrap().1.start.y);
+                let first_x = to_move_comps
+                    .first()
+                    .map(|c| c.1.x)
+                    .unwrap_or_else(|| to_move_wires.first().unwrap().1.start.x);
+                let first_y = to_move_comps
+                    .first()
+                    .map(|c| c.1.y)
+                    .unwrap_or_else(|| to_move_wires.first().unwrap().1.start.y);
 
                 let mut min_x = first_x;
                 let mut max_x = first_x;
@@ -163,10 +181,18 @@ pub fn handle(
                 let mut max_y = first_y;
 
                 let mut update_bounds = |x, y| {
-                    if x < min_x { min_x = x; }
-                    if x > max_x { max_x = x; }
-                    if y < min_y { min_y = y; }
-                    if y > max_y { max_y = y; }
+                    if x < min_x {
+                        min_x = x;
+                    }
+                    if x > max_x {
+                        max_x = x;
+                    }
+                    if y < min_y {
+                        min_y = y;
+                    }
+                    if y > max_y {
+                        max_y = y;
+                    }
                 };
 
                 for (_, pos, _) in &to_move_comps {
@@ -193,7 +219,12 @@ pub fn handle(
             }
         }
 
-        DragState::Moving { components, wires, reference_grid, rotation_steps } => {
+        DragState::Moving {
+            components,
+            wires,
+            reference_grid,
+            rotation_steps,
+        } => {
             ctx.set_cursor_icon(CursorIcon::Grabbing);
 
             if ctrl_r_pressed {
@@ -222,7 +253,13 @@ pub fn handle(
                 };
 
                 for (id, orig_pos, orig_rot) in components.iter() {
-                    if let Some(comp) = app.state.schematic.components.iter_mut().find(|c| c.id == *id) {
+                    if let Some(comp) = app
+                        .state
+                        .schematic
+                        .components
+                        .iter_mut()
+                        .find(|c| c.id == *id)
+                    {
                         let rotated_pos = rotate_point(*orig_pos, current_rot_steps);
                         comp.pos = GridPos {
                             x: rotated_pos.x + delta_x,

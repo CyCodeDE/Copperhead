@@ -17,12 +17,12 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use strum::IntoEnumIterator;
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
 use egui::{Color32, ComboBox, Painter, Pos2, Stroke, Ui, Vec2};
+use strum::IntoEnumIterator;
 
 impl ComponentUIExt for TriodeDef {
     fn prefix(&self) -> &'static str {

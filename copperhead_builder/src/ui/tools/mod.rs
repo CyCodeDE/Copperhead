@@ -17,7 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 pub mod erasing;
+pub mod movement;
 pub mod placement;
 pub mod selection;
 pub mod wiring;
-pub mod movement;

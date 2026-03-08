@@ -110,8 +110,8 @@ pub enum DragState {
         components: Vec<(usize, GridPos, u8)>,
         wires: Vec<(usize, VisualWire)>,
         reference_grid: GridPos,
-        rotation_steps: u8
-    }
+        rotation_steps: u8,
+    },
 }
 
 impl<T: Clone> UndoStack<T> {
