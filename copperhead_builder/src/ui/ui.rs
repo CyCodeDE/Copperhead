@@ -30,6 +30,7 @@ impl Tool {
             Tool::PlaceComponent(_) => "Place Component",
             Tool::PlaceWire(_) => "Wire",
             Tool::Erase => "Erase",
+            Tool::Move => "Move",
         }
     }
 }

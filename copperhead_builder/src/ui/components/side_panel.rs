@@ -64,6 +64,8 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                     app.selected_tool = Tool::Erase;
                 } else if ui.input(|i| i.key_pressed(Key::S)) {
                     app.selected_tool = Tool::Select;
+                } else if ui.input(|i| i.key_pressed(Key::M)) {
+                    app.selected_tool = Tool::Move;
                 }
 
                 for item in &palette {

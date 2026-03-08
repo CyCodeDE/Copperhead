@@ -118,7 +118,10 @@ impl CircuitApp {
 
         // Handle Escape to cancel tool
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            self.selected_tool = Tool::Select;
+            if !matches!(self.selected_tool, Tool::Move) {
+                // We handle the move tool in `[movement.rs](crate::ui::tools::movement)` separately
+                self.selected_tool = Tool::Select;
+            }
         }
 
         // Handle Rotate (CTRL + R)

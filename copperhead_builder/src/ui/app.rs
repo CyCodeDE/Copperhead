@@ -104,6 +104,16 @@ pub struct ProjectState {
     pub simulation_time: f64,
 }
 
+pub enum DragState {
+    None,
+    Moving {
+        components: Vec<(usize, GridPos, u8)>,
+        wires: Vec<(usize, VisualWire)>,
+        reference_grid: GridPos,
+        rotation_steps: u8
+    }
+}
+
 impl<T: Clone> UndoStack<T> {
     pub fn new(max_history: usize) -> Self {
         Self {
@@ -154,6 +164,7 @@ pub enum Tool {
     Select,
     PlaceComponent(SchematicElement),
     PlaceWire(Option<GridPos>), // Optionally stores the starting point. None means waiting for 1st click.
+    Move,
     Erase,
 }
 
@@ -191,6 +202,8 @@ pub struct CircuitApp {
     pub current_file: Option<PathBuf>,
     pub temp_audio_path: Option<PathBuf>,
     pub wire_color_cache: HashMap<NodeId, Color32>,
+
+    pub drag_state: DragState,
 }
 
 pub enum StateUpdate {
@@ -326,6 +339,8 @@ impl CircuitApp {
             current_file: None,
             temp_audio_path: None,
             wire_color_cache: HashMap::new(),
+
+            drag_state: DragState::None,
         }
     }
 

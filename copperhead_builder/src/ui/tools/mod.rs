@@ -20,3 +20,4 @@ pub mod erasing;
 pub mod placement;
 pub mod selection;
 pub mod wiring;
+pub mod movement;

@@ -60,7 +60,6 @@ pub fn format_si(values: &[(f64, &str)], threshold: f64, precision: usize) -> St
             scaled_val = rounded;
         }
 
-        // 6. Get Prefix
         let prefix = match degree {
             -5 => "f", // femto
             -4 => "p", // pico
@@ -120,7 +119,7 @@ pub fn parse_si(input: &str) -> Option<f64> {
 
     suffix_part = suffix_part.trim();
 
-    // Handle special "Meg" case (insensitive) for SPICE users
+    // Handle special "Meg" case for SPICE users
     if suffix_part.to_lowercase().starts_with("meg") {
         return Some(value * 1e6);
     }

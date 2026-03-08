@@ -16,8 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::ui::app::CircuitApp;
-use egui::{Color32, Pos2, Rect, Vec2};
+use crate::ui::app::{CircuitApp, DragState};
+use egui::{Color32, PointerButton, Pos2, Rect, Vec2};
+use crate::ui::GridPos;
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -27,6 +28,7 @@ pub fn handle(
     painter: &egui::Painter,
     mouse_pos: Pos2,
 ) {
+    // Handle Right-Click property modal
     if app.editing_component_id.is_none() && response.clicked_by(egui::PointerButton::Secondary) {
         let mut found_id = None;
 
@@ -52,7 +54,7 @@ pub fn handle(
     }
 
     if let Some(mouse_pos) = response.hover_pos() {
-        if let Some(netlist) = &app.active_netlist {
+        if let Some(netlist) = &app.active_netlist { // Only show if the simulation is or was running
             let mut hit_pin = None;
             let mut hit_body = None;
 

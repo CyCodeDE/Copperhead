@@ -40,7 +40,7 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                     sw: 0,
                     se: 0,
                 })
-                .stroke(Stroke::new(1.0, app.theme.panel_border)) // Subtle border
+                .stroke(Stroke::new(1.0, app.theme.panel_border))
                 .inner_margin(0.)
                 .outer_margin(Margin {
                     top: 10,
@@ -203,6 +203,12 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                             crate::ui::tools::erasing::handle(
                                 app, ui, ctx, &response, &painter, mouse_pos, grid_pos, snap_pos,
                             );
+                        }
+
+                        Tool::Move => {
+                            crate::ui::tools::movement::handle(
+                                app, ui, ctx, &response, &painter, mouse_pos,
+                            )
                         }
                         _ => {}
                     }
