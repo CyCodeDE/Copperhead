@@ -21,11 +21,13 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::mna::{get_voltage, stamp_conductance, stamp_current_source, stamp_transconductance};
+use crate::util::mna::{
+    get_voltage, stamp_conductance, stamp_current_source, stamp_transconductance,
+};
 use faer::{ColMut, ColRef, MatMut};
+use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PhysicalPentodeDef {
@@ -34,10 +36,30 @@ pub struct PhysicalPentodeDef {
 
 impl<T: CircuitScalar> Instantiable<T> for PhysicalPentodeDef {
     fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
-        let (v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, ig2t_k, ik3_k, ip_k, c_ga, c_gk, c_g1g2, c_pk) = self.model.parameters();
+        let (
+            v_ct,
+            m1_k,
+            m1_ex,
+            m2_k,
+            m2_mu,
+            m2_ex,
+            p_k,
+            p_mu,
+            ik_k,
+            ig_k,
+            ig2t_k,
+            ik3_k,
+            ip_k,
+            c_ga,
+            c_gk,
+            c_g1g2,
+            c_pk,
+        ) = self.model.parameters();
         let comp = PhysicalPentode::new(
-            nodes[0], nodes[2], nodes[1], nodes[3], // notice the order of g1 and g2 is swapped because I am too lazy to refactor the order
-            v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, ig2t_k, ik3_k, ip_k, c_ga, c_gk, c_g1g2, c_pk
+            nodes[0], nodes[2], nodes[1],
+            nodes[3], // notice the order of g1 and g2 is swapped because I am too lazy to refactor the order
+            v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, ig2t_k, ik3_k, ip_k,
+            c_ga, c_gk, c_g1g2, c_pk,
         );
         circuit.add_component(comp);
     }
@@ -60,7 +82,9 @@ pub enum PhysicalPentodeModel {
 
 impl PhysicalPentodeModel {
     /// Returns: v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, ig2t_k, ik3_k, ip_k, c_ga, c_gk, c_g1g2, c_pk
-    pub fn parameters<T: CircuitScalar>(&self) -> (T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T) {
+    pub fn parameters<T: CircuitScalar>(
+        &self,
+    ) -> (T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T) {
         match self {
             PhysicalPentodeModel::_6L6 => (
                 T::from(0.91804059).unwrap(),    // v_ct
@@ -82,23 +106,23 @@ impl PhysicalPentodeModel {
                 T::from(5.9e-12).unwrap(),       // c_pk
             ),
             PhysicalPentodeModel::EL34 => (
-                T::from(0.29360503).unwrap(),    // v_ct
-                T::from(0.040003405).unwrap(),   // m1_k
-                T::from(-0.73308055).unwrap(),   // m1_ex
-                T::from(0.67171782).unwrap(),    // m2_k
-                T::from(8.2063559).unwrap(),     // m2_mu
-                T::from(2.2330806).unwrap(),     // m2_ex
-                T::from(0.0033402929).unwrap(),  // p_k
-                T::from(12.216969).unwrap(),     // p_mu
-                T::from(0.0019762451).unwrap(),  // ik_k
-                T::from(0.0016701465).unwrap(),  // ig_k
-                T::from(0.87617414).unwrap(),    // ig2t_k
-                T::from(1250.0).unwrap(),        // ik3_k
-                T::from(0.0020885491).unwrap(),  // ip_k
-                T::from(1.1e-12).unwrap(),       // c_ga
-                T::from(9.1e-12).unwrap(),       // c_gk
-                T::from(6.1e-12).unwrap(),       // c_g1g2
-                T::from(8.4e-12).unwrap(),       // c_pk
+                T::from(0.29360503).unwrap(),   // v_ct
+                T::from(0.040003405).unwrap(),  // m1_k
+                T::from(-0.73308055).unwrap(),  // m1_ex
+                T::from(0.67171782).unwrap(),   // m2_k
+                T::from(8.2063559).unwrap(),    // m2_mu
+                T::from(2.2330806).unwrap(),    // m2_ex
+                T::from(0.0033402929).unwrap(), // p_k
+                T::from(12.216969).unwrap(),    // p_mu
+                T::from(0.0019762451).unwrap(), // ik_k
+                T::from(0.0016701465).unwrap(), // ig_k
+                T::from(0.87617414).unwrap(),   // ig2t_k
+                T::from(1250.0).unwrap(),       // ik3_k
+                T::from(0.0020885491).unwrap(), // ip_k
+                T::from(1.1e-12).unwrap(),      // c_ga
+                T::from(9.1e-12).unwrap(),      // c_gk
+                T::from(6.1e-12).unwrap(),      // c_g1g2
+                T::from(8.4e-12).unwrap(),      // c_pk
             ),
         }
     }
@@ -317,10 +341,18 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
             let i_eq_cg1g2 = (self.c_g1g2 / dt2) * (four * self.v_cg1g2_m1 - self.v_cg1g2_m2);
             let i_eq_cpk = (self.c_pk / dt2) * (four * self.v_cpk_m1 - self.v_cpk_m2);
 
-            if let Some(i) = idx_g1 { rhs[i - l_size] = rhs[i - l_size] + i_eq_cga + i_eq_cgk + i_eq_cg1g2; }
-            if let Some(i) = idx_g2 { rhs[i - l_size] = rhs[i - l_size] - i_eq_cg1g2; }
-            if let Some(i) = idx_p { rhs[i - l_size] = rhs[i - l_size] - i_eq_cga + i_eq_cpk; }
-            if let Some(i) = idx_c { rhs[i - l_size] = rhs[i - l_size] - i_eq_cgk - i_eq_cpk; }
+            if let Some(i) = idx_g1 {
+                rhs[i - l_size] = rhs[i - l_size] + i_eq_cga + i_eq_cgk + i_eq_cg1g2;
+            }
+            if let Some(i) = idx_g2 {
+                rhs[i - l_size] = rhs[i - l_size] - i_eq_cg1g2;
+            }
+            if let Some(i) = idx_p {
+                rhs[i - l_size] = rhs[i - l_size] - i_eq_cga + i_eq_cpk;
+            }
+            if let Some(i) = idx_c {
+                rhs[i - l_size] = rhs[i - l_size] - i_eq_cgk - i_eq_cpk;
+            }
         }
 
         // URAMP evaluations
@@ -346,7 +378,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         let m2_inner = self.m2_k * m2_base;
         let v_m2 = m2_inner.powf(self.m2_ex);
 
-        let dv_m2_base = (self.m2_ex * self.m2_k) * m2_inner.powf(self.m2_ex - one) * is_m2_inner_pos;
+        let dv_m2_base =
+            (self.m2_ex * self.m2_k) * m2_inner.powf(self.m2_ex - one) * is_m2_inner_pos;
         let dv_m2_dvg1 = dv_m2_base;
         let dv_m2_dvg2 = dv_m2_base * (is_vg2_pos / self.m2_mu);
 
@@ -356,7 +389,9 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         let p_base = p_inner.max(zero) + eps;
         let v_p = self.p_k * p_base.powf(T::from(1.5).unwrap());
 
-        let dv_p_base = (self.p_k * T::from(1.5).unwrap()) * p_base.powf(T::from(0.5).unwrap()) * is_p_inner_pos;
+        let dv_p_base = (self.p_k * T::from(1.5).unwrap())
+            * p_base.powf(T::from(0.5).unwrap())
+            * is_p_inner_pos;
         let dv_p_dvg1 = dv_p_base;
         let dv_p_dvg2 = dv_p_base * (is_vg2_pos / self.p_mu);
 
@@ -384,7 +419,9 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
 
         if denom_ig > T::from(1e-16).unwrap() {
             let f1 = self.ig_k * u_vg1.powf(T::from(1.5).unwrap());
-            let df1_dvg1 = (self.ig_k * T::from(1.5).unwrap()) * u_vg1.powf(T::from(0.5).unwrap()) * is_vg1_pos;
+            let df1_dvg1 = (self.ig_k * T::from(1.5).unwrap())
+                * u_vg1.powf(T::from(0.5).unwrap())
+                * is_vg1_pos;
             let f2 = (u_vg1 / denom_ig) * T::from(1.2).unwrap() + T::from(0.4).unwrap();
             let df2_dvp = -T::from(1.2).unwrap() * u_vg1 / (denom_ig * denom_ig) * is_vp_pos;
             let df2_dvg1 = T::from(1.2).unwrap() * u_vp * is_vg1_pos / (denom_ig * denom_ig);
@@ -404,7 +441,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         let f_ik2 = one - T::from(0.4).unwrap() * (exp_arg.exp() - (-T::from(15.0).unwrap()).exp());
 
         let d_exp_arg_dvp = -T::from(15.0).unwrap() / (u_vg2 + eps) * is_vp_pos;
-        let d_exp_arg_dvg2 = T::from(15.0).unwrap() * u_vp / ((u_vg2 + eps) * (u_vg2 + eps)) * is_vg2_pos;
+        let d_exp_arg_dvg2 =
+            T::from(15.0).unwrap() * u_vp / ((u_vg2 + eps) * (u_vg2 + eps)) * is_vg2_pos;
 
         let d_fik2_dvp = -T::from(0.4).unwrap() * exp_arg.exp() * d_exp_arg_dvp;
         let d_fik2_dvg2 = -T::from(0.4).unwrap() * exp_arg.exp() * d_exp_arg_dvg2;
@@ -420,8 +458,13 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         let d_tg2t_base_dvp = -T::from(10.0).unwrap() / (t_g2t_inner * t_g2t_inner) * is_vp_pos;
 
         let is_tg2t_pos = if t_g2t_base > zero { one } else { zero };
-        let f_g2t = self.ig2t_k * t_g2t_base.max(zero).powf(T::from(1.5).unwrap()) + (one - self.ig2t_k);
-        let d_fg2t_dvp = self.ig2t_k * T::from(1.5).unwrap() * t_g2t_base.max(zero).powf(T::from(0.5).unwrap()) * d_tg2t_base_dvp * is_tg2t_pos;
+        let f_g2t =
+            self.ig2t_k * t_g2t_base.max(zero).powf(T::from(1.5).unwrap()) + (one - self.ig2t_k);
+        let d_fg2t_dvp = self.ig2t_k
+            * T::from(1.5).unwrap()
+            * t_g2t_base.max(zero).powf(T::from(0.5).unwrap())
+            * d_tg2t_base_dvp
+            * is_tg2t_pos;
 
         let v_ig2t = v_ik2 * f_g2t;
         let dv_ig2t_dvp = dv_ik2_dvp * f_g2t + v_ik2 * d_fg2t_dvp;
@@ -448,8 +491,10 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         let d_veff_dvg2 = is_vg2_gt_vp * is_vg2_pos;
 
         let i_lim4 = self.ip_k * v_eff.powf(T::from(1.5).unwrap());
-        let d_ilim4_dvp = self.ip_k * T::from(1.5).unwrap() * v_eff.powf(T::from(0.5).unwrap()) * d_veff_dvp;
-        let d_ilim4_dvg2 = self.ip_k * T::from(1.5).unwrap() * v_eff.powf(T::from(0.5).unwrap()) * d_veff_dvg2;
+        let d_ilim4_dvp =
+            self.ip_k * T::from(1.5).unwrap() * v_eff.powf(T::from(0.5).unwrap()) * d_veff_dvp;
+        let d_ilim4_dvg2 =
+            self.ip_k * T::from(1.5).unwrap() * v_eff.powf(T::from(0.5).unwrap()) * d_veff_dvg2;
 
         let x4 = v_ik3 - i_lim4;
         let is_x4_pos = if x4 > zero { one } else { zero };
@@ -466,7 +511,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         let d_ip0_dvg1 = dv_ik4_dvg1 - dv_ig2t_dvg1;
 
         let i_plim = self.ip_k * u_vp.powf(T::from(1.5).unwrap());
-        let d_iplim_dvp = self.ip_k * T::from(1.5).unwrap() * u_vp.powf(T::from(0.5).unwrap()) * is_vp_pos;
+        let d_iplim_dvp =
+            self.ip_k * T::from(1.5).unwrap() * u_vp.powf(T::from(0.5).unwrap()) * is_vp_pos;
 
         let xp = i_p0 - i_plim;
         let is_xp_pos = if xp > zero { one } else { zero };
@@ -628,7 +674,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
 
         let t_g2t_inner = u_vp + T::from(10.0).unwrap();
         let t_g2t_base = one - u_vp / t_g2t_inner;
-        let f_g2t = self.ig2t_k * t_g2t_base.max(zero).powf(T::from(1.5).unwrap()) + (one - self.ig2t_k);
+        let f_g2t =
+            self.ig2t_k * t_g2t_base.max(zero).powf(T::from(1.5).unwrap()) + (one - self.ig2t_k);
         let v_ig2t = v_ik2 * f_g2t;
 
         let ik3_denom = u_vg2 + self.ik3_k;

@@ -17,16 +17,16 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use serde::{Deserialize, Serialize};
-use strum_macros::EnumIter;
 use crate::circuit::Circuit;
 use crate::components::pentode::generic_pentode::{GenericPentodeDef, GenericPentodeModel};
 use crate::components::pentode::physical_pentode::{PhysicalPentodeDef, PhysicalPentodeModel};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId};
+use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
-pub mod physical_pentode;
 pub mod generic_pentode;
+pub mod physical_pentode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PentodeFidelity {
@@ -72,29 +72,32 @@ impl<T: CircuitScalar> Instantiable<T> for PentodeDef {
         match (self.pentode_type, self.fidelity) {
             (PentodeType::EL34, PentodeFidelity::Generic) => {
                 let def = GenericPentodeDef {
-                    model: GenericPentodeModel::EL34
+                    model: GenericPentodeModel::EL34,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
             (PentodeType::EL34, PentodeFidelity::Precision) => {
                 let def = PhysicalPentodeDef {
-                    model: PhysicalPentodeModel::EL34
+                    model: PhysicalPentodeModel::EL34,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
             (PentodeType::_6L6, PentodeFidelity::Precision) => {
                 let def = PhysicalPentodeDef {
-                    model: PhysicalPentodeModel::_6L6
+                    model: PhysicalPentodeModel::_6L6,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
             (PentodeType::_6L6GC, PentodeFidelity::Generic) => {
                 let def = GenericPentodeDef {
-                    model: GenericPentodeModel::_6L6GC
+                    model: GenericPentodeModel::_6L6GC,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
-            _ => panic!("Unsupported Pentode type and fidelity combination: {:?} with {:?}", self.pentode_type, self.fidelity),
+            _ => panic!(
+                "Unsupported Pentode type and fidelity combination: {:?} with {:?}",
+                self.pentode_type, self.fidelity
+            ),
         }
     }
 }

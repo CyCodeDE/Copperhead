@@ -21,11 +21,13 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::mna::{get_voltage, stamp_conductance, stamp_current_source, stamp_transconductance};
+use crate::util::mna::{
+    get_voltage, stamp_conductance, stamp_current_source, stamp_transconductance,
+};
 use faer::{ColMut, ColRef, MatMut};
+use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PhysicalTriodeDef {
@@ -34,9 +36,12 @@ pub struct PhysicalTriodeDef {
 
 impl<T: CircuitScalar> Instantiable<T> for PhysicalTriodeDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
-        let (v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, iak_k, c_ga, c_gk, c_pk) = self.model.parameters();
-        let comp = PhysicalTriode::new(nodes[0], nodes[1], nodes[2]
-            , v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, iak_k, c_ga, c_gk, c_pk);
+        let (v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, iak_k, c_ga, c_gk, c_pk) =
+            self.model.parameters();
+        let comp = PhysicalTriode::new(
+            nodes[0], nodes[1], nodes[2], v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k,
+            ig_k, iak_k, c_ga, c_gk, c_pk,
+        );
         circuit.add_component(comp);
     }
 }
@@ -116,7 +121,7 @@ pub struct PhysicalTriode<T: CircuitScalar> {
     pub p_mu: T,
     pub ik_k: T,
     pub ig_k: T,
-    pub iak_k : T,
+    pub iak_k: T,
     pub c_ga: T,
     pub c_gk: T,
     pub c_pk: T,
@@ -326,7 +331,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalTriode<T> {
         let m2_inner = self.m2_k * m2_base;
 
         let v_m2 = m2_inner.powf(self.m2_ex);
-        let dv_m2_base = (self.m2_ex * self.m2_k) * m2_inner.powf(self.m2_ex - one) * is_m2_inner_pos;
+        let dv_m2_base =
+            (self.m2_ex * self.m2_k) * m2_inner.powf(self.m2_ex - one) * is_m2_inner_pos;
         let dv_m2_dvg = dv_m2_base;
         let dv_m2_dvp = dv_m2_base * (is_vp_pos / self.m2_mu);
 
@@ -336,7 +342,9 @@ impl<T: CircuitScalar> Component<T> for PhysicalTriode<T> {
         let p_base = p_inner.max(zero) + T::from(1e-10).unwrap();
 
         let v_p = self.p_k * p_base.powf(T::from(1.5).unwrap());
-        let dv_p_base = (self.p_k * T::from(1.5).unwrap()) * p_base.powf(T::from(0.5).unwrap()) * is_p_inner_pos;
+        let dv_p_base = (self.p_k * T::from(1.5).unwrap())
+            * p_base.powf(T::from(0.5).unwrap())
+            * is_p_inner_pos;
         let dv_p_dvg = dv_p_base;
         let dv_p_dvp = dv_p_base * (is_vp_pos / self.p_mu);
 
@@ -364,7 +372,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalTriode<T> {
 
         if denom_ig > T::from(1e-16).unwrap() {
             let f1 = self.ig_k * u_vg.powf(T::from(1.5).unwrap());
-            let df1_dvg = (self.ig_k * T::from(1.5).unwrap()) * u_vg.powf(T::from(0.5).unwrap()) * is_vg_pos;
+            let df1_dvg =
+                (self.ig_k * T::from(1.5).unwrap()) * u_vg.powf(T::from(0.5).unwrap()) * is_vg_pos;
 
             let f2 = (u_vg / denom_ig) * T::from(1.2).unwrap() + T::from(0.4).unwrap();
 

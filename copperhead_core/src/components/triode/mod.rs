@@ -17,16 +17,20 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use serde::{Deserialize, Serialize};
-use strum_macros::EnumIter;
 use crate::circuit::Circuit;
-use crate::components::triode::physical_triode::{PhysicalTriode, PhysicalTriodeDef, PhysicalTriodeModel};
-use crate::components::triode::generic_triode::{GenericTriode, GenericTriodeDef, GenericTriodeModel};
+use crate::components::triode::generic_triode::{
+    GenericTriode, GenericTriodeDef, GenericTriodeModel,
+};
+use crate::components::triode::physical_triode::{
+    PhysicalTriode, PhysicalTriodeDef, PhysicalTriodeModel,
+};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId};
+use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
-pub mod physical_triode;
 pub mod generic_triode;
+pub mod physical_triode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TriodeFidelity {
@@ -69,23 +73,26 @@ impl<T: CircuitScalar> Instantiable<T> for TriodeDef {
         match (self.triode_type, self.fidelity) {
             (TriodeType::_12AX7, TriodeFidelity::Generic) => {
                 let def = GenericTriodeDef {
-                    model: GenericTriodeModel::_12AX7
+                    model: GenericTriodeModel::_12AX7,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
             (TriodeType::_12AX7, TriodeFidelity::Precision) => {
                 let def = PhysicalTriodeDef {
-                    model: PhysicalTriodeModel::_12AX7
+                    model: PhysicalTriodeModel::_12AX7,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
             (TriodeType::_12AU7, TriodeFidelity::Precision) => {
                 let def = PhysicalTriodeDef {
-                    model: PhysicalTriodeModel::_12AU7
+                    model: PhysicalTriodeModel::_12AU7,
                 };
                 def.instantiate(nodes, dt, circuit, _max_steps);
             }
-            _ => panic!("Unsupported triode type and fidelity combination: {:?} with {:?}", self.triode_type, self.fidelity),
+            _ => panic!(
+                "Unsupported triode type and fidelity combination: {:?} with {:?}",
+                self.triode_type, self.fidelity
+            ),
         }
     }
 }
