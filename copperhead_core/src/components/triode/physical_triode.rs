@@ -93,13 +93,6 @@ impl PhysicalTriodeModel {
             ),
         }
     }
-
-    pub fn format_name(&self) -> &'static str {
-        match self {
-            PhysicalTriodeModel::_12AX7 => "12AX7",
-            PhysicalTriodeModel::_12AU7 => "12AU7",
-        }
-    }
 }
 
 pub struct PhysicalTriode<T: CircuitScalar> {

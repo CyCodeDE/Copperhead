@@ -21,13 +21,14 @@ use crate::components::audio_probe::AudioProbe;
 use crate::components::capacitor::Capacitor;
 use crate::components::diode::Diode;
 use crate::components::inductor::Inductor;
-use crate::components::pentode::Pentode;
 use crate::components::resistor::Resistor;
 use crate::components::transistor::bjt::Bjt;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use crate::components::pentode::generic_pentode::GenericPentode;
+use crate::components::pentode::physical_pentode::PhysicalPentode;
 use crate::components::triode::generic_triode::GenericTriode;
 use crate::components::triode::physical_triode::PhysicalTriode;
 
@@ -342,8 +343,9 @@ define_circuit_components!(
     diodes: Diode,
     bjts: Bjt,
     generic_triodes: GenericTriode,
-    pentodes: Pentode,
+    generic_pentodes: GenericPentode,
     physical_triodes: PhysicalTriode,
+    physical_pentodes: PhysicalPentode,
     audio_probes: AudioProbe,
 );
 

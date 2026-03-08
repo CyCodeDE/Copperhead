@@ -23,7 +23,7 @@ use copperhead_core::components::audio_probe::AudioProbeDef;
 use copperhead_core::components::capacitor::CapacitorDef;
 use copperhead_core::components::diode::{DiodeDef, DiodeModel};
 use copperhead_core::components::inductor::InductorDef;
-use copperhead_core::components::pentode::{PentodeDef, PentodeModel};
+use copperhead_core::components::pentode::{PentodeDef, PentodeFidelity, PentodeType};
 use copperhead_core::components::resistor::ResistorDef;
 use copperhead_core::components::transistor::bjt::{BjtDef, BjtModel};
 use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
@@ -98,7 +98,8 @@ impl PaletteItem {
                 shortcut_key: None,
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::Pentode(PentodeDef {
-                    model: PentodeModel::_6L6GC,
+                    pentode_type: PentodeType::EL34,
+                    fidelity: PentodeFidelity::Precision,
                 })),
             },
             PaletteItem {

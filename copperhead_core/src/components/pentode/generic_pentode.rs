@@ -29,14 +29,14 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PentodeDef {
-    pub model: PentodeModel,
+pub struct GenericPentodeDef {
+    pub model: GenericPentodeModel,
 }
 
-impl<T: CircuitScalar> Instantiable<T> for PentodeDef {
+impl<T: CircuitScalar> Instantiable<T> for GenericPentodeDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k, cpk, is, vt) = self.model.parameters();
-        let comp = Pentode::new(
+        let comp = GenericPentode::new(
             nodes[0], nodes[1], nodes[2], nodes[3], mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k,
             cpk, is, vt,
         );
@@ -46,7 +46,7 @@ impl<T: CircuitScalar> Instantiable<T> for PentodeDef {
 
 /// Internal state for the Pentode during Newton-Raphson iterations.
 #[derive(Clone, Copy, Debug)]
-struct PentodeIterationState<T: CircuitScalar> {
+struct GenericPentodeIterationState<T: CircuitScalar> {
     pub prev_v_p: T,
     pub prev_v_g1: T,
     pub prev_v_g2: T,
@@ -55,19 +55,19 @@ struct PentodeIterationState<T: CircuitScalar> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum PentodeModel {
+pub enum GenericPentodeModel {
     _6L6GC,
     EL34,
 }
 
-impl PentodeModel {
+impl GenericPentodeModel {
     /// Returns MU, EX, KG1, KG2, KP, KVB, RGI, CG1P, CG1K, CPK, IS, VT
     pub fn parameters<T: CircuitScalar>(&self) -> (T, T, T, T, T, T, T, T, T, T, T, T) {
         let vt = T::from(0.02585).unwrap();
         let i_s = T::from(1e-9).unwrap();
 
         match self {
-            PentodeModel::_6L6GC => {
+            GenericPentodeModel::_6L6GC => {
                 (
                     T::from(8.7).unwrap(),      // MU
                     T::from(1.35).unwrap(),     // EX
@@ -83,7 +83,7 @@ impl PentodeModel {
                     vt,
                 )
             }
-            PentodeModel::EL34 => {
+            GenericPentodeModel::EL34 => {
                 (
                     T::from(11.0).unwrap(),     // MU
                     T::from(1.35).unwrap(),     // EX
@@ -101,16 +101,9 @@ impl PentodeModel {
             }
         }
     }
-
-    pub fn format_name(&self) -> &'static str {
-        match self {
-            PentodeModel::_6L6GC => "6L6GC",
-            PentodeModel::EL34 => "EL34",
-        }
-    }
 }
 
-pub struct Pentode<T: CircuitScalar> {
+pub struct GenericPentode<T: CircuitScalar> {
     // External Nodes
     pub node_p: NodeId,  // Plate (Anode)
     pub node_g1: NodeId, // Control Grid
@@ -141,7 +134,7 @@ pub struct Pentode<T: CircuitScalar> {
     pub g_min: T,
 
     // Simulation State
-    iter_state: Cell<PentodeIterationState<T>>,
+    iter_state: Cell<GenericPentodeIterationState<T>>,
 
     // BDF2 history states
     /// Internal capacitor voltage at t[n-1]
@@ -155,7 +148,7 @@ pub struct Pentode<T: CircuitScalar> {
     v_cpk_m2: T,
 }
 
-impl<T: CircuitScalar> Pentode<T> {
+impl<T: CircuitScalar> GenericPentode<T> {
     pub fn new(
         node_p: NodeId,
         node_g1: NodeId,
@@ -197,7 +190,7 @@ impl<T: CircuitScalar> Pentode<T> {
             i_s,
             vt,
             g_min: T::from(1e-9).unwrap(),
-            iter_state: Cell::new(PentodeIterationState {
+            iter_state: Cell::new(GenericPentodeIterationState {
                 prev_v_p: T::zero(),
                 prev_v_g1: T::zero(),
                 prev_v_g2: T::zero(),
@@ -214,7 +207,7 @@ impl<T: CircuitScalar> Pentode<T> {
     }
 }
 
-impl<T: CircuitScalar> Component<T> for Pentode<T> {
+impl<T: CircuitScalar> Component<T> for GenericPentode<T> {
     fn linearity(&self) -> ComponentLinearity {
         ComponentLinearity::NonLinear
     }
@@ -435,7 +428,7 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
             && check_node(v_c, state.prev_v_c)
             && check_node(v_x, state.prev_v_x);
 
-        self.iter_state.set(PentodeIterationState {
+        self.iter_state.set(GenericPentodeIterationState {
             prev_v_p: v_p,
             prev_v_g1: v_g1,
             prev_v_g2: v_g2,
@@ -547,7 +540,7 @@ impl<T: CircuitScalar> Component<T> for Pentode<T> {
         self.v_cg1k_m1 = v_g1 - v_c;
         self.v_cpk_m1 = v_p - v_c;
 
-        self.iter_state.set(PentodeIterationState {
+        self.iter_state.set(GenericPentodeIterationState {
             prev_v_p: v_p,
             prev_v_g1: v_g1,
             prev_v_g2: get_voltage(current_node_voltages, self.cached_idx_g2),

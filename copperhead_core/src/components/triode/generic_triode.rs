@@ -88,12 +88,6 @@ impl GenericTriodeModel {
             }
         }
     }
-
-    pub fn format_name(&self) -> &'static str {
-        match self {
-            GenericTriodeModel::_12AX7 => "12AX7",
-        }
-    }
 }
 
 pub struct GenericTriode<T: CircuitScalar> {
