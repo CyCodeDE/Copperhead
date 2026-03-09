@@ -1,13 +1,15 @@
 # Copperhead
 
 > **Note:** Copperhead is currently in a **pre-alpha** state. It is currently not recommended for general use. The software is under active development and currently tested on Linux only.
+> There are many edge-cases where convergence still fails.
+> The primary strength of Copperhead is balancing inference speed with quality. If you need absolute high quality, use a simulator like LTspice, as Copperhead currently does not support variable time-stepping.
 
 Copperhead is a circuit simulator written in Rust, designed specifically for modeling guitar amplifiers and effects pedals. It aims to provide a more intuitive user experience and better inference performance than traditional tools like LTspice by focusing on audio electronics and heavily optimizing for them.
 
 ## Goals
 
 The primary goal of Copperhead is to bridge the gap between circuit design and audio testing.
-*   **Intuitive Design:** Explicitly removes the need for SPICE directives.
+*   **Intuitive Design:** Explicitly removes the need for SPICE directives and hidden logic.
 *   **Audio Focus:** Built from the ground up to handle the specific needs of amp and pedal designers.
 *   **Live Testing:** Future versions will allow for real-time simulation, enabling users to "play" through the circuit as they design it.
 
@@ -21,7 +23,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
     *   Capacitors
     *   Diodes (currently the 1N4148 is the only preset available, more coming soon)
     *   Bipolar junction transistors
-    *   Triodes and Pentodes (based on the norman koren models)
+    *   Triodes and Pentodes (based on the norman koren models and the ayumi nakabayashi models)
     *   Voltage Sources (AC and DC)
     *   Net labels
 *   **GUI:** Immediate mode interface built with `egui`.
@@ -36,8 +38,7 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 *   **Components:**
     *   MOSFETs
     *   JFETs
-    *   More diodes and triodes
-    *   Pentodes
+    *   More diodes, triodes and pentodes / beam tetrodes
     *   More complex components like op-amps, voltage regulators, etc.
     *   Coupled inductors / transformers
     *   Parametric components (Potentiometers, variable capacitors, etc.)
@@ -51,7 +52,7 @@ cargo run --profile release-performance
 ```
 
 ### Increasing Performance
-For development iteration, the standard `cargo run` is sufficient. However, simulation performance will be improved slightly by using the custom profile configured in `Cargo.toml`.
+For development iteration, the standard `cargo run --release` is sufficient. However, simulation performance will be improved slightly by using the custom profile configured in `Cargo.toml`.
 
 ```bash
 cargo run --package {copperhead_builder OR copperhead_plugin} --profile release-performance
@@ -81,6 +82,4 @@ If you intend to use the plugin in a commercial product, you must either:
 
 The ability to create and sell your own compiled schematics is completely unrestricted. You own your data.
 
-
 However, the pre-built schematics included in this repository are licensed under **CC BY-NC 4.0**. You may not sell or commercially distribute the built-in schematics without explicit written permission.
-
