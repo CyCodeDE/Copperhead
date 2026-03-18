@@ -17,7 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::{CircuitApp, FileDialogState, StateUpdate, Tool};
-use crate::ui::{SimStepData, handle_circuit_loaded};
+use crate::ui::{SimCommand, SimStepData, handle_circuit_loaded};
 use egui::{Key, Modifiers, ViewportCommand};
 use log::debug;
 
@@ -130,5 +130,13 @@ impl CircuitApp {
                 self.current_rotation = (self.current_rotation + 1) % 4;
             }
         }
+    }
+
+    pub fn send_param_update(&self, component_idx: usize, name: &str, value: f64) {
+        let _ = self.tx_command.send(SimCommand::UpdateValue {
+            component_idx,
+            name: name.to_string(),
+            value,
+        });
     }
 }

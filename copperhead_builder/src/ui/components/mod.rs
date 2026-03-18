@@ -22,5 +22,6 @@ pub mod definitions;
 pub mod modals;
 pub mod oscilloscope;
 pub mod palette;
+mod property_panel;
 pub mod side_panel;
 pub mod top_bar;

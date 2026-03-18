@@ -103,7 +103,7 @@ pub struct Circuit<T: CircuitScalar> {
     current_solution: Col<T>,
 
     pub time: T,
-    step_count: usize,
+    pub step_count: usize,
 
     pub total_terminals: usize,
     pub total_observables: usize,
@@ -403,13 +403,13 @@ impl<T: CircuitScalar> Circuit<T> {
 
         // Ensure current_solution and previous_solution are properly sized
         if self.previous_solution.nrows() != total_size {
-            self.previous_solution = faer::Col::<T>::zeros(total_size);
-            self.current_solution = faer::Col::<T>::zeros(total_size);
+            self.previous_solution = Col::<T>::zeros(total_size);
+            self.current_solution = Col::<T>::zeros(total_size);
         } else {
             self.current_solution.copy_from(&self.previous_solution);
         }
 
-        let empty_prev = faer::Col::<T>::zeros(total_size);
+        let empty_prev = Col::<T>::zeros(total_size);
 
         for i in 0..total_size {
             state.workspace.b_full[i] = T::zero();
@@ -481,6 +481,13 @@ impl<T: CircuitScalar> Circuit<T> {
                     .workspace
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
+
+                // Stamp Time-Variant components
+                self.components.stamp_all_time_variant(
+                    &mut state.workspace.iter_matrix.as_mut(),
+                    &dc_ctx,
+                    l_size,
+                );
 
                 // Stamp Non-Linear Jacobian and RHS corrections
                 self.components.stamp_all_nonlinear(
@@ -696,6 +703,13 @@ impl<T: CircuitScalar> Circuit<T> {
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
 
+                // Stamp Time-Variant components
+                self.components.stamp_all_time_variant(
+                    &mut state.workspace.iter_matrix.as_mut(),
+                    &ctx,
+                    state.l_size,
+                );
+
                 self.components.stamp_all_nonlinear(
                     &self.current_solution.as_ref(),
                     &mut state.workspace.iter_matrix.as_mut(),
@@ -793,7 +807,7 @@ impl<T: CircuitScalar> Circuit<T> {
         self.components
             .update_all_states(&self.current_solution.as_ref(), &ctx);
 
-        //self.record_state(&ctx); moved outside to allow more control to the caller
+        self.record_state(&ctx); // 0moved outside to allow more control to the caller
         self.prev_prev_solution.copy_from(&self.previous_solution);
         self.previous_solution.copy_from(&self.current_solution);
         self.step_count += 1;

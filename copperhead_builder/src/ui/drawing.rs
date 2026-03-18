@@ -22,9 +22,6 @@ use crate::ui::{GridPos, VisualComponent};
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::Color32;
 use egui::{Align2, Painter};
-// DISCLAIMER:
-// Most of this file is vibe-coded. Performance is probably not optimal, but tbh I couldn't give less of a fuck.
-// Is the performance good? No. Probably not. But that is a problem for the me/myself/and I of tomorrow.
 
 pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2, color: Color32) {
     let min_visible = (rect.min.to_vec2() - pan) / zoom;
