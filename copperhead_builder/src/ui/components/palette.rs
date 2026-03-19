@@ -24,7 +24,9 @@ use copperhead_core::components::capacitor::CapacitorDef;
 use copperhead_core::components::diode::{DiodeDef, DiodeModel};
 use copperhead_core::components::inductor::InductorDef;
 use copperhead_core::components::pentode::{PentodeDef, PentodeFidelity, PentodeType};
+use copperhead_core::components::potentiometer::PotentiometerDef;
 use copperhead_core::components::resistor::ResistorDef;
+use copperhead_core::components::switch::SwitchDef;
 use copperhead_core::components::transistor::bjt::{BjtDef, BjtModel};
 use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
@@ -151,6 +153,28 @@ impl PaletteItem {
                 shortcut_key: Some(Key::N),
                 shortcut_name: "N",
                 element: SchematicElement::Label(LabelDef),
+            },
+            PaletteItem {
+                label: "Potentiometer",
+                shortcut_key: None,
+                shortcut_name: "",
+                element: SchematicElement::Core(ComponentDef::Potentiometer(PotentiometerDef {
+                    resistance: 1000.,
+                    position: 0.0,
+                    comment: None,
+                    max: 1.0,
+                    min: 0.0,
+                    step: 0.1,
+                })),
+            },
+            PaletteItem {
+                label: "Switch",
+                shortcut_key: None,
+                shortcut_name: "",
+                element: SchematicElement::Core(ComponentDef::Switch(SwitchDef {
+                    closed: true,
+                    comment: None,
+                })),
             },
         ]
     }

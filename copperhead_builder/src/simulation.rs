@@ -22,7 +22,7 @@ use crate::ui::{CircuitMetadata, ComponentMetadata, SimCommand};
 use copperhead_core::audio::write_to_wav;
 use copperhead_core::circuit::{Circuit, CircuitElement};
 use copperhead_core::descriptor::ComponentDef;
-use copperhead_core::model::SimBatchData;
+use copperhead_core::model::{SimBatchData, SimulationContext};
 use copperhead_core::processor::CircuitProcessor;
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
@@ -129,10 +129,30 @@ pub fn run_simulation_loop(
                     };
                 }
                 SimCommand::UpdateValue {
-                    component_id: usize,
-                    updated: ComponentBuildData,
+                    component_idx,
+                    name,
+                    value,
                 } => {
-                    todo!();
+                    if running {
+                        if let Some(ref mut proc) = processor {
+                            let ckt = proc.get_circuit_mut();
+                            let node_idx = ckt.component_order[component_idx];
+                            let component = &ckt.graph[node_idx];
+                            if let CircuitElement::Device(comp_id) = component {
+                                ckt.components.set_parameter(
+                                    *comp_id,
+                                    name.as_str(),
+                                    value,
+                                    &SimulationContext {
+                                        dt,
+                                        time: ckt.time,
+                                        step: ckt.step_count,
+                                        is_dc_analysis: false,
+                                    },
+                                );
+                            }
+                        }
+                    }
                 }
                 SimCommand::SetRunTime(run_time) => {
                     if !realtime_mode {

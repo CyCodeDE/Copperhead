@@ -17,10 +17,11 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::ui::ComponentDef;
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ground::GroundDef;
 use crate::ui::components::definitions::label::LabelDef;
+use crate::ui::{ComponentDef, SimCommand};
+use crossbeam::channel::Sender;
 use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2};
 
 pub mod audio_probe;
@@ -31,7 +32,9 @@ pub mod ground;
 pub mod inductor;
 pub mod label;
 pub mod pentode;
+pub mod potentiometer;
 pub mod resistor;
+pub mod switch;
 pub mod triode;
 pub mod voltage_source;
 
@@ -41,6 +44,11 @@ pub trait ComponentUIExt {
 
     /// E.g., "Resistor", "DC Source"
     fn ui_name(&self) -> &'static str;
+
+    /// An optional comment that gets shown under the component name and as the name in the property panel
+    fn comment(&self) -> Option<String> {
+        None
+    }
 
     /// Width and height of the component
     fn size(&self) -> (isize, isize) {
@@ -69,6 +77,17 @@ pub trait ComponentUIExt {
     /// The un-rotated local coordinates of the pins.
     /// Order MUST match the `nodes` slice passed to `instantiate()` in the core.
     fn local_pins(&self) -> Vec<(isize, isize)>;
+
+    /// Handles the drawing for the properties.
+    fn draw_property_panel(
+        &mut self,
+        tx: &Sender<SimCommand>,
+        ui: &mut Ui,
+        id: Option<usize>,
+        running: bool,
+        name: &str,
+    ) {
+    }
 
     /// Draws the properties in the right-click modal.
     /// Returns whether the component was modified (and thus the schematic should be marked dirty)
@@ -149,6 +168,12 @@ macro_rules! delegate_ui_ext {
                 }
             }
 
+            fn draw_property_panel(&mut self, tx: &Sender<SimCommand>, ui: &mut Ui, id: Option<usize>, running: bool, name: &str) {
+                match self {
+                    $( ComponentDef::$variant(inner) => inner.draw_property_panel(tx, ui, id, running, name) ),*
+                }
+            }
+
             fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
                 match self {
                     $( ComponentDef::$variant(inner) => inner.draw_modal(app, ui) ),*
@@ -179,7 +204,9 @@ delegate_ui_ext! {
     Bjt,
     Triode,
     Pentode,
+    Potentiometer,
     AudioProbe,
+    Switch,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -230,6 +257,21 @@ impl ComponentUIExt for SchematicElement {
             Self::Core(c) => c.local_pins(),
             Self::Ground(g) => g.local_pins(),
             Self::Label(l) => l.local_pins(),
+        }
+    }
+
+    fn draw_property_panel(
+        &mut self,
+        tx: &Sender<SimCommand>,
+        ui: &mut Ui,
+        id: Option<usize>,
+        running: bool,
+        name: &str,
+    ) {
+        match self {
+            Self::Core(c) => c.draw_property_panel(tx, ui, id, running, name),
+            Self::Ground(g) => g.draw_property_panel(tx, ui, id, running, name),
+            Self::Label(l) => l.draw_property_panel(tx, ui, id, running, name),
         }
     }
 

@@ -22,7 +22,9 @@ use crate::components::capacitor::CapacitorDef;
 use crate::components::diode::DiodeDef;
 use crate::components::inductor::InductorDef;
 use crate::components::pentode::PentodeDef;
+use crate::components::potentiometer::PotentiometerDef;
 use crate::components::resistor::ResistorDef;
+use crate::components::switch::SwitchDef;
 use crate::components::transistor::bjt::BjtDef;
 use crate::components::triode::TriodeDef;
 use crate::components::voltage_source::VoltageSourceDef;
@@ -75,5 +77,6 @@ define_components! {
     Bjt(BjtDef),
     Triode(TriodeDef),
     Pentode(PentodeDef),
-    // ... add all other components here
+    Potentiometer(PotentiometerDef),
+    Switch(SwitchDef),
 }

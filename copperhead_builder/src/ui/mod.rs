@@ -27,7 +27,7 @@ pub mod ui;
 pub mod util;
 
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
-use copperhead_core::components::ComponentProbe;
+use copperhead_core::components::{ComponentId, ComponentProbe};
 use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{NodeId, SimStepData};
 use egui::{Color32, Pos2, Vec2};
@@ -318,8 +318,9 @@ pub enum SimCommand {
     SetRealtime(bool),
     /// Update the value of a component in the simulation. The ComponentType must match the existing component type.
     UpdateValue {
-        component_id: usize,
-        updated: ComponentDef,
+        component_idx: usize,
+        name: String,
+        value: f64,
     },
 }
 

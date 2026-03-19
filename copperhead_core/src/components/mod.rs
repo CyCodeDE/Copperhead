@@ -23,7 +23,9 @@ use crate::components::diode::Diode;
 use crate::components::inductor::Inductor;
 use crate::components::pentode::generic_pentode::GenericPentode;
 use crate::components::pentode::physical_pentode::PhysicalPentode;
+use crate::components::potentiometer::Potentiometer;
 use crate::components::resistor::Resistor;
+use crate::components::switch::Switch;
 use crate::components::transistor::bjt::Bjt;
 use crate::components::triode::generic_triode::GenericTriode;
 use crate::components::triode::physical_triode::PhysicalTriode;
@@ -37,7 +39,9 @@ pub mod capacitor;
 pub mod diode;
 pub mod inductor;
 pub mod pentode;
+pub mod potentiometer;
 pub mod resistor;
+pub mod switch;
 pub mod transistor;
 pub mod triode;
 pub mod voltage_source;
@@ -94,6 +98,15 @@ macro_rules! define_circuit_components {
                 )*
             }
 
+            #[inline(always)]
+            pub fn stamp_all_time_variant(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>, offset: usize) {
+                $(
+                    for comp in &self.$field {
+                        comp.stamp_time_variant(matrix, ctx, offset);
+                    }
+                )*
+            }
+
             // Generate a dynamic stamping loop
             #[inline(always)]
             pub fn stamp_all_dynamic(&mut self, prev: &ColRef<T>, b: &mut ColMut<T>, ctx: &SimulationContext<T>) {
@@ -140,7 +153,7 @@ macro_rules! define_circuit_components {
                                 comp.stamp_nonlinear(current_sol, iter_matrix, iter_rhs, ctx, l_size);
                             }
                             ComponentLinearity::TimeVariant => {
-                                comp.stamp_time_variant(iter_matrix, ctx);
+                                comp.stamp_time_variant(iter_matrix, ctx, l_size);
                             }
                             _ => {} // Completely stripped out for static components
                         }
@@ -346,6 +359,8 @@ define_circuit_components!(
     generic_pentodes: GenericPentode,
     physical_triodes: PhysicalTriode,
     physical_pentodes: PhysicalPentode,
+    potentiometers: Potentiometer,
+    switches: Switch,
     audio_probes: AudioProbe,
 );
 
@@ -395,7 +410,13 @@ pub trait Component<T: CircuitScalar> {
 
     /// Used for Time-Variant components (e.g. Potentiometer, LDR, Switch) that change their conductance G at runtime
     /// in the reduced matrix without re-inverting A_LL every time step.
-    fn stamp_time_variant(&self, _matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {}
+    fn stamp_time_variant(
+        &self,
+        _matrix: &mut MatMut<T>,
+        _ctx: &SimulationContext<T>,
+        _offset: usize,
+    ) {
+    }
 
     /// Non-Linear iteration (Newton-Raphson)
     /// Called multiple times per sample
