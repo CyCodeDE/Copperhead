@@ -93,10 +93,6 @@ pub trait ComponentUIExt {
     /// Returns whether the component was modified (and thus the schematic should be marked dirty)
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool;
 
-    fn get_parameters(&self) -> Vec<ParameterDefinition> {
-        vec![]
-    }
-
     /// Draws the component on the schematic grid.
     fn draw_icon(
         &self,
@@ -332,22 +328,4 @@ impl SchematicElement {
             (a, b) => std::mem::discriminant(a) == std::mem::discriminant(b),
         }
     }
-}
-
-/// A parameter definition describes what type of live parameter can be added to a component, and how it should behave in the UI.
-/// For example, a potentiometer might have a "resistance" parameter that is a floating-point number with a certain range.
-/// Or a switch might have a state parameter that can be toggled between "open" and "closed".
-pub struct ParameterDefinition {
-    pub name: String,
-    pub description: String,
-    pub param_type: ParameterType,
-    /// Whether the parameter is pinned to the panel
-    pub pinned: bool,
-}
-
-pub enum ParameterType {
-    Float { min: f64, max: f64, step: f64 },
-    Integer { min: i64, max: i64, step: i64 },
-    Boolean,
-    Enum { options: Vec<String> },
 }

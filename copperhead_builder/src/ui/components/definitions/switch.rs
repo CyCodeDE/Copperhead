@@ -19,7 +19,7 @@
 
 use crate::ui::SimCommand;
 use crate::ui::app::CircuitApp;
-use crate::ui::components::definitions::{ComponentUIExt, ParameterDefinition, ParameterType};
+use crate::ui::components::definitions::{ComponentUIExt};
 use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::switch::SwitchDef;
 use crossbeam::channel::Sender;
@@ -48,16 +48,6 @@ impl ComponentUIExt for SwitchDef {
 
     fn local_pins(&self) -> Vec<(isize, isize)> {
         vec![(-1, 0), (0, 0)]
-    }
-
-    fn get_parameters(&self) -> Vec<ParameterDefinition> {
-        vec![ParameterDefinition {
-            name: "State".to_string(),
-            param_type: ParameterType::Boolean,
-            description: "Whether the switch is closed (conducting) or open (non-conducting)"
-                .to_string(),
-            pinned: true,
-        }]
     }
 
     fn draw_property_panel(

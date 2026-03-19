@@ -19,7 +19,7 @@
 
 use crate::ui::SimCommand;
 use crate::ui::app::CircuitApp;
-use crate::ui::components::definitions::{ComponentUIExt, ParameterDefinition, ParameterType};
+use crate::ui::components::definitions::{ComponentUIExt};
 use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use crate::ui::util::{format_si_single, parse_si};
 use copperhead_core::components::potentiometer::PotentiometerDef;
@@ -50,19 +50,6 @@ impl ComponentUIExt for PotentiometerDef {
     fn local_pins(&self) -> Vec<(isize, isize)> {
         // Order: A, B, Wiper
         vec![(-1, 0), (1, 0), (0, 1)]
-    }
-
-    fn get_parameters(&self) -> Vec<ParameterDefinition> {
-        vec![ParameterDefinition {
-            name: "Position".to_string(),
-            description: "The wiper position as a percentage".to_string(),
-            param_type: ParameterType::Float {
-                min: self.min,
-                max: self.max,
-                step: self.step,
-            },
-            pinned: true,
-        }]
     }
 
     fn draw_property_panel(

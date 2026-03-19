@@ -17,7 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::CircuitApp;
-use crate::ui::components::definitions::{ComponentUIExt, ParameterType};
+use crate::ui::components::definitions::ComponentUIExt;
 
 pub fn show(app: &mut CircuitApp, ui: &mut egui::Ui) {
     let tx = &app.tx_command;
