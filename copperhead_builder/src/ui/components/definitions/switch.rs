@@ -17,10 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::ui::SimCommand;
 use crate::ui::app::CircuitApp;
-use crate::ui::components::definitions::{ComponentUIExt};
-use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
+use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
+use crate::ui::SimCommand;
 use copperhead_core::components::switch::SwitchDef;
 use crossbeam::channel::Sender;
 use egui::{Checkbox, CollapsingHeader, Color32, Painter, Pos2, Stroke, Ui, Vec2};

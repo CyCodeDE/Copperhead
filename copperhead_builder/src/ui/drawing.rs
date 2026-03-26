@@ -64,7 +64,7 @@ pub fn draw_component<F>(
 {
     let center = transform(comp.pos);
     let rotation = comp.rotation % 4;
-
+    
     // Draw the specific symbol
     comp.element
         .draw_icon(painter, center, rotation, zoom, fill_color, stroke_color);

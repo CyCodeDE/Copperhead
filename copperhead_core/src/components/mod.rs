@@ -33,6 +33,7 @@ use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use crate::components::transformer::accurate_transformer::AccurateTransformer;
 
 pub mod audio_probe;
 pub mod capacitor;
@@ -45,6 +46,7 @@ pub mod switch;
 pub mod transistor;
 pub mod triode;
 pub mod voltage_source;
+pub mod transformer;
 
 pub trait InsertIntoSoA<T: CircuitScalar> {
     fn insert_into(self, components: &mut CircuitComponents<T>) -> ComponentId;
@@ -362,6 +364,7 @@ define_circuit_components!(
     potentiometers: Potentiometer,
     switches: Switch,
     audio_probes: AudioProbe,
+    accurate_transformers: AccurateTransformer,
 );
 
 /// The interface a component must implement.

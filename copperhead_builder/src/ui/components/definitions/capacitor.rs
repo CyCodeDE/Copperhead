@@ -19,7 +19,7 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{LabelEngine, rotate_vec};
+use crate::ui::drawing::{rotate_vec, LabelEngine};
 use crate::ui::util::{format_si_single, parse_si};
 use copperhead_core::components::capacitor::CapacitorDef;
 use egui::{Color32, Painter, Pos2, Stroke, Ui, Vec2};

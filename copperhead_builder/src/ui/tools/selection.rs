@@ -19,6 +19,8 @@
 use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, DragState};
 use egui::{Color32, PointerButton, Pos2, Rect, Vec2};
+use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::util::{rotate_offset, rotate_size};
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -35,11 +37,13 @@ pub fn handle(
         for comp in &app.state.schematic.components {
             let comp_screen_pos = app.to_screen(comp.pos);
             // add a small tolerance to the size for easier selection
+            let rotated_size = rotate_size(comp.element.size(), comp.rotation);
+            let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
             let size =
-                (Vec2::new(comp.size.0 as f32, comp.size.1 as f32) + Vec2::splat(0.5)) * app.zoom;
+                (Vec2::new(rotated_size.0 as f32, rotated_size.1 as f32) + Vec2::splat(0.5)) * app.zoom;
             let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
-                comp.offset.0 * app.zoom,
-                comp.offset.1 * app.zoom,
+                rotated_offset.0 * app.zoom,
+                rotated_offset.1 * app.zoom,
             ));
 
             if rect.contains(mouse_pos) {
@@ -76,11 +80,13 @@ pub fn handle(
                 }
 
                 if hit_body.is_none() {
+                    let rotated_size = rotate_size(comp.element.size(), comp.rotation);
+                    let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
                     let size =
-                        Vec2::new(comp.size.0 as f32 * app.zoom, comp.size.1 as f32 * app.zoom);
+                        Vec2::new(rotated_size.0 as f32 * app.zoom, rotated_size.1 as f32 * app.zoom);
                     let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
-                        comp.offset.0 * app.zoom,
-                        comp.offset.1 * app.zoom,
+                        rotated_offset.0 * app.zoom,
+                        rotated_offset.1 * app.zoom,
                     ));
 
                     if rect.contains(mouse_pos) {

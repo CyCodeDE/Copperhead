@@ -35,6 +35,7 @@ pub mod pentode;
 pub mod potentiometer;
 pub mod resistor;
 pub mod switch;
+pub mod transformer;
 pub mod triode;
 pub mod voltage_source;
 
@@ -207,6 +208,7 @@ delegate_ui_ext! {
     Potentiometer,
     AudioProbe,
     Switch,
+    Transformer,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

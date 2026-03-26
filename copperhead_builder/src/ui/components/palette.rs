@@ -33,6 +33,7 @@ use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourc
 use copperhead_core::descriptor::ComponentDef;
 use egui::Key;
 use std::path::PathBuf;
+use copperhead_core::components::transformer::{TransformerDef, TransformerMode};
 
 pub struct PaletteItem {
     pub label: &'static str,
@@ -140,6 +141,16 @@ impl PaletteItem {
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::AudioProbe(AudioProbeDef {
                     file_path: PathBuf::new(),
+                })),
+            },
+            PaletteItem {
+                label: "Transformer",
+                shortcut_key: None,
+                shortcut_name: "",
+                element: SchematicElement::Core(ComponentDef::Transformer(TransformerDef {
+                    windings: Vec::new(),
+                    couplings: Vec::new(),
+                    mode: TransformerMode::Accurate
                 })),
             },
             PaletteItem {
