@@ -33,6 +33,7 @@ use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourc
 use copperhead_core::descriptor::ComponentDef;
 use egui::Key;
 use std::path::PathBuf;
+use copperhead_core::components::transformer::{Coupling, TransformerDef, TransformerMode, Winding, WindingLocation};
 
 pub struct PaletteItem {
     pub label: &'static str,
@@ -140,6 +141,41 @@ impl PaletteItem {
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::AudioProbe(AudioProbeDef {
                     file_path: PathBuf::new(),
+                })),
+            },
+            PaletteItem {
+                label: "Transformer",
+                shortcut_key: None,
+                shortcut_name: "",
+                element: SchematicElement::Core(ComponentDef::Transformer(TransformerDef {
+                    windings: vec![
+                        Winding {
+                            node_a: copperhead_core::model::NodeId(0),
+                            node_b: copperhead_core::model::NodeId(0),
+                            inductance: 1.0,
+                            series_resistance: 0.1,
+                            location: WindingLocation::Left,
+                            phase_inverted: false,
+                        },
+                        Winding {
+                            node_a: copperhead_core::model::NodeId(0),
+                            node_b: copperhead_core::model::NodeId(0),
+                            inductance: 1.0,
+                            series_resistance: 0.1,
+                            location: WindingLocation::Right,
+                            phase_inverted: false,
+                        },
+                    ],
+                    couplings: vec![
+                        Coupling {
+                            winding_1: 0,
+                            winding_2: 1,
+                            k: 1.0,
+                        }
+                    ],
+                    mode: TransformerMode::Accurate,
+                    phi_sat: 1.5e-3, // 1.5 mWb
+                    i_sat: 1., // 1 A
                 })),
             },
             PaletteItem {

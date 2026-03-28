@@ -184,6 +184,24 @@ pub fn format_si_single(val: f64, precision: usize) -> String {
     format!("{}{}", s, prefix)
 }
 
+pub fn rotate_offset(offset: (f32, f32), rotation: u8) -> (f32, f32) {
+    match rotation % 4 {
+        0 => offset,
+        1 => (-offset.1, offset.0),
+        2 => (-offset.0, -offset.1),
+        3 => (offset.1, -offset.0),
+        _ => unreachable!(),
+    }
+}
+
+pub fn rotate_size(size: (isize, isize), rotation: u8) -> (isize, isize) {
+    match rotation % 4 {
+        0 | 2 => size,
+        1 | 3 => (size.1, size.0),
+        _ => unreachable!(),
+    }
+}
+
 /// Returns the default path for the application (usually in home or the documents folder)
 pub fn get_default_path() -> PathBuf {
     dirs::document_dir()

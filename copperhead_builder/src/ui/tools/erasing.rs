@@ -20,6 +20,8 @@ use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::drawing::check_line_rect_intersection;
 use egui::{Color32, CursorIcon, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::util::rotate_offset;
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -60,9 +62,10 @@ pub fn handle(
         for comp in &app.state.schematic.components {
             let comp_screen_pos = app.to_screen(comp.pos);
             let size = Vec2::new(2.0 * app.zoom, 1.0 * app.zoom);
+            let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
             let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
-                comp.offset.0 * app.zoom,
-                comp.offset.1 * app.zoom,
+                rotated_offset.0 * app.zoom,
+                rotated_offset.1 * app.zoom,
             ));
 
             if selection_rect.intersects(comp_rect) {

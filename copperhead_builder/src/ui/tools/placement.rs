@@ -20,7 +20,8 @@ use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 use crate::ui::drawing::draw_component;
 use crate::ui::{GridPos, VisualComponent};
-use egui::{Color32, Id, Pos2};
+use egui::{Color32, Id, Pos2, Rect};
+use crate::ui::util::rotate_offset;
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -45,32 +46,14 @@ pub fn handle(
         _ => app.state.schematic.generate_next_name(element.prefix()),
     };
 
-    // calculate size in grid units depending on the type of component
-    let size = element.size();
-    let offset = element.offset();
-
-    let rotated_size = match app.current_rotation % 4 {
-        0 | 2 => size,
-        1 | 3 => (size.1, size.0),
-        _ => unreachable!(),
-    };
-
-    let rotated_offset = match app.current_rotation % 4 {
-        0 => offset,
-        1 => (-offset.1, offset.0),
-        2 => (-offset.0, -offset.1),
-        3 => (offset.1, -offset.0),
-        _ => unreachable!(),
-    };
-
     let ghost_comp = VisualComponent {
         name: name.clone(),
         id: 0,
         element: element.clone(),
         pos: grid_pos,
-        size: rotated_size,
+        //size: rotated_size,
         rotation: app.current_rotation,
-        offset: rotated_offset,
+        //offset: rotated_offset,
     };
 
     // Draw Ghost
@@ -91,8 +74,8 @@ pub fn handle(
             grid_pos,
             app.current_rotation,
             name,
-            rotated_size,
-            rotated_offset,
+            //rotated_size,
+            //rotated_offset,
         );
 
         app.current_rotation = 0;

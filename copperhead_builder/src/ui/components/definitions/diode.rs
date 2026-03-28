@@ -19,7 +19,7 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{LabelEngine, rotate_vec};
+use crate::ui::drawing::{rotate_vec, LabelEngine};
 use copperhead_core::components::diode::{DiodeDef, DiodeModel};
 use egui::{Color32, ComboBox, Painter, Pos2, Shape, Stroke, Ui, Vec2};
 

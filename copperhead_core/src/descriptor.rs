@@ -25,6 +25,7 @@ use crate::components::pentode::PentodeDef;
 use crate::components::potentiometer::PotentiometerDef;
 use crate::components::resistor::ResistorDef;
 use crate::components::switch::SwitchDef;
+use crate::components::transformer::TransformerDef;
 use crate::components::transistor::bjt::BjtDef;
 use crate::components::triode::TriodeDef;
 use crate::components::voltage_source::VoltageSourceDef;
@@ -79,4 +80,5 @@ define_components! {
     Pentode(PentodeDef),
     Potentiometer(PotentiometerDef),
     Switch(SwitchDef),
+    Transformer(TransformerDef),
 }
