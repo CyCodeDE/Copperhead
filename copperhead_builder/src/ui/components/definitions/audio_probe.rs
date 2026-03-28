@@ -18,7 +18,7 @@
  */
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::audio_probe::AudioProbeDef;
 use eframe::emath::Pos2;
 use eframe::epaint::Color32;

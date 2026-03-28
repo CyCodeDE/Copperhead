@@ -19,7 +19,7 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, LabelEngine};
+use crate::ui::drawing::{LabelEngine, rotate_vec};
 use crate::ui::util::{format_si_single, parse_si};
 use copperhead_core::components::transformer::{
     Coupling, TransformerDef, Winding, WindingLocation,
@@ -145,7 +145,8 @@ impl ComponentUIExt for TransformerDef {
                             .speed(1e-3)
                             .range(0.0..=f64::INFINITY)
                             .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)));
+                            .custom_parser(|text| parse_si(text)),
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.label("Saturation Flux:");
@@ -155,7 +156,8 @@ impl ComponentUIExt for TransformerDef {
                             .speed(1e-3)
                             .range(0.0..=f64::INFINITY)
                             .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)));
+                            .custom_parser(|text| parse_si(text)),
+                    );
                 });
                 ui.add_space(10.0);
                 changed |= draw_windings_section(self, ui);
@@ -356,31 +358,43 @@ fn draw_windings_section(def: &mut TransformerDef, ui: &mut Ui) -> bool {
                 .show(ui, |ui| {
                     ui.label("Location:");
                     ui.horizontal(|ui| {
-                        changed |= ui.selectable_value(&mut winding.location, WindingLocation::Left, "Left").changed();
-                        changed |= ui.selectable_value(&mut winding.location, WindingLocation::Right, "Right").changed();
+                        changed |= ui
+                            .selectable_value(&mut winding.location, WindingLocation::Left, "Left")
+                            .changed();
+                        changed |= ui
+                            .selectable_value(
+                                &mut winding.location,
+                                WindingLocation::Right,
+                                "Right",
+                            )
+                            .changed();
                     });
                     ui.end_row();
 
                     ui.label("Inductance:");
-                    changed |= ui.add(
-                        egui::DragValue::new(&mut winding.inductance)
-                            .suffix("H")
-                            .speed(1e-4)
-                            .range(0.0..=f64::INFINITY)
-                            .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
-                    ).changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut winding.inductance)
+                                .suffix("H")
+                                .speed(1e-4)
+                                .range(0.0..=f64::INFINITY)
+                                .custom_formatter(|val, _range| format_si_single(val, 3))
+                                .custom_parser(|text| parse_si(text)),
+                        )
+                        .changed();
                     ui.end_row();
 
                     ui.label("Series Resistance:");
-                    changed |= ui.add(
-                        egui::DragValue::new(&mut winding.series_resistance)
-                            .suffix("Ω")
-                            .speed(1e-4)
-                            .range(0.0..=f64::INFINITY)
-                            .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
-                    ).changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut winding.series_resistance)
+                                .suffix("Ω")
+                                .speed(1e-4)
+                                .range(0.0..=f64::INFINITY)
+                                .custom_formatter(|val, _range| format_si_single(val, 3))
+                                .custom_parser(|text| parse_si(text)),
+                        )
+                        .changed();
                     ui.end_row();
 
                     ui.label("Phase Inverted:");
@@ -398,10 +412,15 @@ fn draw_windings_section(def: &mut TransformerDef, ui: &mut Ui) -> bool {
 
     if let Some(i) = to_remove {
         def.windings.remove(i);
-        def.couplings.retain(|c| c.winding_1 != i && c.winding_2 != i);
+        def.couplings
+            .retain(|c| c.winding_1 != i && c.winding_2 != i);
         for c in &mut def.couplings {
-            if c.winding_1 > i { c.winding_1 -= 1; }
-            if c.winding_2 > i { c.winding_2 -= 1; }
+            if c.winding_1 > i {
+                c.winding_1 -= 1;
+            }
+            if c.winding_2 > i {
+                c.winding_2 -= 1;
+            }
         }
     }
 
@@ -428,7 +447,11 @@ fn draw_couplings_section(def: &mut TransformerDef, ui: &mut Ui) -> bool {
     ui.add_space(5.0);
 
     if num_windings < 2 {
-        ui.label(egui::RichText::new("Requires at least 2 windings to couple.").italics().color(egui::Color32::GRAY));
+        ui.label(
+            egui::RichText::new("Requires at least 2 windings to couple.")
+                .italics()
+                .color(egui::Color32::GRAY),
+        );
         return changed;
     }
 
@@ -436,7 +459,13 @@ fn draw_couplings_section(def: &mut TransformerDef, ui: &mut Ui) -> bool {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label("K:");
-                changed |= ui.add(egui::DragValue::new(&mut coupling.k).range(0.0..=1.0).speed(0.01)).changed();
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut coupling.k)
+                            .range(0.0..=1.0)
+                            .speed(0.01),
+                    )
+                    .changed();
 
                 ui.label(" between ");
 
@@ -445,7 +474,13 @@ fn draw_couplings_section(def: &mut TransformerDef, ui: &mut Ui) -> bool {
                     .selected_text(format!("Winding {}", coupling.winding_1))
                     .show_ui(ui, |ui| {
                         for w in 0..num_windings {
-                            changed |= ui.selectable_value(&mut coupling.winding_1, w, format!("Winding {}", w)).changed();
+                            changed |= ui
+                                .selectable_value(
+                                    &mut coupling.winding_1,
+                                    w,
+                                    format!("Winding {}", w),
+                                )
+                                .changed();
                         }
                     });
 
@@ -456,7 +491,13 @@ fn draw_couplings_section(def: &mut TransformerDef, ui: &mut Ui) -> bool {
                     .selected_text(format!("Winding {}", coupling.winding_2))
                     .show_ui(ui, |ui| {
                         for w in 0..num_windings {
-                            changed |= ui.selectable_value(&mut coupling.winding_2, w, format!("Winding {}", w)).changed();
+                            changed |= ui
+                                .selectable_value(
+                                    &mut coupling.winding_2,
+                                    w,
+                                    format!("Winding {}", w),
+                                )
+                                .changed();
                         }
                     });
 

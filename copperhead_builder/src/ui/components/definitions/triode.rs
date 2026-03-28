@@ -19,7 +19,7 @@
 
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
 use egui::{Color32, ComboBox, Painter, Pos2, Stroke, Ui, Vec2};
 use strum::IntoEnumIterator;

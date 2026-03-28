@@ -18,10 +18,10 @@
  */
 use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, Tool};
-use crate::ui::drawing::check_line_rect_intersection;
-use egui::{Color32, CursorIcon, Pos2, Rect, Stroke, StrokeKind, Vec2};
 use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::drawing::check_line_rect_intersection;
 use crate::ui::util::rotate_offset;
+use egui::{Color32, CursorIcon, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub fn handle(
     app: &mut CircuitApp,

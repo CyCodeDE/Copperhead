@@ -85,7 +85,7 @@ pub struct VisualComponent {
     pub name: String,
     pub element: SchematicElement,
     pub pos: GridPos,
-    pub rotation: u8,         // 0, 1, 2, 3 (90 degree steps)
+    pub rotation: u8, // 0, 1, 2, 3 (90 degree steps)
 }
 
 impl VisualComponent {
@@ -196,12 +196,7 @@ impl Schematic {
         format!("{}{}", prefix, next_idx)
     }
 
-    pub fn add_component(
-        &mut self,
-        data: SchematicElement,
-        pos: GridPos,
-        rotation: u8,
-    ) {
+    pub fn add_component(&mut self, data: SchematicElement, pos: GridPos, rotation: u8) {
         let name = self.generate_next_name(data.prefix());
         self.components.push(VisualComponent {
             id: self.next_component_id,

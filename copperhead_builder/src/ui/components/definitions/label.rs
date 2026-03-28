@@ -18,7 +18,7 @@
  */
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, Anchor, LabelEngine};
+use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use egui::{Color32, Painter, Pos2, Shape, Stroke, Vec2};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -19,9 +19,9 @@
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 use crate::ui::drawing::draw_component;
+use crate::ui::util::rotate_offset;
 use crate::ui::{GridPos, VisualComponent};
 use egui::{Color32, Id, Pos2, Rect};
-use crate::ui::util::rotate_offset;
 
 pub fn handle(
     app: &mut CircuitApp,

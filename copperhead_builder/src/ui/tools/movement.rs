@@ -19,10 +19,10 @@
 
 use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, DragState, Tool};
-use crate::ui::drawing::check_line_rect_intersection;
-use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2};
 use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::drawing::check_line_rect_intersection;
 use crate::ui::util::{rotate_offset, rotate_size};
+use egui::{Color32, CursorIcon, PointerButton, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -139,7 +139,8 @@ pub fn handle(
                         let comp_screen_pos = app.to_screen(comp.pos);
                         let rotated_size = rotate_size(comp.element.size(), comp.rotation);
                         let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
-                        let size = Vec2::new(rotated_size.0 as f32, rotated_size.1 as f32) * app.zoom;
+                        let size =
+                            Vec2::new(rotated_size.0 as f32, rotated_size.1 as f32) * app.zoom;
                         let comp_rect = Rect::from_center_size(comp_screen_pos, size).translate(
                             Vec2::new(rotated_offset.0 * app.zoom, rotated_offset.1 * app.zoom),
                         );

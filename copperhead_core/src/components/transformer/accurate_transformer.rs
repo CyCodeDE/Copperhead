@@ -139,7 +139,9 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
 
             println!(
                 "Node IDs: {:?}, {:?} for winding {}",
-                w.node_a, w.node_b, i + 1
+                w.node_a,
+                w.node_b,
+                i + 1
             );
         }
     }
@@ -182,7 +184,14 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
         }
     }
 
-    fn stamp_nonlinear(&self, current_node_voltages: &ColRef<T>, matrix: &mut MatMut<T>, rhs: &mut ColMut<T>, ctx: &SimulationContext<T>, l_size: usize) {
+    fn stamp_nonlinear(
+        &self,
+        current_node_voltages: &ColRef<T>,
+        matrix: &mut MatMut<T>,
+        rhs: &mut ColMut<T>,
+        ctx: &SimulationContext<T>,
+        l_size: usize,
+    ) {
         if ctx.is_dc_analysis {
             return;
         }
@@ -195,7 +204,11 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
 
         for j in 0..n {
             let aux_idx = Some(self.aux_indices[j]);
-            i_curr[j] = cast::<T, f64>(crate::util::mna::get_voltage(current_node_voltages, aux_idx)).unwrap();
+            i_curr[j] = cast::<T, f64>(crate::util::mna::get_voltage(
+                current_node_voltages,
+                aux_idx,
+            ))
+            .unwrap();
             i_mag += cast::<T, f64>(self.n_turns[j]).unwrap() * i_curr[j];
         }
 
@@ -249,7 +262,7 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
                     aux_j,
                     aux_k,
                     cast::<f64, T>(-g_eq_jk).unwrap(),
-                    l_size
+                    l_size,
                 );
 
                 sum_g_eq_i += g_eq_jk * i_curr[k];
@@ -258,12 +271,7 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
             // equivalent RHS source for the nonlinear inductor
             let v_eq_j = v_ind_j - sum_g_eq_i;
 
-            stamp_vector_element(
-                rhs,
-                aux_j,
-                cast::<f64, T>(v_eq_j).unwrap(),
-                l_size
-            );
+            stamp_vector_element(rhs, aux_j, cast::<f64, T>(v_eq_j).unwrap(), l_size);
         }
     }
 

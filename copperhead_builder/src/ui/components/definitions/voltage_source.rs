@@ -19,7 +19,7 @@
 
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::drawing::{rotate_vec, LabelEngine};
+use crate::ui::drawing::{LabelEngine, rotate_vec};
 use crate::ui::util::{format_si, format_si_single, parse_si};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
 use egui::{Color32, Painter, Pos2, Sense, Stroke, StrokeKind, Ui, Vec2};

@@ -27,13 +27,15 @@ use copperhead_core::components::pentode::{PentodeDef, PentodeFidelity, PentodeT
 use copperhead_core::components::potentiometer::PotentiometerDef;
 use copperhead_core::components::resistor::ResistorDef;
 use copperhead_core::components::switch::SwitchDef;
+use copperhead_core::components::transformer::{
+    Coupling, TransformerDef, TransformerMode, Winding, WindingLocation,
+};
 use copperhead_core::components::transistor::bjt::{BjtDef, BjtModel};
 use copperhead_core::components::triode::{TriodeDef, TriodeFidelity, TriodeType};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
 use copperhead_core::descriptor::ComponentDef;
 use egui::Key;
 use std::path::PathBuf;
-use copperhead_core::components::transformer::{Coupling, TransformerDef, TransformerMode, Winding, WindingLocation};
 
 pub struct PaletteItem {
     pub label: &'static str,
@@ -166,16 +168,14 @@ impl PaletteItem {
                             phase_inverted: false,
                         },
                     ],
-                    couplings: vec![
-                        Coupling {
-                            winding_1: 0,
-                            winding_2: 1,
-                            k: 1.0,
-                        }
-                    ],
+                    couplings: vec![Coupling {
+                        winding_1: 0,
+                        winding_2: 1,
+                        k: 1.0,
+                    }],
                     mode: TransformerMode::Accurate,
                     phi_sat: 1.5e-3, // 1.5 mWb
-                    i_sat: 1., // 1 A
+                    i_sat: 1.,       // 1 A
                 })),
             },
             PaletteItem {

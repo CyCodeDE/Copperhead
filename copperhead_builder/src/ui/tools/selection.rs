@@ -18,9 +18,9 @@
  */
 use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, DragState};
-use egui::{Color32, PointerButton, Pos2, Rect, Vec2};
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::util::{rotate_offset, rotate_size};
+use egui::{Color32, PointerButton, Pos2, Rect, Vec2};
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -39,8 +39,8 @@ pub fn handle(
             // add a small tolerance to the size for easier selection
             let rotated_size = rotate_size(comp.element.size(), comp.rotation);
             let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
-            let size =
-                (Vec2::new(rotated_size.0 as f32, rotated_size.1 as f32) + Vec2::splat(0.5)) * app.zoom;
+            let size = (Vec2::new(rotated_size.0 as f32, rotated_size.1 as f32) + Vec2::splat(0.5))
+                * app.zoom;
             let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
                 rotated_offset.0 * app.zoom,
                 rotated_offset.1 * app.zoom,
@@ -82,8 +82,10 @@ pub fn handle(
                 if hit_body.is_none() {
                     let rotated_size = rotate_size(comp.element.size(), comp.rotation);
                     let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
-                    let size =
-                        Vec2::new(rotated_size.0 as f32 * app.zoom, rotated_size.1 as f32 * app.zoom);
+                    let size = Vec2::new(
+                        rotated_size.0 as f32 * app.zoom,
+                        rotated_size.1 as f32 * app.zoom,
+                    );
                     let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
                         rotated_offset.0 * app.zoom,
                         rotated_offset.1 * app.zoom,
