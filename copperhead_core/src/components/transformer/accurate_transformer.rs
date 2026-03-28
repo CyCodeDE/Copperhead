@@ -21,7 +21,7 @@ use crate::components::transformer::{Coupling, Winding};
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::util::mna::stamp_conductance;
+use crate::util::mna::{get_voltage, stamp_matrix_element, stamp_vector_element};
 use faer::{ColMut, ColRef, MatMut};
 use num_traits::cast;
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ pub struct AccurateTransformerDef {
 }
 
 impl<T: CircuitScalar> Instantiable<T> for AccurateTransformerDef {
-    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+    fn instantiate(&self, _nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let n = self.windings.len();
         let mut n_turns = vec![T::zero(); n];
         let mut l_leak = vec![T::zero(); n];
@@ -116,19 +116,6 @@ impl<T: CircuitScalar> AccurateTransformer<T> {
             i_prev_iter: vec![T::zero(); n],
         }
     }
-
-    fn update_matrices(&mut self, dt: T) {
-        let n = self.windings.len();
-        let three = T::from(3.0).unwrap();
-        let two = T::from(2.0).unwrap();
-        let factor = three / (two * dt);
-
-        for i in 0..n {
-            for j in 0..n {
-                self.r_eq_matrix[i][j] = self.l_matrix[i][j] * factor;
-            }
-        }
-    }
 }
 
 impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
@@ -136,7 +123,7 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
         ComponentLinearity::NonLinear
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         for (i, w) in self.windings.iter().enumerate() {
             let idx_a = if w.node_a.0 == 0 {
                 None
@@ -150,7 +137,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
             };
             self.cached_node_indices[i] = (idx_a, idx_b);
 
-            // print the node ids for debugging
             println!(
                 "Node IDs: {:?}, {:?} for winding {}",
                 w.node_a, w.node_b, i + 1
@@ -175,24 +161,24 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
         self.aux_indices = (start_idx..(start_idx + self.windings.len())).collect();
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
+    fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
         let n = self.windings.len();
 
         for i in 0..n {
             let (idx_a, idx_b) = self.cached_node_indices[i];
             let aux_i = Some(self.aux_indices[i]);
 
-            // 1. Stamp voltage differences into the auxiliary row
-            crate::util::mna::stamp_matrix_element(matrix, aux_i, idx_a, T::one(), 0);
-            crate::util::mna::stamp_matrix_element(matrix, aux_i, idx_b, -T::one(), 0);
+            // Stamp voltage differences into the aux
+            stamp_matrix_element(matrix, aux_i, idx_a, T::one(), 0);
+            stamp_matrix_element(matrix, aux_i, idx_b, -T::one(), 0);
 
-            // 2. Stamp branch current back into the main nodal equations
-            crate::util::mna::stamp_matrix_element(matrix, idx_a, aux_i, T::one(), 0);
-            crate::util::mna::stamp_matrix_element(matrix, idx_b, aux_i, -T::one(), 0);
+            // Stamp branch current back
+            stamp_matrix_element(matrix, idx_a, aux_i, T::one(), 0);
+            stamp_matrix_element(matrix, idx_b, aux_i, -T::one(), 0);
 
-            // 3. Stamp series resistance
+            // Stamp series resistance
             let rs = T::from(self.windings[i].series_resistance).unwrap();
-            crate::util::mna::stamp_matrix_element(matrix, aux_i, aux_i, -rs, 0);
+            stamp_matrix_element(matrix, aux_i, aux_i, -rs, 0);
         }
     }
 
@@ -204,7 +190,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
         let n = self.windings.len();
         let dt = cast::<T, f64>(ctx.dt).unwrap();
 
-        // 1. Extract current branch currents
         let mut i_curr = vec![0.0; n];
         let mut i_mag = 0.0;
 
@@ -214,7 +199,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
             i_mag += cast::<T, f64>(self.n_turns[j]).unwrap() * i_curr[j];
         }
 
-        // 2. Evaluate saturation function
         let i_sat = cast::<T, f64>(self.i_sat).unwrap();
         let phi_sat = cast::<T, f64>(self.phi_sat).unwrap();
 
@@ -224,7 +208,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
 
         let dphi_dimag = (phi_sat / i_sat) * sech2_val;
 
-        // 3. Calculate Flux Linkages and tangent inductance matrix (Jacobian)
         let mut lambda = vec![0.0; n];
         let mut l_diff = vec![vec![0.0; n]; n];
 
@@ -244,7 +227,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
             }
         }
 
-        // 4. BDF2 Discretization & Stamping
         let factor = 3.0 / (2.0 * dt);
 
         for j in 0..n {
@@ -261,8 +243,8 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
                 let aux_k = Some(self.aux_indices[k]);
                 let g_eq_jk = l_diff[j][k] * factor;
 
-                // Stamp Jacobian (equivalent conductance)
-                crate::util::mna::stamp_matrix_element(
+                // equivalent conductance
+                stamp_matrix_element(
                     matrix,
                     aux_j,
                     aux_k,
@@ -273,10 +255,10 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
                 sum_g_eq_i += g_eq_jk * i_curr[k];
             }
 
-            // The equivalent RHS source for the nonlinear inductor
+            // equivalent RHS source for the nonlinear inductor
             let v_eq_j = v_ind_j - sum_g_eq_i;
 
-            crate::util::mna::stamp_vector_element(
+            stamp_vector_element(
                 rhs,
                 aux_j,
                 cast::<f64, T>(v_eq_j).unwrap(),
@@ -308,10 +290,9 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
         let mut i_curr = vec![0.0; n];
         let mut i_mag = 0.0;
 
-        // Extract converged currents and store for the next iteration's convergence check
         for j in 0..n {
             let aux_idx = Some(self.aux_indices[j]);
-            let current = crate::util::mna::get_voltage(current_node_voltages, aux_idx);
+            let current = get_voltage(current_node_voltages, aux_idx);
             self.i_prev_iter[j] = current;
             i_curr[j] = cast::<T, f64>(current).unwrap();
             i_mag += cast::<T, f64>(self.n_turns[j]).unwrap() * i_curr[j];
@@ -337,7 +318,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         let mut probes = Vec::with_capacity(self.windings.len() * 3);
         for i in 0..self.windings.len() {
-            // Expose Voltage, Current, and Power for every winding
             probes.push(ComponentProbe {
                 name: format!("Winding {} Voltage", i + 1),
                 unit: "V".to_string(),
@@ -357,7 +337,7 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
     fn calculate_observables(
         &self,
         node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
+        _ctx: &SimulationContext<T>,
         out_observables: &mut [T],
     ) {
         for i in 0..self.windings.len() {
@@ -366,8 +346,6 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
             let vb = idx_b.map_or(T::zero(), |idx| node_voltages[idx]);
             let v_diff = va - vb;
 
-            // In the auxiliary approach, the winding current is exactly the value
-            // stored in the corresponding auxiliary row of the solution vector.
             let current = node_voltages[self.aux_indices[i]];
             let power = v_diff * current;
 
@@ -381,7 +359,7 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
     fn terminal_currents(
         &self,
         node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
+        _ctx: &SimulationContext<T>,
         out_currents: &mut [T],
     ) {
         for i in 0..self.windings.len() {
@@ -393,7 +371,7 @@ impl<T: CircuitScalar> Component<T> for AccurateTransformer<T> {
         }
     }
 
-    fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
+    fn set_parameter(&mut self, _name: &str, _value: T, _ctx: &SimulationContext<T>) -> bool {
         false
     }
 }

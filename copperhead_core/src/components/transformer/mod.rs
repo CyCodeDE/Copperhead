@@ -59,6 +59,11 @@ pub struct TransformerDef {
     pub mode: TransformerMode,
     pub windings: Vec<Winding>,
     pub couplings: Vec<Coupling>,
+
+    /// Saturation flux in Webers (Wb). Determines the maximum magnetic flux.
+    pub phi_sat: f64,
+    /// Magnetizing current in Amperes (A) at which the core begins to saturate.
+    pub i_sat: f64,
 }
 
 impl<T: CircuitScalar> Instantiable<T> for TransformerDef {
@@ -69,6 +74,8 @@ impl<T: CircuitScalar> Instantiable<T> for TransformerDef {
                 let mut def = AccurateTransformerDef {
                     windings: self.windings.clone(),
                     couplings: self.couplings.clone(),
+                    i_sat: self.i_sat,
+                    phi_sat: self.phi_sat,
                 };
 
                 let mut node_idx = 0;

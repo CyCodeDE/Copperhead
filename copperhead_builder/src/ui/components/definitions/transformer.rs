@@ -118,6 +118,27 @@ impl ComponentUIExt for TransformerDef {
         egui::ScrollArea::vertical()
             .auto_shrink([false, true])
             .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Saturation Current:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.i_sat)
+                            .suffix("A")
+                            .speed(1e-3)
+                            .range(0.0..=f64::INFINITY)
+                            .custom_formatter(|val, _range| format_si_single(val, 3))
+                            .custom_parser(|text| parse_si(text)));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Saturation Flux:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.phi_sat)
+                            .suffix("Wb")
+                            .speed(1e-3)
+                            .range(0.0..=f64::INFINITY)
+                            .custom_formatter(|val, _range| format_si_single(val, 3))
+                            .custom_parser(|text| parse_si(text)));
+                });
+                ui.add_space(10.0);
                 changed |= draw_windings_section(self, ui);
                 ui.add_space(10.0);
                 ui.separator();
