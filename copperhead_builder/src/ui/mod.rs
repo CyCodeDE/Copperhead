@@ -34,6 +34,7 @@ use egui::{Color32, Pos2, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
+use crate::ui::util::deserialize_lossy_vec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
@@ -86,6 +87,13 @@ pub struct VisualComponent {
     pub element: SchematicElement,
     pub pos: GridPos,
     pub rotation: u8, // 0, 1, 2, 3 (90 degree steps)
+}
+
+#[derive(Serialize, Deserialize)]
+struct SaveFile {
+    schematic: Schematic,
+    realtime_mode: bool,
+    simulation_time: f64,
 }
 
 impl VisualComponent {
@@ -147,7 +155,9 @@ impl VisualWire {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Schematic {
+    #[serde(deserialize_with = "deserialize_lossy_vec")]
     pub components: Vec<VisualComponent>,
+    #[serde(deserialize_with = "deserialize_lossy_vec")]
     pub wires: Vec<VisualWire>,
     pub next_component_id: usize,
 }

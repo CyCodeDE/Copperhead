@@ -34,7 +34,6 @@ pub fn handle_properties(app: &mut CircuitApp, ctx: &egui::Context) {
         {
             let mut comp = app.state.schematic.components.remove(idx);
 
-            // break if the component has no properties. For example ground
             if !matches!(comp.element, SchematicElement::Ground(_)) {
                 app.keybinds_locked = true;
 

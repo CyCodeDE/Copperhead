@@ -18,7 +18,7 @@
  */
 
 use crate::simulation::run_simulation_loop;
-use crate::ui::SchematicElement;
+use crate::ui::{SaveFile, SchematicElement};
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::netlist::compile_netlist;
 use crate::ui::{
@@ -347,21 +347,21 @@ impl CircuitApp {
     pub fn save_to_path(&self, path: PathBuf) {
         let mut centered_schematic = self.state.schematic.clone();
         centered_schematic.recenter_schematic();
-        let serialized = serde_json::to_string(&centered_schematic).unwrap();
-        let real_time = self.realtime_mode;
-        let sim_time = self.state.simulation_time;
-        let save_data = (serialized, real_time, sim_time);
-        std::fs::write(path, serde_json::to_string(&save_data).unwrap()).unwrap();
+        let save_data = SaveFile {
+            schematic: centered_schematic,
+            realtime_mode: self.realtime_mode,
+            simulation_time: self.state.simulation_time,
+        };
+        let json = serde_json::to_string_pretty(&save_data).unwrap();
+        std::fs::write(path, json).unwrap();
     }
 
     pub fn load_from_path(&mut self, path: PathBuf) {
         let data = std::fs::read_to_string(&path).unwrap();
-        let (serialized, real_time, sim_time): (String, bool, f64) =
-            serde_json::from_str(&data).unwrap();
-        let schematic: Schematic = serde_json::from_str(&serialized).unwrap();
-        self.state.schematic = schematic;
-        self.realtime_mode = real_time;
-        self.state.simulation_time = sim_time;
+        let save_data: SaveFile = serde_json::from_str(&data).unwrap();
+        self.state.schematic = save_data.schematic;
+        self.realtime_mode = save_data.realtime_mode;
+        self.state.simulation_time = save_data.simulation_time;
         self.is_initialized = false; // force re-initialization
         self.zoom = 30.0;
         self.selected_tool = Tool::Select;

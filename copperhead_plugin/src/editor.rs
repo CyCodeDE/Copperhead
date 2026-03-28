@@ -43,7 +43,11 @@ impl Model for Data {
         event.map(|app_event, _| match app_event {
             FilePickerEvent::Open => {
                 cx.spawn(|cx| {
-                    let file = FileDialog::new().set_title("Select a File").pick_file();
+                    let file = FileDialog::new()
+                        .set_title("Select a File")
+                        .add_filter("Copperhead Netlist", &["cnet"])
+                        .add_filter("All Files", &["*"])
+                        .pick_file();
 
                     if let Some(file) = file {
                         cx.emit(FilePickerEvent::Picked(file.to_path_buf()));

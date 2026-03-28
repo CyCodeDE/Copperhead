@@ -59,6 +59,8 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                             thread::spawn(move || {
                                 let file = rfd::FileDialog::new()
                                     .set_directory(default_path)
+                                    .add_filter("Copperhead Schematic", &["cschem"])
+                                    .add_filter("All Files", &["*"])
                                     .pick_file();
                                 let _ = tx.send(file);
                                 ctx_clone.request_repaint();
@@ -81,7 +83,10 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                             thread::spawn(move || {
                                 let file = rfd::FileDialog::new()
                                     .set_directory(default_path)
-                                    .save_file();
+                                    .add_filter("Copperhead Schematic", &["cschem"])
+                                    .add_filter("All Files", &["*"])
+                                    .save_file()
+                                    .map(|p| if p.extension().is_none() { p.with_extension("cschem") } else { p });
                                 let _ = tx.send(file);
                                 ctx_clone.request_repaint();
                             });
@@ -103,7 +108,10 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                             thread::spawn(move || {
                                 let file = rfd::FileDialog::new()
                                     .set_directory(default_path)
-                                    .save_file();
+                                    .add_filter("Copperhead Netlist", &["cnet"])
+                                    .add_filter("All Files", &["*"])
+                                    .save_file()
+                                    .map(|p| if p.extension().is_none() { p.with_extension("cnet") } else { p });;
                                 let _ = tx.send(file);
                                 ctx_clone.request_repaint();
                             });

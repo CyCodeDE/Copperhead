@@ -18,6 +18,8 @@
  */
 
 use std::path::PathBuf;
+use serde::{Deserialize, Deserializer};
+use serde::de::{DeserializeOwned, SeqAccess, Visitor};
 
 /// Formats values with SI prefixes.
 ///
@@ -213,4 +215,37 @@ pub fn get_config_path() -> PathBuf {
     dirs::config_dir()
         .expect("Could not find the config directory")
         .join("copperhead")
+}
+
+pub fn deserialize_lossy_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    struct LossyVecVisitor<T>(std::marker::PhantomData<T>);
+
+    impl<'de, T: DeserializeOwned> Visitor<'de> for LossyVecVisitor<T> {
+        type Value = Vec<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a JSON array")
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<T>, A::Error> {
+            let mut vec = Vec::new();
+            // Each element is attempted as Option<T> via serde's
+            // built-in error recovery — but that doesn't work directly.
+            // Instead, deserialize each element as serde_json::Value first,
+            // then try converting.
+            while let Some(raw) = seq.next_element::<serde_json::Value>()? {
+                if let Ok(item) = serde_json::from_value::<T>(raw) {
+                    vec.push(item);
+                }
+                // else: silently skip
+            }
+            Ok(vec)
+        }
+    }
+
+    deserializer.deserialize_seq(LossyVecVisitor(std::marker::PhantomData))
 }
