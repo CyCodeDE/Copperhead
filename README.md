@@ -20,11 +20,14 @@ The primary goal of Copperhead is to bridge the gap between circuit design and a
 *   **Components:**
     *   Resistors
     *   Inductors (uncoupled)
+    *   Transformers
     *   Capacitors
     *   Diodes (currently the 1N4148 is the only preset available, more coming soon)
     *   Bipolar junction transistors
     *   Triodes and Pentodes (based on the norman koren models and the ayumi nakabayashi models)
     *   Voltage Sources (AC and DC)
+    *   Potentiometers
+    *   Switches
     *   Net labels
 *   **GUI:** Immediate mode interface built with `egui`.
 *   **Oscilloscope:** Allows measuring voltages between nodes and currents on components and scaling correctly.
