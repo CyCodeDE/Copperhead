@@ -24,6 +24,9 @@ use crate::util::mna::stamp_conductance;
 use faer::ColRef;
 use num_traits::cast;
 use std::collections::HashMap;
+use faer::traits::ext::ComplexFieldExt;
+use crate::parameter::ParamValue;
+use crate::parameter::parser::EvalContext;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ResistorDef {
@@ -45,14 +48,14 @@ pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
     pub node_b: NodeId,
     pub conductance: T,
-    pub resistance: T,
+    pub resistance: ParamValue,
 
     cached_idx_a: Option<usize>,
     cached_idx_b: Option<usize>,
 }
 
 impl<T: CircuitScalar> Resistor<T> {
-    pub fn new(a: NodeId, b: NodeId, resistance: T) -> Self {
+    pub fn new(a: NodeId, b: NodeId, resistance: ParamValue) -> Self {
         // Guard against divide-by-zero
         let conductance = if resistance.abs() < T::from(1e-12).unwrap() {
             // TODO: Treat it as a node-merge instead
@@ -71,6 +74,16 @@ impl<T: CircuitScalar> Resistor<T> {
         }
     }
 
+    fn refresh(&mut self, ctx: &EvalContext) {
+        let resistance = self.resistance.eval(ctx);
+        self.conductance = if resistance.abs() < 1e-12 {
+            // TODO: Treat it as a node-merge instead
+            T::from(1.0e12).unwrap()
+        } else {
+            T::one() / T::from_f64(resistance)
+        };
+    }
+
     fn get_voltage(&self, node: NodeId, solution: &ColRef<T>) -> T {
         if node.0 == 0 {
             T::zero() // Ground
@@ -82,7 +95,11 @@ impl<T: CircuitScalar> Resistor<T> {
 
 impl<T: CircuitScalar> Component<T> for Resistor<T> {
     fn linearity(&self) -> ComponentLinearity {
-        ComponentLinearity::LinearStatic
+        if self.resistance.is_dynamic() {
+            ComponentLinearity::TimeVariant
+        } else {
+            ComponentLinearity::LinearStatic
+        }
     }
 
     fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
@@ -115,7 +132,7 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         );
     }
 
-    fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
+    /*fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
         if name == "resistance" {
             self.resistance = value;
 
@@ -129,6 +146,16 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
             return true;
         }
         false
+    }*/
+
+    fn set_param_value(&mut self, name: &str, pv: ParamValue) -> bool {
+        match name {
+            "resistance" => {
+                self.resistance = pv;
+                true // linearity might have changed, repartition check
+            }
+            _ => false,
+        }
     }
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {

@@ -28,6 +28,7 @@ use crossbeam::channel::{Receiver, Sender};
 use log::info;
 #[cfg(feature = "profiling")]
 use tracy_client::Client;
+use copperhead_core::parameter::ParamSystemBuilder;
 
 pub fn run_simulation_loop(
     rx: Receiver<SimCommand>,

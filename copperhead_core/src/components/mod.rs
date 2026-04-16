@@ -34,6 +34,7 @@ use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
+use crate::parameter::ParamValue;
 
 pub mod audio_probe;
 pub mod capacitor;
@@ -104,7 +105,9 @@ macro_rules! define_circuit_components {
             pub fn stamp_all_time_variant(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>, offset: usize) {
                 $(
                     for comp in &self.$field {
-                        comp.stamp_time_variant(matrix, ctx, offset);
+                        if comp.linearity() == ComponentLinearity::TimeVariant {
+                            comp.stamp_time_variant(matrix, ctx, offset);
+                        }
                     }
                 )*
             }
@@ -475,6 +478,8 @@ pub trait Component<T: CircuitScalar> {
     fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
         false
     }
+
+    fn set_param_value(&mut self, name: &str, pv: ParamValue) -> bool {}
 }
 
 #[derive(Clone, Debug)]
