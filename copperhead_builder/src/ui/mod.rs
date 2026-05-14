@@ -34,6 +34,8 @@ use egui::{Color32, Pos2, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
+use std::sync::Arc;
+use copperhead_core::parameter::ParamSystem;
 use crate::ui::util::deserialize_lossy_vec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
@@ -94,6 +96,8 @@ struct SaveFile {
     schematic: Schematic,
     realtime_mode: bool,
     simulation_time: f64,
+    #[serde(default)]
+    parameters: Vec<ParameterDecl>,
 }
 
 impl VisualComponent {
@@ -319,6 +323,14 @@ pub enum SimCommand {
     },
 }
 
+/// A globally declared simulation parameter (set by the user via a
+/// `ParameterDef` component on the schematic).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParameterDecl {
+    pub name: String,
+    pub default: f64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Netlist {
     /// A list of component ready to be built into the simulation
@@ -327,6 +339,8 @@ pub struct Netlist {
     pub node_map: HashMap<GridPos, NodeId>,
     /// Maps UI Component ID (usize) -> Simulation Component Index (usize)
     pub component_map: HashMap<usize, usize>,
+    /// Global parameters declared by `ParameterDef` schematic elements
+    pub parameters: Vec<ParameterDecl>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -343,6 +357,7 @@ pub struct SimState {
     pub current_sample: usize,
     pub metadata: Option<CircuitMetadata>,
     pub lookup_map: CircuitDataMap,
+    pub param_system: Option<Arc<ParamSystem>>,
 }
 
 pub struct CircuitMetadata {
@@ -468,6 +483,7 @@ impl Default for SimState {
             current_sample: 0,
             metadata: None,
             lookup_map: HashMap::new(),
+            param_system: None,
         }
     }
 }

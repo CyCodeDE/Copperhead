@@ -20,7 +20,7 @@ use crate::ui::SimCommand;
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::components::definitions::SchematicElement;
 use crate::ui::components::palette::PaletteItem;
-use egui::{Button, Checkbox, Frame, Id, Key, Label};
+use egui::{Button, Checkbox, Frame, Id, Key, Label, ScrollArea};
 
 pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
     let running = app.sim_state.running;
@@ -136,8 +136,15 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                 ui.label(format!("State: {:?}", app.selected_tool.get_name()));
             });
 
-            Frame::new().show(ui, |ui| {
-                crate::ui::components::property_panel::show(app, ui);
+
+            ScrollArea::vertical().show(ui, |ui| {
+                Frame::new().show(ui, |ui| {
+                    crate::ui::components::property_panel::show(app, ui);
+                });
+
+                Frame::new().show(ui, |ui| {
+                    crate::ui::components::parameters_panel::show(app, ui);
+                });
             });
         });
 }

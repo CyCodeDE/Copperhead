@@ -55,6 +55,12 @@ impl ComponentUIExt for DiodeDef {
                         DiodeModel::_1N4148,
                         DiodeModel::_1N4148.format_name(),
                     );
+
+                    ui.selectable_value(
+                        &mut self.model,
+                        DiodeModel::_1N4007,
+                        DiodeModel::_1N4007.format_name(),
+                    );
                 });
         });
 

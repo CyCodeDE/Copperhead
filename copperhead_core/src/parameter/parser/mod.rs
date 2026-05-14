@@ -115,6 +115,17 @@ pub struct Program {
 pub const STACK_CAP: usize = 64;
 
 impl Program {
+    /// Returns true if any opcode in this program reads a node voltage
+    /// (`Op::LoadVoltage`). Used by the host to decide whether a component
+    /// holding this formula must promote to `NonLinear` (value depends on
+    /// the solution being iterated) or only `TimeVariant` (value fixed
+    /// within one Newton iteration).
+    pub fn depends_on_voltage(&self) -> bool {
+        self.code
+            .iter()
+            .any(|op| matches!(op, Op::LoadVoltage(_)))
+    }
+
     /// Evaluate the program. Hot path — called per simulation step, possibly
     /// thousands of times per audio buffer.
     ///

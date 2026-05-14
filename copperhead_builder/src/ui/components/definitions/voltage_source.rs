@@ -20,7 +20,7 @@
 use crate::ui::app::{CircuitApp, FileDialogState};
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{LabelEngine, rotate_vec};
-use crate::ui::util::{format_si, format_si_single, parse_si};
+use crate::ui::util::{format_si_single, is_valid_param_str};
 use copperhead_core::components::voltage_source::{VoltageSourceDef, VoltageSourceType};
 use egui::{Color32, Painter, Pos2, Sense, Stroke, StrokeKind, Ui, Vec2};
 
@@ -50,18 +50,17 @@ impl ComponentUIExt for VoltageSourceDef {
     }
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
+        let ps = app.sim_state.param_system.as_deref();
         match self.source_type {
             VoltageSourceType::DC { ref mut voltage } => {
                 ui.horizontal(|ui| {
-                    ui.label("Voltage:");
-                    ui.add(
-                        egui::DragValue::new(voltage)
-                            .speed(0.1)
-                            .range(-f64::INFINITY..=f64::INFINITY)
-                            .suffix("V")
-                            .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
-                    );
+                    ui.label("Voltage (V):");
+                    let resp = ui.text_edit_singleline(voltage);
+                    if resp.lost_focus() {
+                        if !is_valid_param_str(voltage, ps) && ps.is_some() {
+                            ui.colored_label(Color32::RED, "Invalid value or formula");
+                        }
+                    }
                 });
             }
             VoltageSourceType::AC {
@@ -70,37 +69,31 @@ impl ComponentUIExt for VoltageSourceDef {
                 ref mut phase,
             } => {
                 ui.horizontal(|ui| {
-                    ui.label("Voltage:");
-                    ui.add(
-                        egui::DragValue::new(amplitude)
-                            .speed(0.1)
-                            .range(-f64::INFINITY..=f64::INFINITY)
-                            .suffix("V")
-                            .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
-                    );
+                    ui.label("Amplitude (V):");
+                    let resp = ui.text_edit_singleline(amplitude);
+                    if resp.lost_focus() {
+                        if !is_valid_param_str(amplitude, ps) && ps.is_some() {
+                            ui.colored_label(Color32::RED, "Invalid value or formula");
+                        }
+                    }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Frequency:");
-                    ui.add(
-                        egui::DragValue::new(frequency)
-                            .speed(1.0)
-                            .range(0.0..=f64::INFINITY)
-                            .suffix("Hz")
-                            .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
-                    );
+                    ui.label("Frequency (Hz):");
+                    let resp = ui.text_edit_singleline(frequency);
+                    if resp.lost_focus() {
+                        if !is_valid_param_str(frequency, ps) && ps.is_some() {
+                            ui.colored_label(Color32::RED, "Invalid value or formula");
+                        }
+                    }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Phase:");
-                    ui.add(
-                        egui::DragValue::new(phase)
-                            .speed(1.0)
-                            .range(0.0..=360.0)
-                            .suffix("°")
-                            .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
-                    );
+                    ui.label("Phase (°):");
+                    let resp = ui.text_edit_singleline(phase);
+                    if resp.lost_focus() {
+                        if !is_valid_param_str(phase, ps) && ps.is_some() {
+                            ui.colored_label(Color32::RED, "Invalid value or formula");
+                        }
+                    }
                 });
             }
             VoltageSourceType::AudioBuffer { ref mut file_path } => {
@@ -149,7 +142,6 @@ impl ComponentUIExt for VoltageSourceDef {
                     let tx = app.file_sender.clone();
                     let ctx_clone = ui.ctx().clone();
 
-                    // Spawn RFD thread
                     std::thread::spawn(move || {
                         let file = rfd::FileDialog::new()
                             .add_filter("Audio", &["wav", "mp3", "flac"])
@@ -200,7 +192,6 @@ impl ComponentUIExt for VoltageSourceDef {
         let shifted_rotation = (rotation + 1) % 4;
         let shifted_size = (self.size().1, self.size().0);
 
-        // We lie to the engine about the rotation just for the layout logic
         let engine = LabelEngine::new(
             painter,
             center,
@@ -211,27 +202,31 @@ impl ComponentUIExt for VoltageSourceDef {
         );
 
         let value = match &self.source_type {
-            VoltageSourceType::DC { voltage } => format_si(&[(*voltage, "V")], 0.1, 2),
-            VoltageSourceType::AC {
-                frequency,
-                amplitude,
-                phase,
-            } => format_si(
-                &[(*amplitude, "V"), (*frequency, "Hz"), (*phase, "°")],
-                0.1,
-                2,
-            ),
-            VoltageSourceType::AudioBuffer { file_path } => {
-                if let Some(file_name) = file_path.file_name() {
-                    if let Some(file_str) = file_name.to_str() {
-                        file_str.to_string()
-                    } else {
-                        String::new()
-                    }
+            VoltageSourceType::DC { voltage } => {
+                if let Ok(v) = voltage.trim().parse::<f64>() {
+                    format_si_single(v, 2) + "V"
                 } else {
-                    String::new()
+                    voltage.clone() + "V"
                 }
             }
+            VoltageSourceType::AC { amplitude, frequency, .. } => {
+                let amp_str = if let Ok(v) = amplitude.trim().parse::<f64>() {
+                    format_si_single(v, 2) + "V"
+                } else {
+                    amplitude.clone() + "V"
+                };
+                let freq_str = if let Ok(v) = frequency.trim().parse::<f64>() {
+                    format_si_single(v, 2) + "Hz"
+                } else {
+                    frequency.clone() + "Hz"
+                };
+                format!("{amp_str} {freq_str}")
+            }
+            VoltageSourceType::AudioBuffer { file_path } => file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string(),
         };
 
         engine.draw_axial_labels(name, &value);
@@ -306,10 +301,7 @@ fn draw_ac_source(
     let end = center + rotate_vec(Vec2::new(wave_width, 0.0) * zoom, rotation);
 
     let c1 = center
-        + rotate_vec(
-            Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom,
-            rotation,
-        );
+        + rotate_vec(Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom, rotation);
     let c2 = center + rotate_vec(Vec2::new(wave_width / 2.0, wave_amp * 2.0) * zoom, rotation);
 
     let bezier = egui::epaint::CubicBezierShape::from_points_stroke(
@@ -332,20 +324,16 @@ fn draw_audio_source(
     let radius = 0.4;
     let stroke = Stroke::new(2.0, stroke_color);
 
-    // Draw the source body
     painter.circle(center, radius * zoom, fill_color, stroke);
 
-    // Draw the top pin
     let top_pin = rotate_vec(Vec2::new(0.0, -1.0) * zoom, rotation);
     let top_circle = rotate_vec(Vec2::new(0.0, -radius) * zoom, rotation);
     painter.line_segment([center + top_pin, center + top_circle], stroke);
 
-    // Draw the bottom pin
     let bot_pin = rotate_vec(Vec2::new(0.0, 1.0) * zoom, rotation);
     let bot_circle = rotate_vec(Vec2::new(0.0, radius) * zoom, rotation);
     painter.line_segment([center + bot_pin, center + bot_circle], stroke);
 
-    // Draw an irregular, jagged waveform to represent arbitrary audio samples
     let wave_points = vec![
         Vec2::new(-0.25, 0.0),
         Vec2::new(-0.15, -0.15),
@@ -355,12 +343,10 @@ fn draw_audio_source(
         Vec2::new(0.25, 0.0),
     ];
 
-    // Transform points based on position, zoom, and rotation
     let transformed_points: Vec<Pos2> = wave_points
         .into_iter()
         .map(|p| center + rotate_vec(p * zoom, rotation))
         .collect();
 
-    // Draw the continuous jagged line
     painter.add(egui::epaint::PathShape::line(transformed_points, stroke));
 }

@@ -85,7 +85,7 @@ pub fn build_circuit(
         }
     }
 
-    let processor = CircuitProcessor::new(circuit, desired_sample_rate, dt)?;
+    let (processor, _param_system) = CircuitProcessor::new(circuit, desired_sample_rate, dt)?;
 
     // Find the ComponentId of the AudioSource
     let realtime_input_ids: Vec<ComponentId> = processor

@@ -20,6 +20,7 @@
 use std::path::PathBuf;
 use serde::{Deserialize, Deserializer};
 use serde::de::{DeserializeOwned, SeqAccess, Visitor};
+use copperhead_core::parameter::ParamSystem;
 
 /// Formats values with SI prefixes.
 ///
@@ -184,6 +185,17 @@ pub fn format_si_single(val: f64, precision: usize) -> String {
     let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
 
     format!("{}{}", s, prefix)
+}
+
+/// Returns true if `s` is a valid numeric component parameter — a plain float,
+/// an SI-prefixed value (e.g. "1k", "10n", "4.7µ"), or a compilable formula.
+pub fn is_valid_param_str(s: &str, param_system: Option<&ParamSystem>) -> bool {
+    if parse_si(s.trim()).is_some() {
+        return true;
+    }
+    param_system
+        .map(|ps| ps.compile(s.trim()).is_ok())
+        .unwrap_or(false)
 }
 
 pub fn rotate_offset(offset: (f32, f32), rotation: u8) -> (f32, f32) {

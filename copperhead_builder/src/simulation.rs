@@ -21,14 +21,14 @@ use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentMetadata, SimCommand};
 use copperhead_core::audio::write_to_wav;
 use copperhead_core::circuit::{Circuit, CircuitElement};
-use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{SimBatchData, SimulationContext};
+use copperhead_core::parameter::ParamSystemBuilder;
 use copperhead_core::processor::CircuitProcessor;
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
+use std::sync::Arc;
 #[cfg(feature = "profiling")]
 use tracy_client::Client;
-use copperhead_core::parameter::ParamSystemBuilder;
 
 pub fn run_simulation_loop(
     rx: Receiver<SimCommand>,
@@ -76,12 +76,21 @@ pub fn run_simulation_loop(
                         usize::MAX,
                         "usize overflow protection: Did you forget to set the maximum run time before loading the circuit?"
                     );
-                    //let mut s = state.write();
                     state.send(StateUpdate::UpdateRunning(false));
                     running = false;
                     current_step = 0;
 
+                    // Pass 1: build the ParamSystem from declared global parameters.
+                    let mut psb = ParamSystemBuilder::new();
+                    for decl in &netlist.parameters {
+                        psb.declare_param(&decl.name, decl.default);
+                    }
+                    let param_system = Arc::new(psb.build());
+
+                    // Pass 2: instantiate components; inject param_system so
+                    // formula-bearing *Def structs can compile their strings.
                     let mut new_ckt = Circuit::<f64>::new();
+                    new_ckt.param_system = Some(param_system.clone());
                     for instr in netlist.entries {
                         instr.component.instantiate(
                             instr.nodes.as_slice(),
@@ -91,7 +100,8 @@ pub fn run_simulation_loop(
                         );
                     }
 
-                    processor = Some(CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap());
+                    let (ckt_processor, param_system) = CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap();
+                    processor = Some(ckt_processor);
 
                     let mut comp_meta = Vec::new();
                     let mut total_terminals = 0;
@@ -117,7 +127,7 @@ pub fn run_simulation_loop(
                     state.send(StateUpdate::ClearHistory);
                     state.send(StateUpdate::CircuitLoaded(CircuitMetadata {
                         components: comp_meta,
-                    }));
+                    }, param_system));
 
                     active_batch = SimBatchData {
                         times: Vec::with_capacity(0),

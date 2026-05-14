@@ -23,7 +23,7 @@ use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use copperhead_core::components::switch::SwitchDef;
 use crossbeam::channel::Sender;
-use egui::{Checkbox, CollapsingHeader, Color32, Painter, Pos2, Stroke, Ui, Vec2};
+use egui::{Color32, CollapsingHeader, Painter, Pos2, Stroke, Ui, Vec2};
 
 impl ComponentUIExt for SwitchDef {
     fn prefix(&self) -> &'static str {
@@ -64,24 +64,52 @@ impl ComponentUIExt for SwitchDef {
         })
         .default_open(true)
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let response = ui.add(Checkbox::new(&mut self.closed, "Closed"));
+            // Show a checkbox when the value is a simple constant; otherwise show a formula hint.
+            let is_formula = !matches!(
+                self.closed.trim().to_lowercase().as_str(),
+                "0" | "1" | "true" | "false"
+            ) && self.closed.trim().parse::<f64>().is_err();
 
-                if running
-                    && (response.drag_stopped() || response.lost_focus() || response.clicked())
-                {
-                    let _ = tx.send(SimCommand::UpdateValue {
-                        component_idx: id.expect("Component idx shouldn't be None"),
-                        name: "closed".to_string(),
-                        value: if self.closed { 1.0 } else { 0.0 },
-                    });
+            if is_formula {
+                ui.label(format!("Closed: {} (formula)", self.closed));
+            } else {
+                let mut is_closed = self.is_closed();
+                let response = ui.add(egui::Checkbox::new(&mut is_closed, "Closed"));
+                if response.changed() {
+                    self.closed = if is_closed { "1".to_string() } else { "0".to_string() };
+                    if running {
+                        let _ = tx.send(SimCommand::UpdateValue {
+                            component_idx: id.expect("Component idx shouldn't be None"),
+                            name: "closed".to_string(),
+                            value: if is_closed { 1.0 } else { 0.0 },
+                        });
+                    }
                 }
-            });
+            }
         });
     }
 
-    fn draw_modal(&mut self, _app: &mut CircuitApp, ui: &mut Ui) -> bool {
-        ui.horizontal(|ui| ui.add(Checkbox::new(&mut self.closed, "Closed")));
+    fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
+        ui.horizontal(|ui| {
+            ui.label("Closed (0/1 or formula):");
+            let resp = ui.text_edit_singleline(&mut self.closed);
+            if resp.lost_focus() {
+                let is_literal = matches!(
+                    self.closed.trim().to_lowercase().as_str(),
+                    "0" | "1" | "true" | "false"
+                ) || self.closed.trim().parse::<f64>().is_ok();
+                let is_formula = !is_literal
+                    && app
+                        .sim_state
+                        .param_system
+                        .as_ref()
+                        .map(|ps| ps.compile(&self.closed).is_ok())
+                        .unwrap_or(false);
+                if !is_literal && !is_formula && app.sim_state.param_system.is_some() {
+                    ui.colored_label(Color32::RED, "Invalid value or formula");
+                }
+            }
+        });
         false
     }
 
@@ -99,18 +127,15 @@ impl ComponentUIExt for SwitchDef {
         let pin_l = Vec2::new(-1., 0.0);
         let pin_r = Vec2::new(0., 0.0);
 
-        // Draw lever
-        let lever_end = if self.closed {
+        let closed = self.is_closed();
+        let lever_end = if closed {
             pin_r
         } else {
-            // Open: angled up by ~30 degrees
-            // Length should visually cover the gap
-            let len = 1.; // Gap is 0.5
+            let len = 1.;
             let angle = -30.0f32.to_radians();
             Vec2::new(pin_l.x + len * angle.cos(), pin_l.y + len * angle.sin())
         };
 
-        // Lever line
         painter.line_segment(
             [
                 center + rotate_vec(pin_l * zoom, rotation),
@@ -123,9 +148,8 @@ impl ComponentUIExt for SwitchDef {
     fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
         let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
 
-        let state_label = if self.closed { "Closed" } else { "Open" };
+        let state_label = if self.is_closed() { "Closed" } else { "Open" };
 
-        // Position labels similarly to potentiometer, avoiding the component body
         let anchor = match rotation % 4 {
             0 => Anchor::Top,
             1 => Anchor::Right,

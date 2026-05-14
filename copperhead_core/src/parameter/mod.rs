@@ -74,11 +74,40 @@ use std::sync::atomic::Ordering;
 use atomic_float::AtomicF64;
 use portable_atomic::AtomicU64;
 
-use parser::{compile, BuiltinValues, CompileError, EvalContext, Program, SymbolTable};
+use parser::{compile, BuiltinValues, CompileError, Program, SymbolTable};
 
 // ---------------------------------------------------------------------------
 // Shared, lock-free parameter storage
 // ---------------------------------------------------------------------------
+
+/// The slim per-step context handed to component code on the simulation
+/// thread. Holds everything a [`ParamValue::eval`] needs *outside* of
+/// per-formula state:
+/// - `voltages`: snapshot of node voltages in the layout established by
+///   `ParamSystemBuilder::declare_voltage`.
+/// - `builtins`: scalar inputs (sample rate, dt, time, ...).
+///
+/// Per-formula state (smoothing) lives inside each `FormulaInstance`.
+/// Atomic param/enum reads happen out-of-band via the `Arc<ParamTable>` that
+/// each `FormulaInstance` owns.
+pub struct ComponentEvalCtx<'a> {
+    pub voltages: &'a [f64],
+    pub builtins: &'a BuiltinValues,
+}
+
+/// Outcome of mutating a parameter on a component. The simulation thread
+/// uses this to decide what to do with the matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildKind {
+    /// Value swapped, no matrix change required (e.g. b-only voltage source).
+    None,
+    /// Static matrix needs re-stamping but the L/N partitioning is unchanged
+    /// (e.g. a constant resistor's value changed).
+    Restamp,
+    /// Linearity changed — must rerun `Circuit::prepare()` to re-partition
+    /// and re-factorise A_LL.
+    Repartition,
+}
 
 pub enum ParamValue {
     Constant(f64),
@@ -86,15 +115,43 @@ pub enum ParamValue {
 }
 
 impl ParamValue {
-    pub fn eval(&mut self, ctx: &EvalContext) -> f64 {
+    pub fn constant(v: f64) -> Self {
+        Self::Constant(v)
+    }
+
+    pub fn formula(program: Arc<Program>, table: Arc<ParamTable>) -> Self {
+        Self::Formula(FormulaInstance::new(program, table))
+    }
+
+    /// Hot path: evaluate to a concrete f64.
+    /// For constants this is a plain read; for formulas it runs the bytecode.
+    pub fn eval(&mut self, ctx: &ComponentEvalCtx) -> f64 {
         match self {
             Self::Constant(v) => *v,
             Self::Formula(f) => f.eval(ctx.voltages, ctx.builtins),
         }
     }
 
+    /// True if this value is formula-driven (changes between samples).
     pub fn is_dynamic(&self) -> bool {
         matches!(self, Self::Formula(_))
+    }
+
+    /// True if this value reads a node voltage (and so participates in
+    /// the Newton-Raphson iteration as a user-defined nonlinearity).
+    pub fn depends_on_voltage(&self) -> bool {
+        match self {
+            Self::Constant(_) => false,
+            Self::Formula(f) => f.depends_on_voltage(),
+        }
+    }
+
+    /// Returns `Some(v)` if this value is a plain constant.
+    pub fn as_constant(&self) -> Option<f64> {
+        match self {
+            Self::Constant(v) => Some(*v),
+            Self::Formula(_) => None,
+        }
     }
 }
 
@@ -346,19 +403,26 @@ pub struct FormulaInstance {
     program: Arc<Program>,
     table: Arc<ParamTable>,
     smooth_state: Vec<f64>,
+    depends_on_voltage: bool,
 }
 
 impl FormulaInstance {
     pub fn new(program: Arc<Program>, table: Arc<ParamTable>) -> Self {
         let smooth_state = vec![0.0; program.smooth_slots as usize];
-        Self { program, table, smooth_state }
+        let depends_on_voltage = program.depends_on_voltage();
+        Self {
+            program,
+            table,
+            smooth_state,
+            depends_on_voltage,
+        }
     }
 
     /// Hot path. `voltages` is the solver's current voltage slice in the
     /// layout established by `ParamSystemBuilder::declare_voltage`.
     #[inline]
     pub fn eval(&mut self, voltages: &[f64], builtins: &BuiltinValues) -> f64 {
-        let mut ctx = EvalContext {
+        let mut ctx = parser::EvalContext {
             params: self.table.values_slice(),
             enums: self.table.enums_slice(),
             voltages,
@@ -368,9 +432,44 @@ impl FormulaInstance {
         self.program.eval(&mut ctx)
     }
 
+    /// True if the underlying program reads any node voltage.
+    /// Cached at construction so component linearity decisions are O(1).
+    #[inline]
+    pub fn depends_on_voltage(&self) -> bool {
+        self.depends_on_voltage
+    }
+
     pub fn reset_smoothing(&mut self) {
         for s in &mut self.smooth_state {
             *s = 0.0;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
+
+/// Resolve a user-supplied string into a [`ParamValue`] at circuit-build time.
+///
+/// - Plain number strings (`"10000"`, `"1e-6"`) → `ParamValue::Constant`.
+/// - Everything else is compiled as a formula against the global symbols; on
+///   compile failure a warning is printed and `ParamValue::Constant(0.0)` is
+///   returned as a safe fallback.
+pub fn resolve_param_value(src: &str, param_system: &ParamSystem) -> ParamValue {
+    let trimmed = src.trim();
+    if let Ok(v) = trimmed.parse::<f64>() {
+        return ParamValue::Constant(v);
+    }
+    // Handle SI prefix notation ("1k" → 1000, "10n" → 1e-8, "4u7" not supported — only "4.7u")
+    if let Some(v) = crate::util::parse_si(trimmed) {
+        return ParamValue::Constant(v);
+    }
+    match param_system.compile(trimmed) {
+        Ok(prog) => ParamValue::formula(Arc::new(prog), param_system.table()),
+        Err(e) => {
+            eprintln!("copperhead: failed to compile formula {:?}: {}", trimmed, e);
+            ParamValue::Constant(0.0)
         }
     }
 }

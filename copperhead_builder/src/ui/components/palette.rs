@@ -51,27 +51,19 @@ impl PaletteItem {
                 label: "Resistor",
                 shortcut_key: Some(Key::R),
                 shortcut_name: "R",
-                element: SchematicElement::Core(ComponentDef::Resistor(ResistorDef {
-                    resistance: 1000.,
-                })),
+                element: SchematicElement::Core(ComponentDef::Resistor(ResistorDef::new(1000.))),
             },
             PaletteItem {
                 label: "Capacitor",
                 shortcut_key: Some(Key::C),
                 shortcut_name: "C",
-                element: SchematicElement::Core(ComponentDef::Capacitor(CapacitorDef {
-                    capacitance: 1e-6,
-                    esr: 0.,
-                })),
+                element: SchematicElement::Core(ComponentDef::Capacitor(CapacitorDef::new(1e-6, 0.))),
             },
             PaletteItem {
                 label: "Inductor",
                 shortcut_key: Some(Key::L),
                 shortcut_name: "L",
-                element: SchematicElement::Core(ComponentDef::Inductor(InductorDef {
-                    inductance: 1e-3,
-                    series_resistance: 0.,
-                })),
+                element: SchematicElement::Core(ComponentDef::Inductor(InductorDef::new(1e-3, 0.))),
             },
             PaletteItem {
                 label: "Diode",
@@ -112,7 +104,7 @@ impl PaletteItem {
                 shortcut_key: Some(Key::Y),
                 shortcut_name: "Y",
                 element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef {
-                    source_type: VoltageSourceType::DC { voltage: 5. },
+                    source_type: VoltageSourceType::DC { voltage: "5".to_string() },
                 })),
             },
             PaletteItem {
@@ -121,9 +113,9 @@ impl PaletteItem {
                 shortcut_name: "A",
                 element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef {
                     source_type: VoltageSourceType::AC {
-                        amplitude: 5.,
-                        frequency: 60.,
-                        phase: 0.,
+                        amplitude: "5".to_string(),
+                        frequency: "60".to_string(),
+                        phase: "0".to_string(),
                     },
                 })),
             },
@@ -195,8 +187,8 @@ impl PaletteItem {
                 shortcut_key: None,
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::Potentiometer(PotentiometerDef {
-                    resistance: 1000.,
-                    position: 0.0,
+                    resistance: "1000".to_string(),
+                    position: "0".to_string(),
                     comment: None,
                     max: 1.0,
                     min: 0.0,
@@ -208,7 +200,7 @@ impl PaletteItem {
                 shortcut_key: None,
                 shortcut_name: "",
                 element: SchematicElement::Core(ComponentDef::Switch(SwitchDef {
-                    closed: true,
+                    closed: "1".to_string(),
                     comment: None,
                 })),
             },

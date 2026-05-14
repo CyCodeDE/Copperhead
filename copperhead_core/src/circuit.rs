@@ -17,22 +17,21 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::components::capacitor::Capacitor;
-use crate::components::resistor::Resistor;
 use crate::components::{CircuitComponents, Component, ComponentId, InsertIntoSoA};
 use crate::model::SimBatchData;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
+use crate::parameter::parser::BuiltinValues;
+use crate::parameter::{ComponentEvalCtx, ParamSystem};
 use faer::dyn_stack::{MemBuffer, MemStack};
-use faer::linalg::lu::full_pivoting::factor::lu_in_place;
 use faer::linalg::solvers::PartialPivLu;
-use faer::matrix_free::LinOp;
-use faer::perm::{Perm, PermRef};
+use faer::perm::PermRef;
 use faer::prelude::Solve;
 use faer::{Accum, Col, Conj, Mat, Par, Spec};
-use log::{debug, error, info, trace};
+use log::error;
 use petgraph::graph::NodeIndex;
-use petgraph::prelude::{EdgeRef, UnGraph};
-use std::collections::{HashMap, HashSet};
+use petgraph::prelude::UnGraph;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 const GMIN: f64 = 1e-12;
 const MAX_NR_ITERATIONS: usize = 50;
@@ -107,6 +106,26 @@ pub struct Circuit<T: CircuitScalar> {
 
     pub total_terminals: usize,
     pub total_observables: usize,
+
+    /// Shared parameter system. Created at netlist build time and cloned
+    /// into both the simulation thread (for formula evaluation) and the
+    /// UI (for direct atomic writes to the table). `None` if the circuit
+    /// has no formula-driven parameters.
+    pub param_system: Option<Arc<ParamSystem>>,
+
+    /// Per-step builtin scalars (sample_rate, dt, time, ...) handed to
+    /// every formula evaluator via `ComponentEvalCtx`.
+    pub builtins: BuiltinValues,
+
+    /// Snapshot of node voltages laid out in the order established by
+    /// `ParamSystemBuilder::declare_voltage`. Refreshed from the solver's
+    /// solution before each refresh pass. Length = `param_system.voltage_count()`
+    /// (or 0 when there's no parameter system).
+    pub voltage_view: Vec<f64>,
+
+    /// `voltage_taps[i]` = matrix row index that supplies `voltage_view[i]`.
+    /// Built in `prepare()` from `param_system` and the partition's node map.
+    pub voltage_taps: Vec<usize>,
 }
 
 pub struct SolverState<T: CircuitScalar> {
@@ -177,7 +196,48 @@ impl<T: CircuitScalar> Circuit<T> {
             step_count: 0,
             total_terminals: 0,
             total_observables: 0,
+
+            param_system: None,
+            builtins: BuiltinValues::default(),
+            voltage_view: Vec::new(),
+            voltage_taps: Vec::new(),
         }
+    }
+
+    /// Refresh `voltage_view` from the given solution column. The `i`-th
+    /// entry of `voltage_view` is the voltage at the matrix row index
+    /// `voltage_taps[i]`. Callers update this either from `previous_solution`
+    /// (start of step) or `current_solution` (each Newton iteration) before
+    /// running a refresh pass.
+    ///
+    /// Static helper so callers can borrow `voltage_view`/`voltage_taps`
+    /// and the chosen solution column as disjoint fields of `self`
+    /// without going through `&mut self`.
+    #[inline]
+    fn refresh_voltage_view_into(out: &mut [f64], taps: &[usize], solution: &Col<T>) {
+        let n = solution.nrows();
+        for (i, &row_idx) in taps.iter().enumerate() {
+            let v = if row_idx < n {
+                solution[row_idx]
+            } else {
+                T::zero()
+            };
+            out[i] = v.to_f64().unwrap_or(0.0);
+        }
+    }
+
+    /// Update the per-step `BuiltinValues` from the given dt and the
+    /// circuit's current time/step counters. Called once per audio sample
+    /// before any formula evaluation.
+    #[inline]
+    fn update_builtins(&mut self, dt: T) {
+        let dt_f = dt.to_f64().unwrap_or(0.0);
+        self.builtins.time_step = dt_f;
+        self.builtins.sample_rate = if dt_f > 0.0 { 1.0 / dt_f } else { 0.0 };
+        self.builtins.simulation_time = self.time.to_f64().unwrap_or(0.0);
+        self.builtins.step_index = self.step_count as f64;
+        // BPM and oversampling are application-wide settings; left at
+        // their defaults (0.0 and 1.0 from BuiltinValues::default()).
     }
 
     pub fn add_component<C>(&mut self, component: C)
@@ -237,6 +297,23 @@ impl<T: CircuitScalar> Circuit<T> {
 
         self.components
             .stamp_all_static(&mut matrix_a.as_mut(), &ctx);
+
+        // Set up voltage probe taps. Each declared voltage in the param
+        // system maps a name -> u16; the value at that index is whatever
+        // the partition placed at the named NodeId. We don't (yet) carry
+        // the name -> NodeId map from the builder, so for now this is
+        // populated as an empty vector when no probes have been wired up.
+        // TODO: wire NodeId resolution from the builder side and look up
+        // the matrix row for each declared voltage probe here.
+        let voltage_count = self
+            .param_system
+            .as_ref()
+            .map(|sys| sys.voltage_count())
+            .unwrap_or(0);
+        self.voltage_view = vec![0.0; voltage_count];
+        if self.voltage_taps.len() != voltage_count {
+            self.voltage_taps = vec![0; voltage_count];
+        }
 
         if is_dc {
             let gmin = T::from(GMIN).unwrap();
@@ -391,6 +468,7 @@ impl<T: CircuitScalar> Circuit<T> {
 
         self.time = T::zero();
         self.prepare(dc_ctx.dt, true);
+        self.update_builtins(dt);
 
         let state = match &mut self.solver_state {
             Some(s) => s,
@@ -415,7 +493,26 @@ impl<T: CircuitScalar> Circuit<T> {
             state.workspace.b_full[i] = T::zero();
         }
 
-        // Stamp Dynamic (with empty previous history for DC)
+        // Per-step parameter refresh: builtins reflect dt + simulation
+        // time + step index. For DC analysis we set time = 0; voltage
+        // probes have nothing meaningful to read yet.
+        Self::refresh_voltage_view_into(
+            &mut self.voltage_view,
+            &self.voltage_taps,
+            &self.previous_solution,
+        );
+        {
+            let eval_ctx_step = ComponentEvalCtx {
+                voltages: &self.voltage_view,
+                builtins: &self.builtins,
+            };
+            self.components
+                .refresh_all_per_step(&eval_ctx_step, &dc_ctx);
+        }
+
+        // Stamp Dynamic (with empty previous history for DC).
+        // `state` stays valid: refresh_all_per_step only touched
+        // self.components, not self.solver_state.
         self.components.stamp_all_dynamic(
             &empty_prev.as_ref(),
             &mut state.workspace.b_full.as_mut(),
@@ -481,6 +578,31 @@ impl<T: CircuitScalar> Circuit<T> {
                     .workspace
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
+
+                // Per-iteration parameter refresh: components whose
+                // formulas read a node voltage need fresh values reflecting
+                // the latest x_n guess. We splice x_n back into
+                // current_solution before refreshing the voltage view.
+                // `state` (which borrows self.solver_state) stays valid
+                // across the refresh call because refresh_all_per_iter
+                // touches only self.components — a disjoint field.
+                self.current_solution
+                    .as_mut()
+                    .subrows_mut(l_size, n_size)
+                    .copy_from(&state.workspace.x_n);
+                Self::refresh_voltage_view_into(
+                    &mut self.voltage_view,
+                    &self.voltage_taps,
+                    &self.current_solution,
+                );
+                {
+                    let eval_ctx_iter = ComponentEvalCtx {
+                        voltages: &self.voltage_view,
+                        builtins: &self.builtins,
+                    };
+                    self.components
+                        .refresh_all_per_iter(&eval_ctx_iter, &dc_ctx);
+                }
 
                 // Stamp Time-Variant components
                 self.components.stamp_all_time_variant(
@@ -596,6 +718,7 @@ impl<T: CircuitScalar> Circuit<T> {
     }
 
     pub fn solve_step(&mut self, dt: T) -> SimulationContext<T> {
+        self.update_builtins(dt);
         let state = match &mut self.solver_state {
             Some(s) => s,
             None => panic!("Solver state not initialized!"),
@@ -637,7 +760,25 @@ impl<T: CircuitScalar> Circuit<T> {
             state.workspace.b_full[i] = T::zero();
         }
 
-        // Stamp Dynamic (Capacitor/Inductor history)
+        // Per-step parameter refresh: hoist non-voltage-dependent formula
+        // evaluations out of the NR loop. Use previous_solution for the
+        // voltage view since the solution for this step doesn't exist yet.
+        Self::refresh_voltage_view_into(
+            &mut self.voltage_view,
+            &self.voltage_taps,
+            &self.previous_solution,
+        );
+        {
+            let eval_ctx_step = ComponentEvalCtx {
+                voltages: &self.voltage_view,
+                builtins: &self.builtins,
+            };
+            self.components.refresh_all_per_step(&eval_ctx_step, &ctx);
+        }
+
+        // Stamp Dynamic (Capacitor/Inductor history).
+        // `state` stays valid: refresh_all_per_step only touched
+        // self.components, not self.solver_state.
         // dynamic history depends on t-1
         self.components.stamp_all_dynamic(
             &self.previous_solution.as_ref(),
@@ -702,6 +843,30 @@ impl<T: CircuitScalar> Circuit<T> {
                     .workspace
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
+
+                // Per-iteration parameter refresh: voltage-dependent
+                // formulas need to see the latest x_n. Splice x_n back
+                // into current_solution before refreshing the voltage view.
+                // `state` stays valid across the refresh call because
+                // refresh_all_per_iter touches only self.components — a
+                // disjoint field.
+                self.current_solution
+                    .as_mut()
+                    .subrows_mut(state.l_size, state.n_size)
+                    .copy_from(&state.workspace.x_n);
+                Self::refresh_voltage_view_into(
+                    &mut self.voltage_view,
+                    &self.voltage_taps,
+                    &self.current_solution,
+                );
+                {
+                    let eval_ctx_iter = ComponentEvalCtx {
+                        voltages: &self.voltage_view,
+                        builtins: &self.builtins,
+                    };
+                    self.components
+                        .refresh_all_per_iter(&eval_ctx_iter, &ctx);
+                }
 
                 // Stamp Time-Variant components
                 self.components.stamp_all_time_variant(

@@ -52,9 +52,10 @@ impl CircuitApp {
                 StateUpdate::ClearHistory => {
                     self.sim_state.history.clear();
                 }
-                StateUpdate::CircuitLoaded(metadata) => {
+                StateUpdate::CircuitLoaded(metadata, param_system) => {
                     self.sim_state.lookup_map = handle_circuit_loaded(&metadata);
                     self.sim_state.metadata = Some(metadata);
+                    self.sim_state.param_system = Some(param_system);
                 }
             }
         }

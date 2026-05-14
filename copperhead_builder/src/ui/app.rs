@@ -31,6 +31,8 @@ use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::sync::Arc;
+use copperhead_core::parameter::ParamSystem;
 
 pub struct AppTheme {
     pub background: Color32,
@@ -102,6 +104,8 @@ pub struct UndoStack<T> {
 pub struct ProjectState {
     pub schematic: Schematic,
     pub simulation_time: f64,
+    /// Global parameters available to component formulas.
+    pub parameters: Vec<crate::ui::ParameterDecl>,
 }
 
 pub enum DragState {
@@ -207,7 +211,7 @@ pub struct CircuitApp {
 }
 
 pub enum StateUpdate {
-    CircuitLoaded(CircuitMetadata),
+    CircuitLoaded(CircuitMetadata, Arc<ParamSystem>),
     SendHistory(SimBatchData, usize),
     UpdateRunning(bool),
     ClearHistory,
@@ -233,6 +237,7 @@ impl CircuitApp {
             current_sample: 0,
             lookup_map: HashMap::new(),
             metadata: None,
+            param_system: None,
         };
 
         // Spawn simulation thread
@@ -309,6 +314,7 @@ impl CircuitApp {
             state: ProjectState {
                 schematic: Schematic::default(),
                 simulation_time: 1.0,
+                parameters: Vec::new(),
             },
             temp_state_snapshot: None,
             //schematic: Schematic::default(),
@@ -351,6 +357,7 @@ impl CircuitApp {
             schematic: centered_schematic,
             realtime_mode: self.realtime_mode,
             simulation_time: self.state.simulation_time,
+            parameters: self.state.parameters.clone(),
         };
         let json = serde_json::to_string_pretty(&save_data).unwrap();
         std::fs::write(path, json).unwrap();
@@ -362,6 +369,7 @@ impl CircuitApp {
         self.state.schematic = save_data.schematic;
         self.realtime_mode = save_data.realtime_mode;
         self.state.simulation_time = save_data.simulation_time;
+        self.state.parameters = save_data.parameters;
         self.is_initialized = false; // force re-initialization
         self.zoom = 30.0;
         self.selected_tool = Tool::Select;

@@ -20,35 +20,49 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
+use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::util::deserialize_number_or_string;
 use crate::util::mna::stamp_conductance;
 use faer::ColRef;
-use num_traits::cast;
 use std::collections::HashMap;
-use faer::traits::ext::ComplexFieldExt;
-use crate::parameter::ParamValue;
-use crate::parameter::parser::EvalContext;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ResistorDef {
-    pub resistance: f64,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub resistance: String,
+}
+
+impl ResistorDef {
+    pub fn new(resistance: f64) -> Self {
+        Self { resistance: resistance.to_string() }
+    }
 }
 
 impl<T: CircuitScalar> Instantiable<T> for ResistorDef {
     fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
-        let comp = Resistor::new(
-            nodes[0],
-            nodes[1],
-            cast(self.resistance).expect("Failed to cast resistance"),
-        );
-        circuit.add_component(comp);
+        let pv = circuit
+            .param_system
+            .as_ref()
+            .map(|ps| resolve_param_value(&self.resistance, ps))
+            .unwrap_or_else(|| {
+                let v = self.resistance.trim().parse::<f64>().unwrap_or(0.0);
+                ParamValue::Constant(v)
+            });
+        circuit.add_component(Resistor::<T>::new(nodes[0], nodes[1], pv));
     }
 }
 
 pub struct Resistor<T: CircuitScalar> {
     pub node_a: NodeId,
     pub node_b: NodeId,
-    pub conductance: T,
+
+    /// User-facing value. May be a constant or a compiled formula.
     pub resistance: ParamValue,
+
+    /// Derived from `resistance`. Re-evaluated by `refresh_per_step` when
+    /// formula-driven; set once at construction and on `set_param_value`
+    /// for constant values.
+    pub conductance: T,
 
     cached_idx_a: Option<usize>,
     cached_idx_b: Option<usize>,
@@ -56,13 +70,10 @@ pub struct Resistor<T: CircuitScalar> {
 
 impl<T: CircuitScalar> Resistor<T> {
     pub fn new(a: NodeId, b: NodeId, resistance: ParamValue) -> Self {
-        // Guard against divide-by-zero
-        let conductance = if resistance.abs() < T::from(1e-12).unwrap() {
-            // TODO: Treat it as a node-merge instead
-            T::from(1.0e12).unwrap()
-        } else {
-            T::one() / resistance
-        };
+        // Initial conductance for the constant case. Formula-driven values
+        // get overwritten by the first `refresh_per_step` call.
+        let initial_r = resistance.as_constant().unwrap_or(1.0);
+        let conductance = Self::r_to_g(initial_r);
 
         Self {
             node_a: a,
@@ -74,19 +85,15 @@ impl<T: CircuitScalar> Resistor<T> {
         }
     }
 
-    fn refresh(&mut self, ctx: &EvalContext) {
-        let resistance = self.resistance.eval(ctx);
-        self.conductance = if resistance.abs() < 1e-12 {
-            // TODO: Treat it as a node-merge instead
-            T::from(1.0e12).unwrap()
-        } else {
-            T::one() / T::from_f64(resistance)
-        };
+    fn r_to_g(r: f64) -> T {
+        // Guard against divide-by-zero (TODO: treat as a node-merge instead).
+        let g = if r.abs() < 1e-12 { 1.0e12 } else { 1.0 / r };
+        T::from(g).unwrap()
     }
 
     fn get_voltage(&self, node: NodeId, solution: &ColRef<T>) -> T {
         if node.0 == 0 {
-            T::zero() // Ground
+            T::zero()
         } else {
             solution[node.0 - 1]
         }
@@ -95,27 +102,18 @@ impl<T: CircuitScalar> Resistor<T> {
 
 impl<T: CircuitScalar> Component<T> for Resistor<T> {
     fn linearity(&self) -> ComponentLinearity {
-        if self.resistance.is_dynamic() {
+        if self.resistance.depends_on_voltage() {
+            ComponentLinearity::NonLinear
+        } else if self.resistance.is_dynamic() {
             ComponentLinearity::TimeVariant
         } else {
             ComponentLinearity::LinearStatic
         }
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
-        let a = node_map.get(&self.node_a).copied();
-        let b = node_map.get(&self.node_b).copied();
-
-        if a.is_none() {
-            self.cached_idx_a = None;
-        } else {
-            self.cached_idx_a = a;
-        }
-        if b.is_none() {
-            self.cached_idx_b = None;
-        } else {
-            self.cached_idx_b = b;
-        }
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+        self.cached_idx_a = node_map.get(&self.node_a).copied();
+        self.cached_idx_b = node_map.get(&self.node_b).copied();
     }
 
     fn ports(&self) -> Vec<NodeId> {
@@ -123,6 +121,14 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
     }
 
     fn stamp_static(&self, matrix: &mut faer::MatMut<T>, _ctx: &SimulationContext<T>) {
+        // Only called by the orchestrator when linearity != TimeVariant.
+        // For NonLinear (formula reads voltage) we still want to skip the
+        // static stamp since stamp_nonlinear (treated like time-variant
+        // here for the conductance contribution) will handle it. Guard
+        // against that here to keep the orchestrator simple.
+        if self.resistance.is_dynamic() {
+            return;
+        }
         stamp_conductance(
             matrix,
             self.cached_idx_a,
@@ -132,29 +138,77 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         );
     }
 
-    /*fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
-        if name == "resistance" {
-            self.resistance = value;
+    fn stamp_time_variant(
+        &self,
+        matrix: &mut faer::MatMut<T>,
+        _ctx: &SimulationContext<T>,
+        offset: usize,
+    ) {
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            offset,
+        );
+    }
 
-            // update derived conductance
-            self.conductance = if value.abs() < T::from(1e-12).unwrap() {
-                T::from(1.0e12).unwrap()
-            } else {
-                T::one() / value
-            };
-            // Return true so the solver MUST rebuild Matrix A before the next step.
-            return true;
+    fn stamp_nonlinear(
+        &self,
+        _current_node_voltages: &ColRef<T>,
+        matrix: &mut faer::MatMut<T>,
+        _rhs: &mut faer::ColMut<T>,
+        _ctx: &SimulationContext<T>,
+        l_size: usize,
+    ) {
+        // Conductance was refreshed for this iteration via refresh_per_iter
+        // (the formula reads a node voltage). Stamp it like time-variant.
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            l_size,
+        );
+    }
+
+    fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.resistance.is_dynamic() && !self.resistance.depends_on_voltage() {
+            let r = self.resistance.eval(eval);
+            self.conductance = Self::r_to_g(r);
         }
-        false
-    }*/
+    }
 
-    fn set_param_value(&mut self, name: &str, pv: ParamValue) -> bool {
+    fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.resistance.depends_on_voltage() {
+            let r = self.resistance.eval(eval);
+            self.conductance = Self::r_to_g(r);
+        }
+    }
+
+    fn set_param_value(&mut self, name: &str, pv: ParamValue) -> RebuildKind {
         match name {
             "resistance" => {
+                let was_dynamic = self.resistance.is_dynamic();
+                let now_dynamic = pv.is_dynamic();
                 self.resistance = pv;
-                true // linearity might have changed, repartition check
+
+                // For new constants, update the derived conductance now so
+                // the next stamp uses the right value without waiting on
+                // refresh.
+                if let Some(r) = self.resistance.as_constant() {
+                    self.conductance = Self::r_to_g(r);
+                }
+
+                if was_dynamic != now_dynamic {
+                    RebuildKind::Repartition
+                } else if !now_dynamic {
+                    RebuildKind::Restamp
+                } else {
+                    RebuildKind::None
+                }
             }
-            _ => false,
+            _ => RebuildKind::None,
         }
     }
 
@@ -202,9 +256,7 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
         let v_a = self.get_voltage(self.node_a, sol);
         let v_b = self.get_voltage(self.node_b, sol);
 
-        // Current flows from A -> B
         let i_a = (v_a - v_b) * self.conductance;
-        // Current flowing INTO Node B is negative of that
         let i_b = -i_a;
 
         out_currents[0] = i_a;

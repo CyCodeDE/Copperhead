@@ -21,16 +21,19 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
+use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::util::deserialize_number_or_string;
 use crate::util::mna::stamp_conductance;
 use faer::{ColRef, MatMut};
-use num_traits::cast;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PotentiometerDef {
-    pub resistance: f64,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub resistance: String,
     /// Wiper position in [0.0, 1.0]. 0.0 means wiper is at node A, 1.0 means wiper is at node B.
-    pub position: f64,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub position: String,
     pub comment: Option<String>,
 
     // Only relevant for the UI
@@ -39,16 +42,36 @@ pub struct PotentiometerDef {
     pub step: f64,
 }
 
+impl PotentiometerDef {
+    pub fn new(resistance: f64, position: f64) -> Self {
+        Self {
+            resistance: resistance.to_string(),
+            position: position.to_string(),
+            comment: None,
+            max: 1.0,
+            min: 0.0,
+            step: 0.01,
+        }
+    }
+}
+
 impl<T: CircuitScalar> Instantiable<T> for PotentiometerDef {
     fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
-        let comp = Potentiometer::new(
-            nodes[0],
-            nodes[1],
-            nodes[2],
-            cast(self.resistance).expect("Failed to cast resistance"),
-            cast(self.position).expect("Failed to cast position"),
-        );
-        circuit.add_component(comp);
+        let rpv = circuit
+            .param_system
+            .as_ref()
+            .map(|ps| resolve_param_value(&self.resistance, ps))
+            .unwrap_or_else(|| {
+                ParamValue::Constant(self.resistance.trim().parse::<f64>().unwrap_or(0.0))
+            });
+        let ppv = circuit
+            .param_system
+            .as_ref()
+            .map(|ps| resolve_param_value(&self.position, ps))
+            .unwrap_or_else(|| {
+                ParamValue::Constant(self.position.trim().parse::<f64>().unwrap_or(0.5))
+            });
+        circuit.add_component(Potentiometer::new(nodes[0], nodes[1], nodes[2], rpv, ppv));
     }
 }
 
@@ -60,9 +83,11 @@ pub struct Potentiometer<T: CircuitScalar> {
     /// Wiper (sliding contact)
     pub node_w: NodeId,
 
-    pub total_resistance: T,
-    /// Wiper position in [0.0, 1.0]
-    pub position: T,
+    resistance: ParamValue,
+    position: ParamValue,
+
+    cached_total_resistance: T,
+    cached_position: T,
 
     /// Conductance between node A and wiper: G_aw = 1 / (pos * R_total)
     pub conductance_aw: T,
@@ -75,15 +100,22 @@ pub struct Potentiometer<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> Potentiometer<T> {
-    pub fn new(a: NodeId, b: NodeId, w: NodeId, total_resistance: T, position: T) -> Self {
-        let (g_aw, g_bw) = Self::compute_conductances(total_resistance, position);
+    pub fn new(a: NodeId, b: NodeId, w: NodeId, resistance: ParamValue, position: ParamValue) -> Self {
+        let r0 = resistance.as_constant().unwrap_or(1000.0);
+        let p0 = position.as_constant().unwrap_or(0.5);
+
+        let r0t = T::from(r0).unwrap();
+        let p0t = T::from(p0).unwrap();
+        let (g_aw, g_bw) = Self::compute_conductances(r0t, p0t);
 
         Self {
             node_a: a,
             node_b: b,
             node_w: w,
-            total_resistance,
+            resistance,
             position,
+            cached_total_resistance: r0t,
+            cached_position: p0t,
             conductance_aw: g_aw,
             conductance_bw: g_bw,
             cached_idx_a: None,
@@ -99,30 +131,22 @@ impl<T: CircuitScalar> Potentiometer<T> {
         let r_aw = position * total_resistance;
         let r_bw = (T::one() - position) * total_resistance;
 
-        let g_aw = if r_aw.abs() < min_r {
-            max_g
-        } else {
-            T::one() / r_aw
-        };
-
-        let g_bw = if r_bw.abs() < min_r {
-            max_g
-        } else {
-            T::one() / r_bw
-        };
+        let g_aw = if r_aw.abs() < min_r { max_g } else { T::one() / r_aw };
+        let g_bw = if r_bw.abs() < min_r { max_g } else { T::one() / r_bw };
 
         (g_aw, g_bw)
     }
 
     fn update_conductances(&mut self) {
-        let (g_aw, g_bw) = Self::compute_conductances(self.total_resistance, self.position);
+        let (g_aw, g_bw) =
+            Self::compute_conductances(self.cached_total_resistance, self.cached_position);
         self.conductance_aw = g_aw;
         self.conductance_bw = g_bw;
     }
 
     fn get_voltage(&self, node: NodeId, solution: &ColRef<T>) -> T {
         if node.0 == 0 {
-            T::zero() // Ground
+            T::zero()
         } else {
             solution[node.0 - 1]
         }
@@ -131,7 +155,12 @@ impl<T: CircuitScalar> Potentiometer<T> {
 
 impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     fn linearity(&self) -> ComponentLinearity {
-        ComponentLinearity::TimeVariant
+        if self.resistance.depends_on_voltage() || self.position.depends_on_voltage() {
+            ComponentLinearity::NonLinear
+        } else {
+            // Always at least TimeVariant: the wiper can move between samples.
+            ComponentLinearity::TimeVariant
+        }
     }
 
     fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
@@ -150,33 +179,50 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
         _ctx: &SimulationContext<T>,
         offset: usize,
     ) {
-        // Stamp R_aw between node A and wiper
-        stamp_conductance(
-            matrix,
-            self.cached_idx_a,
-            self.cached_idx_w,
-            self.conductance_aw,
-            offset,
-        );
-        // Stamp R_bw between node B and wiper
-        stamp_conductance(
-            matrix,
-            self.cached_idx_b,
-            self.cached_idx_w,
-            self.conductance_bw,
-            offset,
-        );
+        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_w, self.conductance_aw, offset);
+        stamp_conductance(matrix, self.cached_idx_b, self.cached_idx_w, self.conductance_bw, offset);
+    }
+
+    fn stamp_nonlinear(
+        &self,
+        _current_node_voltages: &ColRef<T>,
+        matrix: &mut MatMut<T>,
+        _rhs: &mut faer::ColMut<T>,
+        _ctx: &SimulationContext<T>,
+        l_size: usize,
+    ) {
+        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_w, self.conductance_aw, l_size);
+        stamp_conductance(matrix, self.cached_idx_b, self.cached_idx_w, self.conductance_bw, l_size);
+    }
+
+    fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        let any_voltage =
+            self.resistance.depends_on_voltage() || self.position.depends_on_voltage();
+        // Always re-evaluate formulas; for constants this is a cheap read.
+        if (self.resistance.is_dynamic() || self.position.is_dynamic()) && !any_voltage {
+            self.cached_total_resistance = T::from(self.resistance.eval(eval)).unwrap();
+            self.cached_position = T::from(self.position.eval(eval)).unwrap();
+            self.update_conductances();
+        }
+    }
+
+    fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.resistance.depends_on_voltage() || self.position.depends_on_voltage() {
+            self.cached_total_resistance = T::from(self.resistance.eval(eval)).unwrap();
+            self.cached_position = T::from(self.position.eval(eval)).unwrap();
+            self.update_conductances();
+        }
     }
 
     fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
         match name {
             "resistance" => {
-                self.total_resistance = value;
+                self.cached_total_resistance = value;
                 self.update_conductances();
                 true
             }
             "position" => {
-                self.position = value;
+                self.cached_position = value;
                 self.update_conductances();
                 true
             }
@@ -184,28 +230,62 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
         }
     }
 
+    fn set_param_value(&mut self, name: &str, pv: ParamValue) -> RebuildKind {
+        let (was_dyn, was_volt) = match name {
+            "resistance" => (
+                self.resistance.is_dynamic(),
+                self.resistance.depends_on_voltage(),
+            ),
+            "position" => (
+                self.position.is_dynamic(),
+                self.position.depends_on_voltage(),
+            ),
+            _ => return RebuildKind::None,
+        };
+
+        match name {
+            "resistance" => {
+                if let Some(v) = pv.as_constant() {
+                    self.cached_total_resistance = T::from(v).unwrap();
+                    self.update_conductances();
+                }
+                self.resistance = pv;
+            }
+            "position" => {
+                if let Some(v) = pv.as_constant() {
+                    self.cached_position = T::from(v).unwrap();
+                    self.update_conductances();
+                }
+                self.position = pv;
+            }
+            _ => unreachable!(),
+        }
+
+        let now_dyn = match name {
+            "resistance" => self.resistance.is_dynamic(),
+            _ => self.position.is_dynamic(),
+        };
+        let now_volt = match name {
+            "resistance" => self.resistance.depends_on_voltage(),
+            _ => self.position.depends_on_voltage(),
+        };
+
+        if was_dyn != now_dyn || was_volt != now_volt {
+            RebuildKind::Repartition
+        } else if !now_dyn {
+            RebuildKind::Restamp
+        } else {
+            RebuildKind::None
+        }
+    }
+
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe {
-                name: "V_aw".into(),
-                unit: "V".into(),
-            },
-            ComponentProbe {
-                name: "V_bw".into(),
-                unit: "V".into(),
-            },
-            ComponentProbe {
-                name: "I_aw".into(),
-                unit: "A".into(),
-            },
-            ComponentProbe {
-                name: "I_bw".into(),
-                unit: "A".into(),
-            },
-            ComponentProbe {
-                name: "Power".into(),
-                unit: "W".into(),
-            },
+            ComponentProbe { name: "V_aw".into(), unit: "V".into() },
+            ComponentProbe { name: "V_bw".into(), unit: "V".into() },
+            ComponentProbe { name: "I_aw".into(), unit: "A".into() },
+            ComponentProbe { name: "I_bw".into(), unit: "A".into() },
+            ComponentProbe { name: "Power".into(), unit: "W".into() },
         ]
     }
 
@@ -221,17 +301,14 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
 
         let v_aw = v_a - v_w;
         let v_bw = v_b - v_w;
-
         let i_aw = v_aw * self.conductance_aw;
         let i_bw = v_bw * self.conductance_bw;
-
-        let power = v_aw * i_aw + v_bw * i_bw;
 
         out_observables[0] = v_aw;
         out_observables[1] = v_bw;
         out_observables[2] = i_aw;
         out_observables[3] = i_bw;
-        out_observables[4] = power;
+        out_observables[4] = v_aw * i_aw + v_bw * i_bw;
     }
 
     fn terminal_currents(
@@ -244,11 +321,8 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
         let v_b = self.get_voltage(self.node_b, sol);
         let v_w = self.get_voltage(self.node_w, sol);
 
-        // Current from A into wiper
         let i_a = (v_a - v_w) * self.conductance_aw;
-        // Current from B into wiper
         let i_b = (v_b - v_w) * self.conductance_bw;
-        // Current leaving wiper (KCL: i_w = -(i_a + i_b))
         let i_w = -(i_a + i_b);
 
         out_currents[0] = i_a;
