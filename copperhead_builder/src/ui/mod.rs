@@ -323,12 +323,29 @@ pub enum SimCommand {
     },
 }
 
-/// A globally declared simulation parameter (set by the user via a
-/// `ParameterDef` component on the schematic).
+/// Controls how a parameter is presented in the parameters panel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub enum ParameterKind {
+    /// Free-range numeric value shown as a drag input.
+    #[default]
+    Number,
+    /// Boolean 0/1 shown as a checkbox.
+    Boolean,
+    /// Bounded continuous value shown as a slider.
+    Slider { min: f64, max: f64 },
+}
+
+/// A globally declared simulation parameter.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ParameterDecl {
     pub name: String,
     pub default: f64,
+    /// How to display this parameter in the UI.
+    #[serde(default)]
+    pub kind: ParameterKind,
+    /// Auto-created by a potentiometer or switch; not user-deletable.
+    #[serde(default)]
+    pub auto: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

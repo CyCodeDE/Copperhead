@@ -27,30 +27,75 @@ use crate::util::mna::stamp_conductance;
 use faer::{ColRef, MatMut};
 use std::collections::HashMap;
 
+/// Taper curve applied to the raw parameter value in [0, 1].
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum PotScale {
+    #[default]
+    Linear,
+    /// Standard audio A-curve: (10^(2p) − 1) / 99
+    /// Gives 0.0 at p=0, ≈0.091 at p=0.5, 1.0 at p=1.0.
+    AudioTaper,
+}
+
+impl PotScale {
+    pub fn apply(&self, raw: f64) -> f64 {
+        let p = raw.clamp(0.0, 1.0);
+        match self {
+            PotScale::Linear => p,
+            PotScale::AudioTaper => (10_f64.powf(2.0 * p) - 1.0) / 99.0,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            PotScale::Linear => "Linear",
+            PotScale::AudioTaper => "Audio Taper",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PotentiometerDef {
     #[serde(deserialize_with = "deserialize_number_or_string")]
     pub resistance: String,
-    /// Wiper position in [0.0, 1.0]. 0.0 means wiper is at node A, 1.0 means wiper is at node B.
-    #[serde(deserialize_with = "deserialize_number_or_string")]
-    pub position: String,
+    /// Name of the global parameter that drives wiper position in [0, 1].
+    pub param_name: String,
+    #[serde(default)]
+    pub scale: PotScale,
+    /// Optional formula override. When set, bypasses `param_name` entirely.
+    /// Scale is NOT applied in formula mode — the formula result is used as-is.
+    #[serde(default)]
+    pub position_formula: Option<String>,
     pub comment: Option<String>,
-
-    // Only relevant for the UI
-    pub max: f64,
-    pub min: f64,
-    pub step: f64,
+    /// Runtime-only: last known wiper position for icon rendering. Not serialized.
+    #[serde(skip, default = "PotentiometerDef::default_position")]
+    pub current_position: f64,
 }
 
 impl PotentiometerDef {
-    pub fn new(resistance: f64, position: f64) -> Self {
+    fn default_position() -> f64 {
+        0.5
+    }
+
+    pub fn new(resistance: f64, param_name: String) -> Self {
         Self {
             resistance: resistance.to_string(),
-            position: position.to_string(),
+            param_name,
+            scale: PotScale::Linear,
+            position_formula: None,
             comment: None,
-            max: 1.0,
-            min: 0.0,
-            step: 0.01,
+            current_position: 0.5,
+        }
+    }
+
+    pub fn is_formula_mode(&self) -> bool {
+        self.position_formula.is_some()
+    }
+
+    fn position_source(&self) -> &str {
+        match &self.position_formula {
+            Some(f) => f.as_str(),
+            None => self.param_name.as_str(),
         }
     }
 }
@@ -64,14 +109,24 @@ impl<T: CircuitScalar> Instantiable<T> for PotentiometerDef {
             .unwrap_or_else(|| {
                 ParamValue::Constant(self.resistance.trim().parse::<f64>().unwrap_or(0.0))
             });
+
+        let pos_src = self.position_source();
         let ppv = circuit
             .param_system
             .as_ref()
-            .map(|ps| resolve_param_value(&self.position, ps))
+            .map(|ps| resolve_param_value(pos_src, ps))
             .unwrap_or_else(|| {
-                ParamValue::Constant(self.position.trim().parse::<f64>().unwrap_or(0.5))
+                ParamValue::Constant(pos_src.trim().parse::<f64>().unwrap_or(0.5))
             });
-        circuit.add_component(Potentiometer::new(nodes[0], nodes[1], nodes[2], rpv, ppv));
+
+        // Scale only applies when driven by the parameter, not by an explicit formula.
+        let scale = if self.is_formula_mode() {
+            PotScale::Linear
+        } else {
+            self.scale.clone()
+        };
+
+        circuit.add_component(Potentiometer::new(nodes[0], nodes[1], nodes[2], rpv, ppv, scale));
     }
 }
 
@@ -85,6 +140,7 @@ pub struct Potentiometer<T: CircuitScalar> {
 
     resistance: ParamValue,
     position: ParamValue,
+    scale: PotScale,
 
     cached_total_resistance: T,
     cached_position: T,
@@ -100,9 +156,16 @@ pub struct Potentiometer<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> Potentiometer<T> {
-    pub fn new(a: NodeId, b: NodeId, w: NodeId, resistance: ParamValue, position: ParamValue) -> Self {
+    pub fn new(
+        a: NodeId,
+        b: NodeId,
+        w: NodeId,
+        resistance: ParamValue,
+        position: ParamValue,
+        scale: PotScale,
+    ) -> Self {
         let r0 = resistance.as_constant().unwrap_or(1000.0);
-        let p0 = position.as_constant().unwrap_or(0.5);
+        let p0 = scale.apply(position.as_constant().unwrap_or(0.5));
 
         let r0t = T::from(r0).unwrap();
         let p0t = T::from(p0).unwrap();
@@ -114,6 +177,7 @@ impl<T: CircuitScalar> Potentiometer<T> {
             node_w: w,
             resistance,
             position,
+            scale,
             cached_total_resistance: r0t,
             cached_position: p0t,
             conductance_aw: g_aw,
@@ -150,6 +214,10 @@ impl<T: CircuitScalar> Potentiometer<T> {
         } else {
             solution[node.0 - 1]
         }
+    }
+
+    fn scaled_position(&self, raw: f64) -> T {
+        T::from(self.scale.apply(raw)).unwrap()
     }
 }
 
@@ -198,10 +266,10 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
         let any_voltage =
             self.resistance.depends_on_voltage() || self.position.depends_on_voltage();
-        // Always re-evaluate formulas; for constants this is a cheap read.
         if (self.resistance.is_dynamic() || self.position.is_dynamic()) && !any_voltage {
             self.cached_total_resistance = T::from(self.resistance.eval(eval)).unwrap();
-            self.cached_position = T::from(self.position.eval(eval)).unwrap();
+            let raw = self.position.eval(eval);
+            self.cached_position = self.scaled_position(raw);
             self.update_conductances();
         }
     }
@@ -209,7 +277,8 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
         if self.resistance.depends_on_voltage() || self.position.depends_on_voltage() {
             self.cached_total_resistance = T::from(self.resistance.eval(eval)).unwrap();
-            self.cached_position = T::from(self.position.eval(eval)).unwrap();
+            let raw = self.position.eval(eval);
+            self.cached_position = self.scaled_position(raw);
             self.update_conductances();
         }
     }
@@ -221,6 +290,7 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
                 self.update_conductances();
                 true
             }
+            // Direct position set (bypass scale — used for internal/legacy updates).
             "position" => {
                 self.cached_position = value;
                 self.update_conductances();
@@ -253,7 +323,7 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
             }
             "position" => {
                 if let Some(v) = pv.as_constant() {
-                    self.cached_position = T::from(v).unwrap();
+                    self.cached_position = self.scaled_position(v);
                     self.update_conductances();
                 }
                 self.position = pv;

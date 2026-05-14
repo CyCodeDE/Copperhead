@@ -186,23 +186,19 @@ impl PaletteItem {
                 label: "Potentiometer",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::Potentiometer(PotentiometerDef {
-                    resistance: "1000".to_string(),
-                    position: "0".to_string(),
-                    comment: None,
-                    max: 1.0,
-                    min: 0.0,
-                    step: 0.1,
-                })),
+                // param_name is a placeholder; replaced with a unique name at placement time.
+                element: SchematicElement::Core(ComponentDef::Potentiometer(
+                    PotentiometerDef::new(100_000.0, String::new()),
+                )),
             },
             PaletteItem {
                 label: "Switch",
                 shortcut_key: None,
                 shortcut_name: "",
-                element: SchematicElement::Core(ComponentDef::Switch(SwitchDef {
-                    closed: "1".to_string(),
-                    comment: None,
-                })),
+                // param_name is a placeholder; replaced with a unique name at placement time.
+                element: SchematicElement::Core(ComponentDef::Switch(SwitchDef::new(
+                    String::new(),
+                ))),
             },
         ]
     }

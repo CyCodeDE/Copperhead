@@ -22,7 +22,7 @@ use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{Anchor, LabelEngine, rotate_vec};
 use crate::ui::util::{format_si_single, is_valid_param_str};
-use copperhead_core::components::potentiometer::PotentiometerDef;
+use copperhead_core::components::potentiometer::{PotScale, PotentiometerDef};
 use crossbeam::channel::Sender;
 use egui::{CollapsingHeader, Color32, Painter, Pos2, Shape, Stroke, Ui, Vec2};
 
@@ -53,48 +53,31 @@ impl ComponentUIExt for PotentiometerDef {
 
     fn draw_property_panel(
         &mut self,
-        tx: &Sender<SimCommand>,
+        _tx: &Sender<SimCommand>,
         ui: &mut Ui,
-        id: Option<usize>,
-        running: bool,
+        _id: Option<usize>,
+        _running: bool,
         name: &str,
     ) {
         CollapsingHeader::new(match &self.comment {
-            Some(t) => format!("{t}({name})"),
+            Some(t) => format!("{t} ({name})"),
             None => name.to_string(),
         })
         .default_open(true)
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if let Ok(mut pos_val) = self.position.trim().parse::<f64>() {
-                    let response = ui.add(
-                        egui::Slider::new(&mut pos_val, self.min..=self.max)
-                            .step_by(self.step)
-                            .text("Position"),
-                    );
+            let r_label = if let Ok(v) = self.resistance.trim().parse::<f64>() {
+                format_si_single(v, 2) + "Ω"
+            } else {
+                self.resistance.clone() + "Ω"
+            };
+            ui.label(format!("R: {r_label}  ·  {}", self.scale.label()));
 
-                    if response.changed() {
-                        self.position = pos_val.to_string();
-                    }
-
-                    if running && (response.drag_stopped() || response.lost_focus()) {
-                        let _ = tx.send(SimCommand::UpdateValue {
-                            component_idx: id.expect("Component idx shouldn't be None"),
-                            name: "position".to_string(),
-                            value: pos_val,
-                        });
-                    }
-                } else {
-                    ui.label(format!("Position: {} (formula)", self.position));
-                }
-
-                ui.menu_button("⚙", |ui| {
-                    ui.label("Potentiometer Settings");
-                    ui.add(egui::DragValue::new(&mut self.min).prefix("Min: ").speed(0.01));
-                    ui.add(egui::DragValue::new(&mut self.max).prefix("Max: ").speed(0.01));
-                    ui.add(egui::DragValue::new(&mut self.step).prefix("Step: ").speed(0.01));
-                });
-            });
+            if self.is_formula_mode() {
+                let f = self.position_formula.as_deref().unwrap_or("");
+                ui.label(format!("Position: {f} (formula)"));
+            } else {
+                ui.label(format!("Position: {} (param)", self.param_name));
+            }
         });
     }
 
@@ -102,31 +85,82 @@ impl ComponentUIExt for PotentiometerDef {
         let mut changed = false;
         let ps = app.sim_state.param_system.as_deref();
 
+        // Resistance
         ui.horizontal(|ui| {
             ui.label("Resistance (Ω):");
             let resp = ui.text_edit_singleline(&mut self.resistance);
-            if resp.lost_focus() {
-                if !is_valid_param_str(&self.resistance, ps) && ps.is_some() {
-                    ui.colored_label(Color32::RED, "Invalid value or formula");
-                }
+            if resp.lost_focus() && !is_valid_param_str(&self.resistance, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid");
             }
             if resp.changed() {
                 changed = true;
             }
         });
 
-        ui.horizontal(|ui| {
-            ui.label("Wiper Position:");
-            let resp = ui.text_edit_singleline(&mut self.position);
-            if resp.lost_focus() {
-                if !is_valid_param_str(&self.position, ps) && ps.is_some() {
-                    ui.colored_label(Color32::RED, "Invalid value or formula");
+        // Parameter name (only editable when not in formula mode)
+        if !self.is_formula_mode() {
+            ui.horizontal(|ui| {
+                ui.label("Parameter:");
+                let edit_id = egui::Id::new("pot_param_name_orig");
+                let resp = ui.text_edit_singleline(&mut self.param_name);
+                if resp.gained_focus() {
+                    ui.ctx().data_mut(|d| d.insert_temp(edit_id, self.param_name.clone()));
                 }
+                if resp.lost_focus() {
+                    if let Some(original) = ui.ctx().data(|d| d.get_temp::<String>(edit_id)) {
+                        if original != self.param_name {
+                            for p in &mut app.state.parameters {
+                                if p.name == original {
+                                    p.name = self.param_name.clone();
+                                    break;
+                                }
+                            }
+                            changed = true;
+                        }
+                        ui.ctx().data_mut(|d| d.remove_temp::<String>(edit_id));
+                    }
+                }
+            });
+        }
+
+        // Scale picker
+        ui.horizontal(|ui| {
+            ui.label("Scale:");
+            let cur_linear = matches!(self.scale, PotScale::Linear);
+            if ui.selectable_label(cur_linear, "Linear").clicked() && !cur_linear {
+                self.scale = PotScale::Linear;
+                changed = true;
             }
-            if resp.changed() {
+            if ui.selectable_label(!cur_linear, "Audio Taper").clicked() && cur_linear {
+                self.scale = PotScale::AudioTaper;
                 changed = true;
             }
         });
+
+        // Formula override
+        ui.separator();
+        ui.label("Formula override (optional — bypasses param and scale):");
+        let mut formula_str = self.position_formula.clone().unwrap_or_default();
+        let resp = ui.text_edit_singleline(&mut formula_str);
+        if resp.changed() {
+            self.position_formula = if formula_str.trim().is_empty() {
+                None
+            } else {
+                Some(formula_str.clone())
+            };
+            changed = true;
+        }
+        if resp.lost_focus() && !formula_str.trim().is_empty() {
+            let valid = ps
+                .map(|ps| ps.compile(formula_str.trim()).is_ok())
+                .unwrap_or(true);
+            if !valid {
+                ui.colored_label(Color32::RED, "Invalid formula");
+            }
+        }
+        if self.position_formula.is_some() {
+            ui.small("Clear the field above to re-enable parameter mode.");
+        }
 
         changed
     }
@@ -161,8 +195,8 @@ impl ComponentUIExt for PotentiometerDef {
             Stroke::new(1.5, stroke_color),
         ));
 
-        // Position indicator: parse position as f64, fall back to midpoint for formulas
-        let pos_f = self.position.trim().parse::<f64>().unwrap_or(0.5) as f32;
+        // Position indicator based on current_position
+        let pos_f = self.current_position.clamp(0.0, 1.0) as f32;
         let indicator_x = -half_w + pos_f * (2.0 * half_w);
         let ind_p1 = center + rotate_vec(Vec2::new(indicator_x, -half_h * 0.6) * zoom, rotation);
         let ind_p2 = center + rotate_vec(Vec2::new(indicator_x, half_h * 0.6) * zoom, rotation);

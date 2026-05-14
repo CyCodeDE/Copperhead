@@ -18,10 +18,34 @@
  */
 use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, Tool};
-use crate::ui::components::definitions::ComponentUIExt;
+use crate::ui::ComponentDef;
+use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 use crate::ui::drawing::check_line_rect_intersection;
 use crate::ui::util::rotate_offset;
 use egui::{Color32, CursorIcon, Pos2, Rect, Stroke, StrokeKind, Vec2};
+
+/// Remove auto-created parameters for any potentiometer or switch being deleted.
+fn remove_auto_params_for(app: &mut CircuitApp, comp_ids: &[usize]) {
+    let mut param_names_to_remove: Vec<String> = Vec::new();
+    for comp in &app.state.schematic.components {
+        if comp_ids.contains(&comp.id) {
+            if let SchematicElement::Core(def) = &comp.element {
+                match def {
+                    ComponentDef::Potentiometer(pot) => {
+                        param_names_to_remove.push(pot.param_name.clone());
+                    }
+                    ComponentDef::Switch(sw) => {
+                        param_names_to_remove.push(sw.param_name.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    app.state.parameters.retain(|p| {
+        !(p.auto && param_names_to_remove.contains(&p.name))
+    });
+}
 
 pub fn handle(
     app: &mut CircuitApp,
@@ -85,6 +109,7 @@ pub fn handle(
         }
 
         // Apply removals (Components)
+        remove_auto_params_for(app, &comps_to_remove);
         for id in comps_to_remove {
             app.state.schematic.remove_component(id);
         }
@@ -162,6 +187,7 @@ pub fn handle(
             }
 
             // Apply removals (Components)
+            remove_auto_params_for(app, &comps_to_remove);
             for id in comps_to_remove {
                 app.state.schematic.remove_component(id);
             }

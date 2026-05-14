@@ -18,7 +18,7 @@
  */
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::SchematicElement;
-use crate::ui::{GridPos, Netlist, NetlistEntry, ParameterDecl};
+use crate::ui::{GridPos, Netlist, NetlistEntry};
 use copperhead_core::model::NodeId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -168,10 +168,7 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
         entries,
         node_map: final_node_map,
         component_map,
-        parameters: app.state.parameters.iter().map(|p| ParameterDecl {
-            name: p.name.clone(),
-            default: p.default,
-        }).collect(),
+        parameters: app.state.parameters.clone(),
     }
 }
 

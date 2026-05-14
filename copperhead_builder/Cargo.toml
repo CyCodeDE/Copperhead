@@ -28,8 +28,3 @@ tracy-client = { version = "0.18.4", optional = true }
 [features]
 default = []
 profiling = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-tracy", "dep:tracy-client"]
-
-[profile.release-performance]
-inherits = "release"
-lto = "fat"
-codegen-units = 1

@@ -21,7 +21,6 @@ use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
 use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
-use crate::util::deserialize_bool_or_string;
 use crate::util::mna::stamp_conductance;
 use faer::{ColRef, MatMut};
 use std::collections::HashMap;
@@ -29,30 +28,57 @@ use std::marker::PhantomData;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SwitchDef {
-    /// "0" / "1", or a formula that evaluates to 0.0 (open) or non-zero (closed).
-    #[serde(deserialize_with = "deserialize_bool_or_string")]
-    pub closed: String,
+    /// Name of the global parameter that drives the switch state (0.0 = open, 1.0 = closed).
+    pub param_name: String,
+    /// Optional formula override. When set, bypasses `param_name`.
+    /// A non-zero result means closed.
+    #[serde(default)]
+    pub state_formula: Option<String>,
     pub comment: Option<String>,
+    /// Runtime-only: last known closed state for icon/label rendering. Not serialized.
+    #[serde(skip)]
+    pub current_closed: bool,
 }
 
 impl SwitchDef {
+    pub fn new(param_name: String) -> Self {
+        Self {
+            param_name,
+            state_formula: None,
+            comment: None,
+            current_closed: false,
+        }
+    }
+
     pub fn is_closed(&self) -> bool {
-        match self.closed.trim().to_lowercase().as_str() {
-            "1" | "true" => true,
-            "0" | "false" => false,
-            s => s.parse::<f64>().map(|v| v != 0.0).unwrap_or(false),
+        self.current_closed
+    }
+
+    pub fn is_formula_mode(&self) -> bool {
+        self.state_formula.is_some()
+    }
+
+    fn state_source(&self) -> &str {
+        match &self.state_formula {
+            Some(f) => f.as_str(),
+            None => self.param_name.as_str(),
         }
     }
 }
 
 impl<T: CircuitScalar> Instantiable<T> for SwitchDef {
     fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+        let src = self.state_source();
         let pv = circuit
             .param_system
             .as_ref()
-            .map(|ps| resolve_param_value(&self.closed, ps))
+            .map(|ps| resolve_param_value(src, ps))
             .unwrap_or_else(|| {
-                ParamValue::Constant(if self.is_closed() { 1.0 } else { 0.0 })
+                let v = match src.trim().to_lowercase().as_str() {
+                    "1" | "true" => 1.0,
+                    _ => 0.0,
+                };
+                ParamValue::Constant(v)
             });
         circuit.add_component(Switch::<T>::new(nodes[0], nodes[1], pv));
     }
