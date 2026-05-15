@@ -29,8 +29,8 @@ impl ComponentUIExt for AudioProbeDef {
         "Probe"
     }
 
-    fn local_pins(&self) -> Vec<(isize, isize)> {
-        vec![(0, 0)]
+    fn ui_name(&self) -> &'static str {
+        "Audio Probe"
     }
 
     fn size(&self) -> (isize, isize) {
@@ -41,8 +41,8 @@ impl ComponentUIExt for AudioProbeDef {
         (0., -0.75)
     }
 
-    fn ui_name(&self) -> &'static str {
-        "Audio Probe"
+    fn local_pins(&self) -> Vec<(isize, isize)> {
+        vec![(0, 0)]
     }
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
@@ -105,13 +105,13 @@ impl ComponentUIExt for AudioProbeDef {
         }
 
         ui.ctx().input(|i| {
-            if is_hovered && !i.raw.dropped_files.is_empty() {
-                if let Some(dropped_file) = i.raw.dropped_files.first() {
-                    if let Some(dropped_path) = &dropped_file.path {
-                        // Update the source of truth directly!
-                        self.file_path = dropped_path.clone();
-                    }
-                }
+            if is_hovered
+                && !i.raw.dropped_files.is_empty()
+                && let Some(dropped_file) = i.raw.dropped_files.first()
+                && let Some(dropped_path) = &dropped_file.path
+            {
+                // Update the source of truth directly!
+                self.file_path = dropped_path.clone();
             }
         });
 

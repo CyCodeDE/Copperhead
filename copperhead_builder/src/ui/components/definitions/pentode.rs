@@ -30,16 +30,16 @@ impl ComponentUIExt for PentodeDef {
         "P"
     }
 
+    fn ui_name(&self) -> &'static str {
+        "Pentode"
+    }
+
     fn size(&self) -> (isize, isize) {
         (2, 3)
     }
 
     fn offset(&self) -> (f32, f32) {
         (0., 0.)
-    }
-
-    fn ui_name(&self) -> &'static str {
-        "Pentode"
     }
 
     fn local_pins(&self) -> Vec<(isize, isize)> {
@@ -59,10 +59,10 @@ impl ComponentUIExt for PentodeDef {
 
         // If the newly selected triode does not support the current fidelity setting,
         // force a fallback to the first available supported fidelity.
-        if !valid_fidelities.contains(&self.fidelity) {
-            if let Some(fallback) = valid_fidelities.first() {
-                self.fidelity = fallback.clone();
-            }
+        if !valid_fidelities.contains(&self.fidelity)
+            && let Some(fallback) = valid_fidelities.first()
+        {
+            self.fidelity = fallback.clone();
         }
 
         ComboBox::from_label("Fidelity")
@@ -74,25 +74,6 @@ impl ComponentUIExt for PentodeDef {
             });
 
         false
-    }
-
-    fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
-        let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
-
-        let label_anchor = match rotation % 4 {
-            0 => Anchor::Right,
-            1 => Anchor::Bottom,
-            2 => Anchor::Left,
-            3 => Anchor::Top,
-            _ => Anchor::Right,
-        };
-
-        engine.draw_stacked_labels(name, self.pentode_type.format_name(), label_anchor);
-
-        engine.draw_pin_marker(Vec2::new(0.3, -2.0), "P");
-        engine.draw_pin_marker(Vec2::new(1.3, -1.3), "Screen");
-        engine.draw_pin_marker(Vec2::new(-1.7, -0.3), "Control");
-        engine.draw_pin_marker(Vec2::new(0.5, 1.0), "C");
     }
 
     fn draw_icon(
@@ -264,5 +245,24 @@ impl ComponentUIExt for PentodeDef {
             ],
             stroke,
         );
+    }
+
+    fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
+        let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
+
+        let label_anchor = match rotation % 4 {
+            0 => Anchor::Right,
+            1 => Anchor::Bottom,
+            2 => Anchor::Left,
+            3 => Anchor::Top,
+            _ => Anchor::Right,
+        };
+
+        engine.draw_stacked_labels(name, self.pentode_type.format_name(), label_anchor);
+
+        engine.draw_pin_marker(Vec2::new(0.3, -2.0), "P");
+        engine.draw_pin_marker(Vec2::new(1.3, -1.3), "Screen");
+        engine.draw_pin_marker(Vec2::new(-1.7, -0.3), "Control");
+        engine.draw_pin_marker(Vec2::new(0.5, 1.0), "C");
     }
 }

@@ -43,7 +43,7 @@ impl ComponentUIExt for GroundDef {
         center: Pos2,
         rotation: u8,
         zoom: f32,
-        fill_color: Color32,
+        _fill_color: Color32,
         stroke_color: Color32,
     ) {
         let stroke = Stroke::new(2.0, stroke_color);

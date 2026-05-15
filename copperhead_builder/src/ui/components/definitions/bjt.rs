@@ -69,6 +69,21 @@ impl ComponentUIExt for BjtDef {
         false
     }
 
+    fn draw_icon(
+        &self,
+        painter: &Painter,
+        center: Pos2,
+        rotation: u8,
+        zoom: f32,
+        fill_color: Color32,
+        stroke_color: Color32,
+    ) {
+        match self.model.polarity() {
+            true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
+            false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
+        }
+    }
+
     fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
         let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
 
@@ -88,21 +103,6 @@ impl ComponentUIExt for BjtDef {
         engine.draw_pin_marker(Vec2::new(0.7, -1.0), top_char); // Top right pin
         engine.draw_pin_marker(Vec2::new(-1.0, -0.3), "B"); // Left pin
         engine.draw_pin_marker(Vec2::new(0.7, 1.0), bot_char); // Bottom right pin
-    }
-
-    fn draw_icon(
-        &self,
-        painter: &Painter,
-        center: Pos2,
-        rotation: u8,
-        zoom: f32,
-        fill_color: Color32,
-        stroke_color: Color32,
-    ) {
-        match self.model.polarity() {
-            true => draw_bjt_npn(painter, center, rotation, zoom, fill_color, stroke_color),
-            false => draw_bjt_pnp(painter, center, rotation, zoom, fill_color, stroke_color),
-        }
     }
 }
 

@@ -50,19 +50,16 @@ impl ComponentUIExt for InductorDef {
         ui.horizontal(|ui| {
             ui.label("Inductance (H):");
             let resp = ui.text_edit_singleline(&mut self.inductance);
-            if resp.lost_focus() {
-                if !is_valid_param_str(&self.inductance, ps) && ps.is_some() {
-                    ui.colored_label(Color32::RED, "Invalid value or formula");
-                }
+            if resp.lost_focus() && !is_valid_param_str(&self.inductance, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
             }
         });
         ui.horizontal(|ui| {
             ui.label("Series Resistance (Ω):");
             let resp = ui.text_edit_singleline(&mut self.series_resistance);
-            if resp.lost_focus() {
-                if !is_valid_param_str(&self.series_resistance, ps) && ps.is_some() {
-                    ui.colored_label(Color32::RED, "Invalid value or formula");
-                }
+            if resp.lost_focus() && !is_valid_param_str(&self.series_resistance, ps) && ps.is_some()
+            {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
             }
         });
 

@@ -56,10 +56,8 @@ impl ComponentUIExt for VoltageSourceDef {
                 ui.horizontal(|ui| {
                     ui.label("Voltage (V):");
                     let resp = ui.text_edit_singleline(voltage);
-                    if resp.lost_focus() {
-                        if !is_valid_param_str(voltage, ps) && ps.is_some() {
-                            ui.colored_label(Color32::RED, "Invalid value or formula");
-                        }
+                    if resp.lost_focus() && !is_valid_param_str(voltage, ps) && ps.is_some() {
+                        ui.colored_label(Color32::RED, "Invalid value or formula");
                     }
                 });
             }
@@ -71,28 +69,22 @@ impl ComponentUIExt for VoltageSourceDef {
                 ui.horizontal(|ui| {
                     ui.label("Amplitude (V):");
                     let resp = ui.text_edit_singleline(amplitude);
-                    if resp.lost_focus() {
-                        if !is_valid_param_str(amplitude, ps) && ps.is_some() {
-                            ui.colored_label(Color32::RED, "Invalid value or formula");
-                        }
+                    if resp.lost_focus() && !is_valid_param_str(amplitude, ps) && ps.is_some() {
+                        ui.colored_label(Color32::RED, "Invalid value or formula");
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label("Frequency (Hz):");
                     let resp = ui.text_edit_singleline(frequency);
-                    if resp.lost_focus() {
-                        if !is_valid_param_str(frequency, ps) && ps.is_some() {
-                            ui.colored_label(Color32::RED, "Invalid value or formula");
-                        }
+                    if resp.lost_focus() && !is_valid_param_str(frequency, ps) && ps.is_some() {
+                        ui.colored_label(Color32::RED, "Invalid value or formula");
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label("Phase (°):");
                     let resp = ui.text_edit_singleline(phase);
-                    if resp.lost_focus() {
-                        if !is_valid_param_str(phase, ps) && ps.is_some() {
-                            ui.colored_label(Color32::RED, "Invalid value or formula");
-                        }
+                    if resp.lost_focus() && !is_valid_param_str(phase, ps) && ps.is_some() {
+                        ui.colored_label(Color32::RED, "Invalid value or formula");
                     }
                 });
             }
@@ -152,12 +144,12 @@ impl ComponentUIExt for VoltageSourceDef {
                 }
 
                 ui.ctx().input(|i| {
-                    if is_hovered && !i.raw.dropped_files.is_empty() {
-                        if let Some(dropped_file) = i.raw.dropped_files.first() {
-                            if let Some(dropped_path) = &dropped_file.path {
-                                *file_path = dropped_path.clone();
-                            }
-                        }
+                    if is_hovered
+                        && !i.raw.dropped_files.is_empty()
+                        && let Some(dropped_file) = i.raw.dropped_files.first()
+                        && let Some(dropped_path) = &dropped_file.path
+                    {
+                        *file_path = dropped_path.clone();
                     }
                 });
             }

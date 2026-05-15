@@ -91,20 +91,19 @@ impl ComponentUIExt for SwitchDef {
                     ui.ctx()
                         .data_mut(|d| d.insert_temp(edit_id, self.param_name.clone()));
                 }
-                if resp.lost_focus() {
-                    if let Some(original) = ui.ctx().data(|d| d.get_temp::<String>(edit_id)) {
-                        if original != self.param_name {
-                            for p in &mut app.state.parameters {
-                                if p.name == original {
-                                    p.name = self.param_name.clone();
-                                    break;
-                                }
-                            }
-                            changed = true;
+                if resp.lost_focus()
+                    && let Some(original) = ui.ctx().data(|d| d.get_temp::<String>(edit_id))
+                    && original != self.param_name
+                {
+                    for p in &mut app.state.parameters {
+                        if p.name == original {
+                            p.name = self.param_name.clone();
+                            break;
                         }
-                        ui.ctx().data_mut(|d| d.remove_temp::<String>(edit_id));
                     }
+                    changed = true;
                 }
+                ui.ctx().data_mut(|d| d.remove_temp::<String>(edit_id));
             });
         }
 

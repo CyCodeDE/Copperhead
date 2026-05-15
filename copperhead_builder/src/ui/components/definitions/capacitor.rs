@@ -50,19 +50,15 @@ impl ComponentUIExt for CapacitorDef {
         ui.horizontal(|ui| {
             ui.label("Capacitance (F):");
             let resp = ui.text_edit_singleline(&mut self.capacitance);
-            if resp.lost_focus() {
-                if !is_valid_param_str(&self.capacitance, ps) && ps.is_some() {
-                    ui.colored_label(Color32::RED, "Invalid value or formula");
-                }
+            if resp.lost_focus() && !is_valid_param_str(&self.capacitance, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
             }
         });
         ui.horizontal(|ui| {
             ui.label("ESR (Ω):");
             let resp = ui.text_edit_singleline(&mut self.esr);
-            if resp.lost_focus() {
-                if !is_valid_param_str(&self.esr, ps) && ps.is_some() {
-                    ui.colored_label(Color32::RED, "Invalid value or formula");
-                }
+            if resp.lost_focus() && !is_valid_param_str(&self.esr, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
             }
         });
 
