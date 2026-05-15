@@ -171,13 +171,11 @@ pub struct SolverWorkspace<T: CircuitScalar> {
     pub initial_guess_n: Col<T>,
     pub iter_matrix: Mat<T>,
     pub iter_rhs: Col<T>,
-    pub next_x_n: Col<T>,
     pub diff: Col<T>,
     pub adjustment: Col<T>,
     /// Buffer for querying terminal currents and observables
     pub component_buffer: Vec<T>,
 
-    pub n_lu_mat: Mat<T>,
     pub row_perm_fwd: Vec<usize>,
     pub row_perm_inv: Vec<usize>,
     pub lu_workspace_memory: MemBuffer,
@@ -379,12 +377,10 @@ impl<T: CircuitScalar> Circuit<T> {
                 initial_guess_n: Col::<T>::zeros(n_size),
                 iter_matrix: Mat::<T>::zeros(n_size, n_size),
                 iter_rhs: Col::<T>::zeros(n_size),
-                next_x_n: Col::<T>::zeros(n_size),
                 diff: Col::<T>::zeros(n_size),
                 adjustment: Col::<T>::zeros(l_size),
                 component_buffer: vec![T::zero(); max_buffer_needed],
 
-                n_lu_mat: Mat::<T>::zeros(n_size, n_size),
                 row_perm_fwd: vec![0usize; n_size],
                 row_perm_inv: vec![0usize; n_size],
                 lu_workspace_memory,
@@ -786,9 +782,7 @@ impl<T: CircuitScalar> Circuit<T> {
             is_dc_analysis: false,
         };
 
-        for i in 0..total_size {
-            state.workspace.b_full[i] = T::zero();
-        }
+        state.workspace.b_full.fill(T::zero());
 
         // Per-step parameter refresh: hoist non-voltage-dependent formula
         // evaluations out of the NR loop. Use previous_solution for the
