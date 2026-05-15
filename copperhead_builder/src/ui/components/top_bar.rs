@@ -245,23 +245,27 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                                 .send(SimCommand::LoadCircuit(netlist))
                                 .unwrap();
                             app.tx_command.send(SimCommand::Resume).unwrap();
-                            // Auto-freeze immediately: all eligible TimeVariant components
-                            // move to the L-block for the duration of this run.
-                            let _ = app.tx_command.send(SimCommand::Freeze);
+                            if app.freeze_mode {
+                                let _ = app.tx_command.send(SimCommand::Freeze);
+                            }
                         }
                     }
 
-                    // Frozen status indicator (informational, not interactive).
-                    if app.sim_state.frozen {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Frozen ({} components)",
-                                app.sim_state.frozen_component_count
-                            ))
-                            .color(egui::Color32::YELLOW)
-                            .small(),
-                        )
-                        .on_hover_text("User parameters are locked and eligible components are solved in the pre-inverted L-block for faster simulation.");
+                    // Freeze toggle — editable only when stopped; locked during a run.
+                    let frozen = app.sim_state.frozen;
+                    let toggle_resp = ui.add_enabled(
+                        !running,
+                        egui::Checkbox::new(&mut app.freeze_mode, "Freeze"),
+                    );
+                    if frozen {
+                        toggle_resp.on_hover_text(format!(
+                            "Frozen — {} components moved to L-block. Stop the simulation to change this setting.",
+                            app.sim_state.frozen_component_count,
+                        ));
+                    } else {
+                        toggle_resp.on_hover_text(
+                            "When enabled, user parameters are locked on start and eligible components are solved in the pre-inverted L-block for faster simulation.",
+                        );
                     }
                 });
 

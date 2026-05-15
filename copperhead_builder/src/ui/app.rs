@@ -188,6 +188,9 @@ pub struct CircuitApp {
     //pub simulation_time: f64, // in seconds, for how long to simulate
     pub scope_state: ScopeState,
     pub realtime_mode: bool,
+    /// Whether to auto-freeze eligible components when the simulation starts.
+    /// Locked while the simulation is running; editable when stopped.
+    pub freeze_mode: bool,
     pub tx_command: Sender<SimCommand>,
     //pub shared_state: Arc<RwLock<SimState>>,
     pub sim_state: SimState,
@@ -335,6 +338,7 @@ impl CircuitApp {
             plotting_observable: None,
             scope_state: ScopeState::default(),
             realtime_mode: false,
+            freeze_mode: true,
             theme,
             //simulation_time: -1.0,
             tx_command: tx,
