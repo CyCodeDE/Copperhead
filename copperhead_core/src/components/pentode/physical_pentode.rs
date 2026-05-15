@@ -275,7 +275,7 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         0
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
+    fn stamp_static(&self, _matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
         if ctx.is_dc_analysis {
             return;
         }
@@ -283,8 +283,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
 
     fn stamp_dynamic(
         &mut self,
-        prev_node_voltages: &ColRef<T>,
-        rhs: &mut ColMut<T>,
+        _prev_node_voltages: &ColRef<T>,
+        _rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
     ) {
         if ctx.is_dc_analysis {
@@ -564,7 +564,7 @@ impl<T: CircuitScalar> Component<T> for PhysicalPentode<T> {
         stamp_current_source(rhs, idx_g1, idx_c, i_eq_g1, l_size);
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
         let v_p = get_voltage(current_node_voltages, self.cached_idx_p);
         let v_g2 = get_voltage(current_node_voltages, self.cached_idx_g2);
         let v_g1 = get_voltage(current_node_voltages, self.cached_idx_g1);

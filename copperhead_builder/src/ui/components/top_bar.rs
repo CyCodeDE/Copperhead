@@ -245,7 +245,27 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                                 .send(SimCommand::LoadCircuit(netlist))
                                 .unwrap();
                             app.tx_command.send(SimCommand::Resume).unwrap();
+                            if app.freeze_mode {
+                                let _ = app.tx_command.send(SimCommand::Freeze);
+                            }
                         }
+                    }
+
+                    // Freeze toggle — editable only when stopped; locked during a run.
+                    let frozen = app.sim_state.frozen;
+                    let toggle_resp = ui.add_enabled(
+                        !running,
+                        egui::Checkbox::new(&mut app.freeze_mode, "Freeze"),
+                    );
+                    if frozen {
+                        toggle_resp.on_hover_text(format!(
+                            "Frozen — {} components moved to L-block. Stop the simulation to change this setting.",
+                            app.sim_state.frozen_component_count,
+                        ));
+                    } else {
+                        toggle_resp.on_hover_text(
+                            "When enabled, user parameters are locked on start and eligible components are solved in the pre-inverted L-block for faster simulation.",
+                        );
                     }
                 });
 

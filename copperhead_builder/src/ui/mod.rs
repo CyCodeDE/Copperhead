@@ -27,14 +27,16 @@ pub mod ui;
 pub mod util;
 
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
+use crate::ui::util::deserialize_lossy_vec;
 use copperhead_core::components::{ComponentId, ComponentProbe};
 use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{NodeId, SimStepData};
+use copperhead_core::parameter::ParamSystem;
 use egui::{Color32, Pos2, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
-use crate::ui::util::deserialize_lossy_vec;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {
@@ -94,6 +96,8 @@ struct SaveFile {
     schematic: Schematic,
     realtime_mode: bool,
     simulation_time: f64,
+    #[serde(default)]
+    parameters: Vec<ParameterDecl>,
 }
 
 impl VisualComponent {
@@ -181,11 +185,7 @@ impl Schematic {
                 if c.name.starts_with(prefix) && c.name.len() > prefix.len() {
                     // Check for standard format "{prefix}{number}"
                     let suffix = &c.name[prefix.len()..];
-                    if let Ok(num) = suffix.parse::<usize>() {
-                        Some(num)
-                    } else {
-                        None
-                    }
+                    suffix.parse::<usize>().ok()
                 } else {
                     None
                 }
@@ -317,6 +317,36 @@ pub enum SimCommand {
         name: String,
         value: f64,
     },
+    /// Promote all freeze-eligible TimeVariant components to LinearStatic,
+    /// repartition the circuit, and lock user parameters in the UI.
+    Freeze,
+    /// Restore all frozen components to their normal linearity and repartition.
+    Unfreeze,
+}
+
+/// Controls how a parameter is presented in the parameters panel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub enum ParameterKind {
+    /// Free-range numeric value shown as a drag input.
+    #[default]
+    Number,
+    /// Boolean 0/1 shown as a checkbox.
+    Boolean,
+    /// Bounded continuous value shown as a slider.
+    Slider { min: f64, max: f64 },
+}
+
+/// A globally declared simulation parameter.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParameterDecl {
+    pub name: String,
+    pub default: f64,
+    /// How to display this parameter in the UI.
+    #[serde(default)]
+    pub kind: ParameterKind,
+    /// Auto-created by a potentiometer or switch; not user-deletable.
+    #[serde(default)]
+    pub auto: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -327,6 +357,8 @@ pub struct Netlist {
     pub node_map: HashMap<GridPos, NodeId>,
     /// Maps UI Component ID (usize) -> Simulation Component Index (usize)
     pub component_map: HashMap<usize, usize>,
+    /// Global parameters declared by `ParameterDef` schematic elements
+    pub parameters: Vec<ParameterDecl>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -343,6 +375,12 @@ pub struct SimState {
     pub current_sample: usize,
     pub metadata: Option<CircuitMetadata>,
     pub lookup_map: CircuitDataMap,
+    pub param_system: Option<Arc<ParamSystem>>,
+    /// True after a successful `SimCommand::Freeze`; false after `SimCommand::Unfreeze`.
+    /// Used to disable user-parameter controls in the UI.
+    pub frozen: bool,
+    /// How many components were moved to the L-block in the last freeze.
+    pub frozen_component_count: usize,
 }
 
 pub struct CircuitMetadata {
@@ -458,18 +496,6 @@ pub enum CircuitSelection {
     Voltage,
     Current,
     Observable,
-}
-
-impl Default for SimState {
-    fn default() -> Self {
-        Self {
-            history: Vec::new(),
-            running: false,
-            current_sample: 0,
-            metadata: None,
-            lookup_map: HashMap::new(),
-        }
-    }
 }
 
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {

@@ -17,9 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::path::PathBuf;
-use serde::{Deserialize, Deserializer};
+use copperhead_core::parameter::ParamSystem;
 use serde::de::{DeserializeOwned, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use std::path::PathBuf;
 
 /// Formats values with SI prefixes.
 ///
@@ -186,6 +187,17 @@ pub fn format_si_single(val: f64, precision: usize) -> String {
     format!("{}{}", s, prefix)
 }
 
+/// Returns true if `s` is a valid numeric component parameter — a plain float,
+/// an SI-prefixed value (e.g. "1k", "10n", "4.7µ"), or a compilable formula.
+pub fn is_valid_param_str(s: &str, param_system: Option<&ParamSystem>) -> bool {
+    if parse_si(s.trim()).is_some() {
+        return true;
+    }
+    param_system
+        .map(|ps| ps.compile(s.trim()).is_ok())
+        .unwrap_or(false)
+}
+
 pub fn rotate_offset(offset: (f32, f32), rotation: u8) -> (f32, f32) {
     match rotation % 4 {
         0 => offset,
@@ -233,15 +245,10 @@ where
 
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<T>, A::Error> {
             let mut vec = Vec::new();
-            // Each element is attempted as Option<T> via serde's
-            // built-in error recovery — but that doesn't work directly.
-            // Instead, deserialize each element as serde_json::Value first,
-            // then try converting.
             while let Some(raw) = seq.next_element::<serde_json::Value>()? {
                 if let Ok(item) = serde_json::from_value::<T>(raw) {
                     vec.push(item);
                 }
-                // else: silently skip
             }
             Ok(vec)
         }

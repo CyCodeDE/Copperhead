@@ -18,19 +18,21 @@
  */
 
 use crate::simulation::run_simulation_loop;
-use crate::ui::{SaveFile, SchematicElement};
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::netlist::compile_netlist;
 use crate::ui::{
     CircuitMetadata, GridPos, Netlist, NetlistEntry, Schematic, SimCommand, SimState, VisualWire,
 };
+use crate::ui::{SaveFile, SchematicElement};
 use copperhead_core::model::{NodeId, SimBatchData};
+use copperhead_core::parameter::ParamSystem;
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub struct AppTheme {
     pub background: Color32,
@@ -102,6 +104,8 @@ pub struct UndoStack<T> {
 pub struct ProjectState {
     pub schematic: Schematic,
     pub simulation_time: f64,
+    /// Global parameters available to component formulas.
+    pub parameters: Vec<crate::ui::ParameterDecl>,
 }
 
 pub enum DragState {
@@ -184,6 +188,9 @@ pub struct CircuitApp {
     //pub simulation_time: f64, // in seconds, for how long to simulate
     pub scope_state: ScopeState,
     pub realtime_mode: bool,
+    /// Whether to auto-freeze eligible components when the simulation starts.
+    /// Locked while the simulation is running; editable when stopped.
+    pub freeze_mode: bool,
     pub tx_command: Sender<SimCommand>,
     //pub shared_state: Arc<RwLock<SimState>>,
     pub sim_state: SimState,
@@ -207,10 +214,16 @@ pub struct CircuitApp {
 }
 
 pub enum StateUpdate {
-    CircuitLoaded(CircuitMetadata),
+    CircuitLoaded(CircuitMetadata, Arc<ParamSystem>),
     SendHistory(SimBatchData, usize),
     UpdateRunning(bool),
     ClearHistory,
+    /// Emitted by the simulation thread after freeze or unfreeze completes.
+    /// `components_frozen` is how many components moved to the L-block (0 on unfreeze).
+    FreezeChanged {
+        frozen: bool,
+        components_frozen: usize,
+    },
 }
 
 #[derive(PartialEq)]
@@ -233,6 +246,9 @@ impl CircuitApp {
             current_sample: 0,
             lookup_map: HashMap::new(),
             metadata: None,
+            param_system: None,
+            frozen: false,
+            frozen_component_count: 0,
         };
 
         // Spawn simulation thread
@@ -309,9 +325,9 @@ impl CircuitApp {
             state: ProjectState {
                 schematic: Schematic::default(),
                 simulation_time: 1.0,
+                parameters: Vec::new(),
             },
             temp_state_snapshot: None,
-            //schematic: Schematic::default(),
             undo_stack: UndoStack::new(50),
             selected_tool: Tool::Select,
             pan: Vec2::ZERO,
@@ -324,10 +340,11 @@ impl CircuitApp {
             plotting_observable: None,
             scope_state: ScopeState::default(),
             realtime_mode: false,
+            freeze_mode: true,
             theme,
             //simulation_time: -1.0,
             tx_command: tx,
-            sim_state: sim_state,
+            sim_state,
             state_receiver,
             recycle_tx,
             active_netlist: None,
@@ -351,6 +368,7 @@ impl CircuitApp {
             schematic: centered_schematic,
             realtime_mode: self.realtime_mode,
             simulation_time: self.state.simulation_time,
+            parameters: self.state.parameters.clone(),
         };
         let json = serde_json::to_string_pretty(&save_data).unwrap();
         std::fs::write(path, json).unwrap();
@@ -362,6 +380,7 @@ impl CircuitApp {
         self.state.schematic = save_data.schematic;
         self.realtime_mode = save_data.realtime_mode;
         self.state.simulation_time = save_data.simulation_time;
+        self.state.parameters = save_data.parameters;
         self.is_initialized = false; // force re-initialization
         self.zoom = 30.0;
         self.selected_tool = Tool::Select;

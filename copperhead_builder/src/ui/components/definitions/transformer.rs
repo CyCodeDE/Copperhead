@@ -156,7 +156,7 @@ impl ComponentUIExt for TransformerDef {
                             .speed(1e-3)
                             .range(0.0..=f64::INFINITY)
                             .custom_formatter(|val, _range| format_si_single(val, 3))
-                            .custom_parser(|text| parse_si(text)),
+                            .custom_parser(parse_si),
                     );
                 });
                 ui.add_space(10.0);

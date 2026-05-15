@@ -17,22 +17,21 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::components::capacitor::Capacitor;
-use crate::components::resistor::Resistor;
 use crate::components::{CircuitComponents, Component, ComponentId, InsertIntoSoA};
 use crate::model::SimBatchData;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
+use crate::parameter::parser::BuiltinValues;
+use crate::parameter::{ComponentEvalCtx, ParamSystem};
 use faer::dyn_stack::{MemBuffer, MemStack};
-use faer::linalg::lu::full_pivoting::factor::lu_in_place;
 use faer::linalg::solvers::PartialPivLu;
-use faer::matrix_free::LinOp;
-use faer::perm::{Perm, PermRef};
+use faer::perm::PermRef;
 use faer::prelude::Solve;
 use faer::{Accum, Col, Conj, Mat, Par, Spec};
-use log::{debug, error, info, trace};
+use log::error;
 use petgraph::graph::NodeIndex;
-use petgraph::prelude::{EdgeRef, UnGraph};
-use std::collections::{HashMap, HashSet};
+use petgraph::prelude::UnGraph;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 const GMIN: f64 = 1e-12;
 const MAX_NR_ITERATIONS: usize = 50;
@@ -107,6 +106,31 @@ pub struct Circuit<T: CircuitScalar> {
 
     pub total_terminals: usize,
     pub total_observables: usize,
+
+    /// Shared parameter system. Created at netlist build time and cloned
+    /// into both the simulation thread (for formula evaluation) and the
+    /// UI (for direct atomic writes to the table). `None` if the circuit
+    /// has no formula-driven parameters.
+    pub param_system: Option<Arc<ParamSystem>>,
+
+    /// Per-step builtin scalars (sample_rate, dt, time, ...) handed to
+    /// every formula evaluator via `ComponentEvalCtx`.
+    pub builtins: BuiltinValues,
+
+    /// Snapshot of node voltages laid out in the order established by
+    /// `ParamSystemBuilder::declare_voltage`. Refreshed from the solver's
+    /// solution before each refresh pass. Length = `param_system.voltage_count()`
+    /// (or 0 when there's no parameter system).
+    pub voltage_view: Vec<f64>,
+
+    /// `voltage_taps[i]` = matrix row index that supplies `voltage_view[i]`.
+    /// Built in `prepare()` from `param_system` and the partition's node map.
+    pub voltage_taps: Vec<usize>,
+
+    /// True while freeze mode is active. User-controllable parameters are
+    /// snapshotted and eligible `TimeVariant` components are promoted to
+    /// `LinearStatic`, shrinking the N-block.
+    pub frozen: bool,
 }
 
 pub struct SolverState<T: CircuitScalar> {
@@ -147,16 +171,20 @@ pub struct SolverWorkspace<T: CircuitScalar> {
     pub initial_guess_n: Col<T>,
     pub iter_matrix: Mat<T>,
     pub iter_rhs: Col<T>,
-    pub next_x_n: Col<T>,
     pub diff: Col<T>,
     pub adjustment: Col<T>,
     /// Buffer for querying terminal currents and observables
     pub component_buffer: Vec<T>,
 
-    pub n_lu_mat: Mat<T>,
     pub row_perm_fwd: Vec<usize>,
     pub row_perm_inv: Vec<usize>,
     pub lu_workspace_memory: MemBuffer,
+}
+
+impl<T: CircuitScalar> Default for Circuit<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T: CircuitScalar> Circuit<T> {
@@ -177,7 +205,49 @@ impl<T: CircuitScalar> Circuit<T> {
             step_count: 0,
             total_terminals: 0,
             total_observables: 0,
+
+            param_system: None,
+            builtins: BuiltinValues::default(),
+            voltage_view: Vec::new(),
+            voltage_taps: Vec::new(),
+            frozen: false,
         }
+    }
+
+    /// Refresh `voltage_view` from the given solution column. The `i`-th
+    /// entry of `voltage_view` is the voltage at the matrix row index
+    /// `voltage_taps[i]`. Callers update this either from `previous_solution`
+    /// (start of step) or `current_solution` (each Newton iteration) before
+    /// running a refresh pass.
+    ///
+    /// Static helper so callers can borrow `voltage_view`/`voltage_taps`
+    /// and the chosen solution column as disjoint fields of `self`
+    /// without going through `&mut self`.
+    #[inline]
+    fn refresh_voltage_view_into(out: &mut [f64], taps: &[usize], solution: &Col<T>) {
+        let n = solution.nrows();
+        for (i, &row_idx) in taps.iter().enumerate() {
+            let v = if row_idx < n {
+                solution[row_idx]
+            } else {
+                T::zero()
+            };
+            out[i] = v.to_f64().unwrap_or(0.0);
+        }
+    }
+
+    /// Update the per-step `BuiltinValues` from the given dt and the
+    /// circuit's current time/step counters. Called once per audio sample
+    /// before any formula evaluation.
+    #[inline]
+    fn update_builtins(&mut self, dt: T) {
+        let dt_f = dt.to_f64().unwrap_or(0.0);
+        self.builtins.time_step = dt_f;
+        self.builtins.sample_rate = if dt_f > 0.0 { 1.0 / dt_f } else { 0.0 };
+        self.builtins.simulation_time = self.time.to_f64().unwrap_or(0.0);
+        self.builtins.step_index = self.step_count as f64;
+        // BPM and oversampling are application-wide settings; left at
+        // their defaults (0.0 and 1.0 from BuiltinValues::default()).
     }
 
     pub fn add_component<C>(&mut self, component: C)
@@ -238,11 +308,28 @@ impl<T: CircuitScalar> Circuit<T> {
         self.components
             .stamp_all_static(&mut matrix_a.as_mut(), &ctx);
 
+        // Set up voltage probe taps. Each declared voltage in the param
+        // system maps a name -> u16; the value at that index is whatever
+        // the partition placed at the named NodeId. We don't (yet) carry
+        // the name -> NodeId map from the builder, so for now this is
+        // populated as an empty vector when no probes have been wired up.
+        // TODO: wire NodeId resolution from the builder side and look up
+        // the matrix row for each declared voltage probe here.
+        let voltage_count = self
+            .param_system
+            .as_ref()
+            .map(|sys| sys.voltage_count())
+            .unwrap_or(0);
+        self.voltage_view = vec![0.0; voltage_count];
+        if self.voltage_taps.len() != voltage_count {
+            self.voltage_taps = vec![0; voltage_count];
+        }
+
         if is_dc {
             let gmin = T::from(GMIN).unwrap();
             // Only apply to actual VOLTAGE nodes, not auxiliary current rows
             for i in 0..partition.num_l_nodes {
-                matrix_a[(i, i)] = matrix_a[(i, i)] + gmin;
+                matrix_a[(i, i)] += gmin;
             }
         }
 
@@ -296,12 +383,10 @@ impl<T: CircuitScalar> Circuit<T> {
                 initial_guess_n: Col::<T>::zeros(n_size),
                 iter_matrix: Mat::<T>::zeros(n_size, n_size),
                 iter_rhs: Col::<T>::zeros(n_size),
-                next_x_n: Col::<T>::zeros(n_size),
                 diff: Col::<T>::zeros(n_size),
                 adjustment: Col::<T>::zeros(l_size),
                 component_buffer: vec![T::zero(); max_buffer_needed],
 
-                n_lu_mat: Mat::<T>::zeros(n_size, n_size),
                 row_perm_fwd: vec![0usize; n_size],
                 row_perm_inv: vec![0usize; n_size],
                 lu_workspace_memory,
@@ -376,6 +461,30 @@ impl<T: CircuitScalar> Circuit<T> {
         }
     }
 
+    /// Enter freeze mode: promote every freeze-eligible `TimeVariant`
+    /// component to `LinearStatic` and repartition the circuit so those
+    /// components move into the pre-inverted L-block. Returns the number
+    /// of components frozen.
+    ///
+    /// The caller is responsible for ensuring that the UI no longer writes
+    /// to user parameters while the circuit is frozen.
+    pub fn freeze(&mut self, dt: T) -> usize {
+        assert!(!self.frozen, "circuit is already frozen");
+        let count = self.components.freeze_eligible_components();
+        self.frozen = true;
+        self.prepare(dt, false);
+        count
+    }
+
+    /// Exit freeze mode: restore all components to their original linearity
+    /// and repartition so the solver reverts to the live N-block layout.
+    pub fn unfreeze(&mut self, dt: T) {
+        assert!(self.frozen, "circuit is not frozen");
+        self.components.unfreeze_all_components();
+        self.frozen = false;
+        self.prepare(dt, false);
+    }
+
     pub fn calculate_dc_operating_point(
         &mut self,
         tolerance: T,
@@ -391,6 +500,7 @@ impl<T: CircuitScalar> Circuit<T> {
 
         self.time = T::zero();
         self.prepare(dc_ctx.dt, true);
+        self.update_builtins(dt);
 
         let state = match &mut self.solver_state {
             Some(s) => s,
@@ -415,7 +525,26 @@ impl<T: CircuitScalar> Circuit<T> {
             state.workspace.b_full[i] = T::zero();
         }
 
-        // Stamp Dynamic (with empty previous history for DC)
+        // Per-step parameter refresh: builtins reflect dt + simulation
+        // time + step index. For DC analysis we set time = 0; voltage
+        // probes have nothing meaningful to read yet.
+        Self::refresh_voltage_view_into(
+            &mut self.voltage_view,
+            &self.voltage_taps,
+            &self.previous_solution,
+        );
+        {
+            let eval_ctx_step = ComponentEvalCtx {
+                voltages: &self.voltage_view,
+                builtins: &self.builtins,
+            };
+            self.components
+                .refresh_all_per_step(&eval_ctx_step, &dc_ctx);
+        }
+
+        // Stamp Dynamic (with empty previous history for DC).
+        // `state` stays valid: refresh_all_per_step only touched
+        // self.components, not self.solver_state.
         self.components.stamp_all_dynamic(
             &empty_prev.as_ref(),
             &mut state.workspace.b_full.as_mut(),
@@ -482,6 +611,24 @@ impl<T: CircuitScalar> Circuit<T> {
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
 
+                self.current_solution
+                    .as_mut()
+                    .subrows_mut(l_size, n_size)
+                    .copy_from(&state.workspace.x_n);
+                Self::refresh_voltage_view_into(
+                    &mut self.voltage_view,
+                    &self.voltage_taps,
+                    &self.current_solution,
+                );
+                {
+                    let eval_ctx_iter = ComponentEvalCtx {
+                        voltages: &self.voltage_view,
+                        builtins: &self.builtins,
+                    };
+                    self.components
+                        .refresh_all_per_iter(&eval_ctx_iter, &dc_ctx);
+                }
+
                 // Stamp Time-Variant components
                 self.components.stamp_all_time_variant(
                     &mut state.workspace.iter_matrix.as_mut(),
@@ -534,7 +681,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     state.workspace.diff[i] = d;
 
                     let damped = T::from(damping_factor).unwrap() * d;
-                    state.workspace.x_n[i] = state.workspace.x_n[i] + damped;
+                    state.workspace.x_n[i] += damped;
                 }
 
                 let error = state.workspace.diff.norm_max();
@@ -567,7 +714,6 @@ impl<T: CircuitScalar> Circuit<T> {
             ));
         }
 
-        // adjustment = t_mat * x_n
         faer::linalg::matmul::matmul(
             state.workspace.adjustment.as_mut(),
             Accum::Replace,
@@ -596,6 +742,7 @@ impl<T: CircuitScalar> Circuit<T> {
     }
 
     pub fn solve_step(&mut self, dt: T) -> SimulationContext<T> {
+        self.update_builtins(dt);
         let state = match &mut self.solver_state {
             Some(s) => s,
             None => panic!("Solver state not initialized!"),
@@ -609,7 +756,7 @@ impl<T: CircuitScalar> Circuit<T> {
 
         // Initialize the solution guess for this time step.
         // A good guess is the solution from the previous time step or the one before that.
-        // If we don't do this, the diodes for example starts at 0V (off) every step,
+        // If we don't do this, the diodes for example starts at 0V (off) every step
         if self.previous_solution.nrows() == total_size {
             if self.step_count > 1 {
                 // First-order linear extrapolation
@@ -633,12 +780,21 @@ impl<T: CircuitScalar> Circuit<T> {
             is_dc_analysis: false,
         };
 
-        for i in 0..total_size {
-            state.workspace.b_full[i] = T::zero();
+        state.workspace.b_full.fill(T::zero());
+
+        Self::refresh_voltage_view_into(
+            &mut self.voltage_view,
+            &self.voltage_taps,
+            &self.previous_solution,
+        );
+        {
+            let eval_ctx_step = ComponentEvalCtx {
+                voltages: &self.voltage_view,
+                builtins: &self.builtins,
+            };
+            self.components.refresh_all_per_step(&eval_ctx_step, &ctx);
         }
 
-        // Stamp Dynamic (Capacitor/Inductor history)
-        // dynamic history depends on t-1
         self.components.stamp_all_dynamic(
             &self.previous_solution.as_ref(),
             &mut state.workspace.b_full.as_mut(),
@@ -702,6 +858,23 @@ impl<T: CircuitScalar> Circuit<T> {
                     .workspace
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
+
+                self.current_solution
+                    .as_mut()
+                    .subrows_mut(state.l_size, state.n_size)
+                    .copy_from(&state.workspace.x_n);
+                Self::refresh_voltage_view_into(
+                    &mut self.voltage_view,
+                    &self.voltage_taps,
+                    &self.current_solution,
+                );
+                {
+                    let eval_ctx_iter = ComponentEvalCtx {
+                        voltages: &self.voltage_view,
+                        builtins: &self.builtins,
+                    };
+                    self.components.refresh_all_per_iter(&eval_ctx_iter, &ctx);
+                }
 
                 // Stamp Time-Variant components
                 self.components.stamp_all_time_variant(
@@ -883,12 +1056,12 @@ impl<T: CircuitScalar> Circuit<T> {
             return T::zero();
         }
 
-        if let Some(partition) = &self.partition {
-            if let Some(&matrix_index) = partition.node_map.get(&node) {
-                // Ensure the index is valid within our current solution vector
-                if matrix_index < self.current_solution.nrows() {
-                    return self.current_solution[matrix_index];
-                }
+        if let Some(partition) = &self.partition
+            && let Some(&matrix_index) = partition.node_map.get(&node)
+        {
+            // Ensure the index is valid within our current solution vector
+            if matrix_index < self.current_solution.nrows() {
+                return self.current_solution[matrix_index];
             }
         }
 
@@ -902,21 +1075,21 @@ impl<T: CircuitScalar> Circuit<T> {
 
     /// Read the terminal currents for a component at the current time step. The order of currents corresponds to the order of ports returned by `Component::ports()`.
     pub fn get_terminal_current(&self, component_idx: usize, dt: T, dst: &mut [T]) {
-        if let Some(graph_idx) = self.component_order.get(component_idx) {
-            if let CircuitElement::Device(comp_id) = self.graph[*graph_idx] {
-                return self.components.get_terminal_currents(
-                    comp_id,
-                    &self.current_solution.as_ref(),
-                    &SimulationContext {
-                        dt,
-                        time: self.time,
-                        step: self.step_count,
-                        is_dc_analysis: false,
-                        // TODO: we need to check if time step 0 and set to dc analysis or else the measurement won't be accurate for the first step
-                    },
-                    dst,
-                );
-            }
+        if let Some(graph_idx) = self.component_order.get(component_idx)
+            && let CircuitElement::Device(comp_id) = self.graph[*graph_idx]
+        {
+            self.components.get_terminal_currents(
+                comp_id,
+                &self.current_solution.as_ref(),
+                &SimulationContext {
+                    dt,
+                    time: self.time,
+                    step: self.step_count,
+                    is_dc_analysis: false,
+                    // TODO: we need to check if time step 0 and set to dc analysis or else the measurement won't be accurate for the first step
+                },
+                dst,
+            )
         }
     }
 

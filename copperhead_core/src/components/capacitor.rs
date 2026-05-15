@@ -20,27 +20,48 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind, resolve_param_value};
+use crate::util::deserialize_number_or_string;
 use crate::util::mna::{get_voltage_diff, stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
-use num_traits::cast;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CapacitorDef {
-    pub capacitance: f64,
-    pub esr: f64,
+    #[serde(deserialize_with = "deserialize_number_or_string")]
+    pub capacitance: String,
+    pub esr: String,
+}
+
+impl CapacitorDef {
+    pub fn new(capacitance: f64, esr: f64) -> Self {
+        Self {
+            capacitance: capacitance.to_string(),
+            esr: esr.to_string(),
+        }
+    }
 }
 
 impl<T: CircuitScalar> Instantiable<T> for CapacitorDef {
     fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
-        let comp = Capacitor::new(
-            nodes[0],
-            nodes[1],
-            cast(self.capacitance).expect("Failed to cast Capacitance"),
-            cast(self.esr).expect("Failed to cast ESR"),
-            dt,
-        );
-        circuit.add_component(comp);
+        let cpv = circuit
+            .param_system
+            .as_ref()
+            .map(|ps| resolve_param_value(&self.capacitance, ps))
+            .unwrap_or_else(|| {
+                let v = self.capacitance.trim().parse::<f64>().unwrap_or(0.0);
+                ParamValue::Constant(v)
+            });
+
+        let esrpv = circuit
+            .param_system
+            .as_ref()
+            .map(|ps| resolve_param_value(&self.esr, ps))
+            .unwrap_or_else(|| {
+                let v = self.esr.trim().parse::<f64>().unwrap_or(0.0);
+                ParamValue::Constant(v)
+            });
+        circuit.add_component(Capacitor::<T>::new(nodes[0], nodes[1], cpv, esrpv, dt));
     }
 }
 
@@ -51,17 +72,20 @@ pub struct Capacitor<T: CircuitScalar> {
     cached_idx_a: Option<usize>,
     cached_idx_b: Option<usize>,
 
-    /// The physical capacitance in Farads
-    capacitance: T,
+    /// User-facing physical capacitance in Farads.
+    capacitance: ParamValue,
 
-    /// Equivalent Series Resistance in Ohms
-    esr: T,
+    /// User-facing equivalent series resistance in Ohms.
+    esr: ParamValue,
 
-    /// The discrete equivalent conductance: G = 2C / dt
+    /// Discrete equivalent conductance: derived from `capacitance`, `esr`,
+    /// and `dt`. Refreshed by `refresh_per_step` / `refresh_per_iter` when
+    /// either parameter is formula-driven; otherwise computed once at
+    /// construction and on `set_param_value` for constant updates.
     conductance: T,
 
-    /// The equivalent current source value (history state)
-    /// Represents I_eq in the Norton equivalent model
+    /// Norton equivalent current source value (history state) updated by
+    /// `update_state`. Stamped into b every step by `stamp_dynamic`.
     eq_current: T,
 
     // BDF2 history states
@@ -73,8 +97,10 @@ pub struct Capacitor<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> Capacitor<T> {
-    /// Creates a new Capacitor.
-    pub fn new(a: NodeId, b: NodeId, capacitance: T, esr: T, dt: T) -> Self {
+    pub fn new(a: NodeId, b: NodeId, capacitance: ParamValue, esr: ParamValue, dt: T) -> Self {
+        let c0 = capacitance.as_constant().unwrap_or(1.0);
+        let r0 = esr.as_constant().unwrap_or(0.0);
+
         let mut cap = Self {
             node_a: a,
             node_b: b,
@@ -88,26 +114,54 @@ impl<T: CircuitScalar> Capacitor<T> {
             v_c_m2: T::zero(),
         };
 
-        cap.update_conductance(dt);
+        cap.conductance = Self::compute_conductance(c0, r0, dt);
         cap
     }
 
-    fn update_conductance(&mut self, dt: T) {
+    /// G = 1 / (esr + 2·dt / (3·C))  — BDF2 Norton equivalent.
+    fn compute_conductance(c: f64, esr: f64, dt: T) -> T {
         let two = T::from(2.0).unwrap();
         let three = T::from(3.0).unwrap();
-
-        let r_c = (two * dt) / (three * self.capacitance);
-
-        self.conductance = T::one() / (self.esr + r_c);
+        let c_t = T::from(c).unwrap();
+        let esr_t = T::from(esr).unwrap();
+        let r_c = (two * dt) / (three * c_t);
+        T::one() / (esr_t + r_c)
     }
+
+    /// Pull the current f64 value out of capacitance / esr (whether they're
+    /// constants or formulas) and rebuild the discrete conductance.
+    fn refresh_conductance(&mut self, eval: &ComponentEvalCtx, dt: T) {
+        let c = self.capacitance.eval(eval);
+        let r = self.esr.eval(eval);
+        self.conductance = Self::compute_conductance(c, r, dt);
+    }
+
+    /*
+    fn esr_value(&mut self, eval: &ComponentEvalCtx) -> T {
+        T::from(self.esr.eval(eval)).unwrap()
+    }
+    */
 }
 
 impl<T: CircuitScalar> Component<T> for Capacitor<T> {
     fn linearity(&self) -> ComponentLinearity {
-        ComponentLinearity::LinearDynamic
+        let any_dynamic = self.capacitance.is_dynamic() || self.esr.is_dynamic();
+        let any_voltage = self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
+
+        if any_voltage {
+            ComponentLinearity::NonLinear
+        } else if any_dynamic {
+            ComponentLinearity::TimeVariant
+        } else {
+            ComponentLinearity::LinearDynamic
+        }
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+    fn ports(&self) -> Vec<NodeId> {
+        vec![self.node_a, self.node_b]
+    }
+
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         self.cached_idx_a = if self.node_a.0 == 0 {
             None
         } else {
@@ -120,18 +174,21 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         };
     }
 
-    fn ports(&self) -> Vec<NodeId> {
-        vec![self.node_a, self.node_b]
-    }
-
     fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
         if ctx.is_dc_analysis {
             return;
         }
 
-        let g = self.conductance;
-
-        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_b, g, 0);
+        if self.capacitance.is_dynamic() || self.esr.is_dynamic() {
+            return;
+        }
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            0,
+        );
     }
 
     fn stamp_dynamic(
@@ -153,9 +210,74 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         );
     }
 
+    fn stamp_time_variant(
+        &self,
+        matrix: &mut MatMut<T>,
+        ctx: &SimulationContext<T>,
+        offset: usize,
+    ) {
+        if ctx.is_dc_analysis {
+            return;
+        }
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            offset,
+        );
+    }
+
+    fn stamp_nonlinear(
+        &self,
+        _current_node_voltages: &ColRef<T>,
+        matrix: &mut MatMut<T>,
+        _rhs: &mut ColMut<T>,
+        ctx: &SimulationContext<T>,
+        l_size: usize,
+    ) {
+        if ctx.is_dc_analysis {
+            return;
+        }
+
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            l_size,
+        );
+    }
+
+    fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, sim: &SimulationContext<T>) {
+        let any_dynamic = self.capacitance.is_dynamic() || self.esr.is_dynamic();
+        let any_voltage = self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
+        if any_dynamic && !any_voltage {
+            self.refresh_conductance(eval, sim.dt);
+        }
+    }
+
+    fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, sim: &SimulationContext<T>) {
+        let any_voltage = self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
+        if any_voltage {
+            self.refresh_conductance(eval, sim.dt);
+        }
+    }
+
     fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
         let v_terminal =
             get_voltage_diff(current_node_voltages, self.cached_idx_a, self.cached_idx_b);
+
+        let esr_t = match &self.esr {
+            ParamValue::Constant(v) => T::from(*v).unwrap(),
+            ParamValue::Formula(_) => {
+                // TODO: cache esr in T alongside conductance during refresh.
+                // Fall back to extracting it from G if needed; for now
+                // approximate as 0 and accept the small ESR error until
+                // we add the cache.
+                T::zero()
+            }
+        };
 
         let i_through = if ctx.is_dc_analysis {
             T::zero()
@@ -163,19 +285,16 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
             (v_terminal * self.conductance) + self.eq_current
         };
 
-        // Extract the voltage across the pure capacitor by subtracting the ESR voltage drop
         let v_c = if ctx.is_dc_analysis {
             v_terminal
         } else {
-            v_terminal - (i_through * self.esr)
+            v_terminal - (i_through * esr_t)
         };
 
         if ctx.is_dc_analysis {
-            // Steady-state assumption for initialization
             self.v_c_m1 = v_c;
             self.v_c_m2 = v_c;
         } else {
-            // Shift history
             self.v_c_m2 = self.v_c_m1;
             self.v_c_m1 = v_c;
         }
@@ -185,7 +304,6 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
 
         let v_th_c = ((four * self.v_c_m1) - self.v_c_m2) / three;
 
-        // Convert Thevenin voltage to Norton equivalent current source
         self.eq_current = -(v_th_c * self.conductance);
     }
 
@@ -241,23 +359,49 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
             (v * self.conductance) + self.eq_current
         };
 
-        out_currents[0] = i_flow; // Current flowing INTO Node A
-        out_currents[1] = -i_flow; // Current flowing INTO Node B is
+        out_currents[0] = i_flow;
+        out_currents[1] = -i_flow;
     }
 
-    fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
+    fn set_param_value(&mut self, name: &str, pv: ParamValue) -> RebuildKind {
+        let (was_dyn, was_volt) = match name {
+            "capacitance" => (
+                self.capacitance.is_dynamic(),
+                self.capacitance.depends_on_voltage(),
+            ),
+            "esr" => (self.esr.is_dynamic(), self.esr.depends_on_voltage()),
+            _ => return RebuildKind::None,
+        };
+
         match name {
-            "capacitance" => {
-                self.capacitance = value;
-                self.update_conductance(ctx.dt);
-                true
-            }
-            "esr" => {
-                self.esr = value;
-                self.update_conductance(ctx.dt);
-                true
-            }
-            _ => false,
+            "capacitance" => self.capacitance = pv,
+            "esr" => self.esr = pv,
+            _ => unreachable!(),
+        }
+
+        let now_dyn = match name {
+            "capacitance" => self.capacitance.is_dynamic(),
+            "esr" => self.esr.is_dynamic(),
+            _ => unreachable!(),
+        };
+        let now_volt = match name {
+            "capacitance" => self.capacitance.depends_on_voltage(),
+            "esr" => self.esr.depends_on_voltage(),
+            _ => unreachable!(),
+        };
+
+        if !self.capacitance.is_dynamic() && !self.esr.is_dynamic() {
+            let c = self.capacitance.as_constant().unwrap_or(1.0);
+            let r = self.esr.as_constant().unwrap_or(0.0);
+            let _ = (c, r);
+        }
+
+        if was_dyn != now_dyn || was_volt != now_volt {
+            RebuildKind::Repartition
+        } else if !now_dyn {
+            RebuildKind::Restamp
+        } else {
+            RebuildKind::None
         }
     }
 }

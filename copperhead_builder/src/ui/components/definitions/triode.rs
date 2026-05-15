@@ -58,10 +58,10 @@ impl ComponentUIExt for TriodeDef {
 
         // If the newly selected triode does not support the current fidelity setting,
         // force a fallback to the first available supported fidelity.
-        if !valid_fidelities.contains(&self.fidelity) {
-            if let Some(fallback) = valid_fidelities.first() {
-                self.fidelity = fallback.clone();
-            }
+        if !valid_fidelities.contains(&self.fidelity)
+            && let Some(fallback) = valid_fidelities.first()
+        {
+            self.fidelity = *fallback;
         }
 
         ComboBox::from_label("Fidelity")

@@ -57,43 +57,43 @@ pub fn handle(
         }
     }
 
-    if let Some(mouse_pos) = response.hover_pos() {
-        if let Some(netlist) = &app.active_netlist {
-            // Only show if the simulation is or was running
-            let mut hit_pin = None;
-            let mut hit_body = None;
+    if let Some(mouse_pos) = response.hover_pos()
+        && let Some(netlist) = &app.active_netlist
+    {
+        // Only show if the simulation is or was running
+        let mut hit_pin = None;
+        let mut hit_body = None;
 
-            for comp in &app.state.schematic.components {
-                let comp_screen_pos = app.to_screen(comp.pos);
+        for comp in &app.state.schematic.components {
+            let comp_screen_pos = app.to_screen(comp.pos);
 
-                let pins = comp.get_pin_locations();
-                for (terminal_index, pin_pos) in pins.iter().enumerate() {
-                    let pin_screen_pos = app.to_screen(*pin_pos);
-                    if pin_screen_pos.distance(mouse_pos) < 10.0 {
-                        hit_pin = Some((comp, terminal_index));
-                        break;
-                    }
-                }
-
-                if hit_pin.is_some() {
+            let pins = comp.get_pin_locations();
+            for (terminal_index, pin_pos) in pins.iter().enumerate() {
+                let pin_screen_pos = app.to_screen(*pin_pos);
+                if pin_screen_pos.distance(mouse_pos) < 10.0 {
+                    hit_pin = Some((comp, terminal_index));
                     break;
                 }
+            }
 
-                if hit_body.is_none() {
-                    let rotated_size = rotate_size(comp.element.size(), comp.rotation);
-                    let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
-                    let size = Vec2::new(
-                        rotated_size.0 as f32 * app.zoom,
-                        rotated_size.1 as f32 * app.zoom,
-                    );
-                    let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
-                        rotated_offset.0 * app.zoom,
-                        rotated_offset.1 * app.zoom,
-                    ));
+            if hit_pin.is_some() {
+                break;
+            }
 
-                    if rect.contains(mouse_pos) {
-                        hit_body = Some(comp);
-                    }
+            if hit_body.is_none() {
+                let rotated_size = rotate_size(comp.element.size(), comp.rotation);
+                let rotated_offset = rotate_offset(comp.element.offset(), comp.rotation);
+                let size = Vec2::new(
+                    rotated_size.0 as f32 * app.zoom,
+                    rotated_size.1 as f32 * app.zoom,
+                );
+                let rect = Rect::from_center_size(comp_screen_pos, size).translate(Vec2::new(
+                    rotated_offset.0 * app.zoom,
+                    rotated_offset.1 * app.zoom,
+                ));
+
+                if rect.contains(mouse_pos) {
+                    hit_body = Some(comp);
                 }
             }
 

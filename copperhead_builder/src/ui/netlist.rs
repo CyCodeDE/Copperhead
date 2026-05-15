@@ -66,10 +66,10 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
         if matches!(&comp.element, SchematicElement::Label(_)) {
             let name = comp.name.clone();
 
-            if let Some(pos) = comp.get_pin_locations().first() {
-                if let Some(&pt_id) = point_map.get(pos) {
-                    label_groups.entry(name).or_default().push(pt_id);
-                }
+            if let Some(pos) = comp.get_pin_locations().first()
+                && let Some(&pt_id) = point_map.get(pos)
+            {
+                label_groups.entry(name).or_default().push(pt_id);
             }
         }
     }
@@ -86,12 +86,11 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
     let mut grounded_roots = HashSet::new();
 
     for comp in &app.state.schematic.components {
-        if let SchematicElement::Ground(_) = comp.element {
-            if let Some(pin_pos) = comp.get_pin_locations().first() {
-                if let Some(&pt_id) = point_map.get(pin_pos) {
-                    grounded_roots.insert(dsu.find_p(pt_id));
-                }
-            }
+        if let SchematicElement::Ground(_) = comp.element
+            && let Some(pin_pos) = comp.get_pin_locations().first()
+            && let Some(&pt_id) = point_map.get(pin_pos)
+        {
+            grounded_roots.insert(dsu.find_p(pt_id));
         }
     }
 
@@ -128,7 +127,7 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
     // Generate instruction
     for comp in &app.state.schematic.components {
         // Skip the Ground and Label components in instructions, it's not a circuit element,
-        // it's just a constraint we applied above.
+        // it's just a constraint we applied
         let core_def = match &comp.element {
             SchematicElement::Ground(_) => continue,
             SchematicElement::Label(_) => continue,
@@ -168,6 +167,7 @@ pub fn compile_netlist(app: &CircuitApp) -> Netlist {
         entries,
         node_map: final_node_map,
         component_map,
+        parameters: app.state.parameters.clone(),
     }
 }
 

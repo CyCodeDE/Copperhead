@@ -19,6 +19,8 @@
 use crate::circuit::Circuit;
 use crate::components::ComponentId;
 use crate::model::{CircuitScalar, SimulationContext};
+use crate::parameter::{ParamSystem, ParamSystemBuilder};
+use std::sync::Arc;
 
 pub struct CircuitProcessor<T: CircuitScalar> {
     circuit: Circuit<T>,
@@ -27,18 +29,34 @@ pub struct CircuitProcessor<T: CircuitScalar> {
 }
 
 impl<T: CircuitScalar> CircuitProcessor<T> {
-    pub fn new(mut circuit: Circuit<T>, sample_rate: f64, dt: T) -> Result<Self, String> {
+    pub fn new(
+        mut circuit: Circuit<T>,
+        sample_rate: f64,
+        dt: T,
+    ) -> Result<(Self, Arc<ParamSystem>), String> {
+        // The param system is built and injected by the caller before circuit
+        // construction. Fall back to an empty system only when there are no
+        // declared parameters (e.g. in unit tests).
+        let param_system = circuit
+            .param_system
+            .clone()
+            .unwrap_or_else(|| Arc::new(ParamSystemBuilder::new().build()));
+        circuit.param_system = Some(param_system.clone());
+
         circuit
             .calculate_dc_operating_point(T::from(1e-6).unwrap(), 100, dt)
             .map_err(|e| format!("Initial state failed: {}", e))?;
 
         circuit.prepare(dt, false);
 
-        Ok(Self {
-            circuit,
-            sample_rate,
-            dt,
-        })
+        Ok((
+            Self {
+                circuit,
+                sample_rate,
+                dt,
+            },
+            param_system,
+        ))
     }
 
     #[inline]

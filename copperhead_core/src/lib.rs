@@ -22,6 +22,7 @@ pub mod circuit;
 pub mod components;
 pub mod descriptor;
 pub mod model;
+pub mod parameter;
 pub mod processor;
 pub mod signals;
 pub mod util;

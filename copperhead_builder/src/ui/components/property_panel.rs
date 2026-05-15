@@ -18,6 +18,7 @@
  */
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
+use egui::CollapsingHeader;
 
 pub fn show(app: &mut CircuitApp, ui: &mut egui::Ui) {
     let tx = &app.tx_command;
@@ -25,8 +26,9 @@ pub fn show(app: &mut CircuitApp, ui: &mut egui::Ui) {
     let active_netlist = app.active_netlist.as_ref();
     let components = &mut app.state.schematic.components;
 
-    let scroll_area = egui::ScrollArea::vertical();
-    scroll_area.show(ui, |ui| {
+    //let scroll_area = egui::ScrollArea::vertical();
+    //scroll_area.show(ui, |ui| {
+    CollapsingHeader::new("Properties").show(ui, |ui| {
         components.iter_mut().for_each(|c| {
             let id = if let Some(netlist) = active_netlist {
                 netlist.component_map.get(&c.id).copied()
@@ -38,4 +40,5 @@ pub fn show(app: &mut CircuitApp, ui: &mut egui::Ui) {
                 .draw_property_panel(tx, ui, id, running, c.name.as_str());
         });
     });
+    //});
 }

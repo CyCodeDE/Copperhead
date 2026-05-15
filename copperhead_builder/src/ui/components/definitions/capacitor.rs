@@ -20,7 +20,7 @@
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{LabelEngine, rotate_vec};
-use crate::ui::util::{format_si_single, parse_si};
+use crate::ui::util::{format_si_single, is_valid_param_str};
 use copperhead_core::components::capacitor::CapacitorDef;
 use egui::{Color32, Painter, Pos2, Stroke, Ui, Vec2};
 
@@ -46,27 +46,20 @@ impl ComponentUIExt for CapacitorDef {
     }
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
+        let ps = app.sim_state.param_system.as_deref();
         ui.horizontal(|ui| {
-            ui.label("Capacitance:");
-            ui.add(
-                egui::DragValue::new(&mut self.capacitance)
-                    .suffix("F")
-                    .speed(1e-7)
-                    .range(0.0..=f64::INFINITY)
-                    .custom_formatter(|val, _range| format_si_single(val, 3))
-                    .custom_parser(|text| parse_si(text)),
-            );
+            ui.label("Capacitance (F):");
+            let resp = ui.text_edit_singleline(&mut self.capacitance);
+            if resp.lost_focus() && !is_valid_param_str(&self.capacitance, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
+            }
         });
         ui.horizontal(|ui| {
-            ui.label("ESR:");
-            ui.add(
-                egui::DragValue::new(&mut self.esr)
-                    .suffix("Ω")
-                    .speed(1e-4)
-                    .range(0.0..=f64::INFINITY)
-                    .custom_formatter(|val, _range| format_si_single(val, 3))
-                    .custom_parser(|text| parse_si(text)),
-            );
+            ui.label("ESR (Ω):");
+            let resp = ui.text_edit_singleline(&mut self.esr);
+            if resp.lost_focus() && !is_valid_param_str(&self.esr, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
+            }
         });
 
         false
@@ -78,11 +71,11 @@ impl ComponentUIExt for CapacitorDef {
         center: Pos2,
         rotation: u8,
         zoom: f32,
-        fill_color: Color32,
+        _fill_color: Color32,
         stroke_color: Color32,
     ) {
-        let plate_gap = 0.15; // Distance from center to plate
-        let plate_height = 0.8; // Total height of the plate
+        let plate_gap = 0.15;
+        let plate_height = 0.8;
         let stroke = Stroke::new(2.0, stroke_color);
 
         let wire_left_start = rotate_vec(Vec2::new(-1.0, 0.0) * zoom, rotation);
@@ -105,7 +98,11 @@ impl ComponentUIExt for CapacitorDef {
     fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
         let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
 
-        let formatted_value = format_si_single(self.capacitance, 2) + "F";
+        let formatted_value = if let Ok(v) = self.capacitance.trim().parse::<f64>() {
+            format_si_single(v, 2) + "F"
+        } else {
+            self.capacitance.clone() + "F"
+        };
 
         engine.draw_axial_labels(name, &formatted_value);
     }

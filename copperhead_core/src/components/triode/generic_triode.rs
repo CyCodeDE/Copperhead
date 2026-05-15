@@ -40,7 +40,7 @@ pub struct GenericTriodeDef {
 }
 
 impl<T: CircuitScalar> Instantiable<T> for GenericTriodeDef {
-    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+    fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (mu, ex, kg1, kp, kvb, rgi, ccg, cgp, ccp, is, vt) = self.model.parameters();
         let comp = GenericTriode::new(
             nodes[0], nodes[1], nodes[2], mu, ex, kg1, kp, kvb, rgi, ccg, cgp, ccp, is, vt,
@@ -237,8 +237,8 @@ impl<T: CircuitScalar> Component<T> for GenericTriode<T> {
 
     fn stamp_dynamic(
         &mut self,
-        prev_node_voltages: &ColRef<T>,
-        rhs: &mut ColMut<T>,
+        _prev_node_voltages: &ColRef<T>,
+        _rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
     ) {
         if ctx.is_dc_analysis {
@@ -470,7 +470,7 @@ impl<T: CircuitScalar> Component<T> for GenericTriode<T> {
         out_currents[2] = i_c;
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
         let v_p = get_voltage(current_node_voltages, self.cached_idx_p);
         let v_g = get_voltage(current_node_voltages, self.cached_idx_g);
         let v_c = get_voltage(current_node_voltages, self.cached_idx_c);

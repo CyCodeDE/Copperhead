@@ -20,7 +20,7 @@
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{LabelEngine, rotate_vec};
-use crate::ui::util::{format_si_single, parse_si};
+use crate::ui::util::{format_si_single, is_valid_param_str};
 use copperhead_core::components::inductor::InductorDef;
 use egui::{Color32, Painter, Pos2, Stroke, Ui, Vec2};
 
@@ -46,28 +46,21 @@ impl ComponentUIExt for InductorDef {
     }
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
+        let ps = app.sim_state.param_system.as_deref();
         ui.horizontal(|ui| {
-            ui.label("Inductance:");
-            ui.add(
-                egui::DragValue::new(&mut self.inductance)
-                    .suffix("H")
-                    .speed(1e-4)
-                    .range(0.0..=f64::INFINITY)
-                    .custom_formatter(|val, _range| format_si_single(val, 3))
-                    .custom_parser(|text| parse_si(text)),
-            );
+            ui.label("Inductance (H):");
+            let resp = ui.text_edit_singleline(&mut self.inductance);
+            if resp.lost_focus() && !is_valid_param_str(&self.inductance, ps) && ps.is_some() {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
+            }
         });
-
         ui.horizontal(|ui| {
-            ui.label("Series Resistance:");
-            ui.add(
-                egui::DragValue::new(&mut self.series_resistance)
-                    .suffix("Ω")
-                    .speed(1e-4)
-                    .range(0.0..=f64::INFINITY)
-                    .custom_formatter(|val, _range| format_si_single(val, 3))
-                    .custom_parser(|text| parse_si(text)),
-            );
+            ui.label("Series Resistance (Ω):");
+            let resp = ui.text_edit_singleline(&mut self.series_resistance);
+            if resp.lost_focus() && !is_valid_param_str(&self.series_resistance, ps) && ps.is_some()
+            {
+                ui.colored_label(Color32::RED, "Invalid value or formula");
+            }
         });
 
         false
@@ -79,13 +72,13 @@ impl ComponentUIExt for InductorDef {
         center: Pos2,
         rotation: u8,
         zoom: f32,
-        fill_color: Color32,
+        _fill_color: Color32,
         stroke_color: Color32,
     ) {
         let stroke = Stroke::new(2.0, stroke_color);
 
         let num_coils = 4;
-        let lead_length = 0.2; // Straight wire segment at ends
+        let lead_length = 0.2;
         let total_width = 2.0;
 
         let coil_section_width = total_width - (2.0 * lead_length);
@@ -100,24 +93,16 @@ impl ComponentUIExt for InductorDef {
 
         let p_lead_start = center + rotate_vec(Vec2::new(start_x, 0.0) * zoom, rotation);
         let p_coil_start = center + rotate_vec(Vec2::new(coil_start_x, 0.0) * zoom, rotation);
-
         painter.line_segment([p_lead_start, p_coil_start], stroke);
 
         let mut current_x = coil_start_x;
-
         for _ in 0..num_coils {
             let next_x = current_x + loop_width;
 
-            let p1_local = Vec2::new(current_x, 0.0);
-            let p2_local = Vec2::new(next_x, 0.0);
-
-            let c1_local = Vec2::new(current_x, -ctrl_height);
-            let c2_local = Vec2::new(next_x, -ctrl_height);
-
-            let p1 = center + rotate_vec(p1_local * zoom, rotation);
-            let p2 = center + rotate_vec(p2_local * zoom, rotation);
-            let c1 = center + rotate_vec(c1_local * zoom, rotation);
-            let c2 = center + rotate_vec(c2_local * zoom, rotation);
+            let p1 = center + rotate_vec(Vec2::new(current_x, 0.0) * zoom, rotation);
+            let p2 = center + rotate_vec(Vec2::new(next_x, 0.0) * zoom, rotation);
+            let c1 = center + rotate_vec(Vec2::new(current_x, -ctrl_height) * zoom, rotation);
+            let c2 = center + rotate_vec(Vec2::new(next_x, -ctrl_height) * zoom, rotation);
 
             let bezier = egui::epaint::CubicBezierShape::from_points_stroke(
                 [p1, c1, c2, p2],
@@ -126,20 +111,22 @@ impl ComponentUIExt for InductorDef {
                 stroke,
             );
             painter.add(bezier);
-
             current_x = next_x;
         }
 
         let p_coil_end = center + rotate_vec(Vec2::new(current_x, 0.0) * zoom, rotation);
         let p_lead_end = center + rotate_vec(Vec2::new(1.0, 0.0) * zoom, rotation);
-
         painter.line_segment([p_coil_end, p_lead_end], stroke);
     }
 
     fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
         let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
 
-        let formatted_value = format_si_single(self.inductance, 2) + "H";
+        let formatted_value = if let Ok(v) = self.inductance.trim().parse::<f64>() {
+            format_si_single(v, 2) + "H"
+        } else {
+            self.inductance.clone() + "H"
+        };
 
         engine.draw_axial_labels(name, &formatted_value);
     }

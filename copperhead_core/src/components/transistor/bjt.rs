@@ -35,7 +35,7 @@ pub struct BjtDef {
 }
 
 impl<T: CircuitScalar> Instantiable<T> for BjtDef {
-    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+    fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (is, bf, br, vt, vaf, var, rc, rb, re, polarity) = self.model.parameters();
         let comp = Bjt::new(
             nodes[0], nodes[1], nodes[2], is, bf, br, vt, vaf, var, rc, rb, re, polarity,
@@ -195,7 +195,7 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         vec![self.node_c, self.node_b, self.node_e]
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         self.cached_idx_c = if self.node_c.0 == 0 {
             None
         } else {
@@ -288,7 +288,7 @@ impl<T: CircuitScalar> Component<T> for Bjt<T> {
         let is = self.saturation_current;
 
         // Base Exponentials
-        let (evbe, d_evbe) = exp_safe_deriv(v_be / vt);
+        let (evbe, _d_evbe) = exp_safe_deriv(v_be / vt);
         let evbc = exp_safe(v_bc / vt);
 
         let early_denom = T::one() + (v_bc / self.v_af) + (v_be / self.v_ar);

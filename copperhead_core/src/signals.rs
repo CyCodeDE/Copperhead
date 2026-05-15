@@ -66,7 +66,7 @@ pub struct ConstantSignal<T> {
 }
 
 impl<T: CircuitScalar> Signal<T> for ConstantSignal<T> {
-    fn get_voltage(&self, time: T, _is_dc_analysis: bool) -> T {
+    fn get_voltage(&self, _time: T, _is_dc_analysis: bool) -> T {
         self.voltage
     }
 
@@ -99,12 +99,12 @@ impl<T: CircuitScalar> Signal<T> for SineSignal<T> {
     fn set_parameter(&mut self, name: &str, value: T) {
         match name {
             "amplitude" => self.amplitude = value,
-            "frequency" => self.frequency = value,
-            "phase" => {
+            "frequency" => {
+                self.frequency = value;
                 self.omega =
                     T::from(2.0).unwrap() * T::from(std::f64::consts::PI).unwrap() * self.frequency;
-                self.phase = value
             }
+            "phase" => self.phase = value,
             _ => {}
         }
     }

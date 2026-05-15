@@ -19,7 +19,7 @@
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::drawing::{LabelEngine, rotate_vec};
-use crate::ui::util::{format_si_single, parse_si};
+use crate::ui::util::{format_si_single, is_valid_param_str};
 use copperhead_core::components::resistor::ResistorDef;
 use egui::{Color32, Painter, Pos2, Shape, Stroke, Ui, Vec2};
 
@@ -46,15 +46,15 @@ impl ComponentUIExt for ResistorDef {
 
     fn draw_modal(&mut self, app: &mut CircuitApp, ui: &mut Ui) -> bool {
         ui.horizontal(|ui| {
-            ui.label("Resistance:");
-            ui.add(
-                egui::DragValue::new(&mut self.resistance)
-                    .speed(10.0)
-                    .range(0.0..=f64::INFINITY)
-                    .suffix("Ω")
-                    .custom_formatter(|val, _range| format_si_single(val, 3))
-                    .custom_parser(|text| parse_si(text)),
-            );
+            ui.label("Resistance (Ω):");
+            let resp = ui.text_edit_singleline(&mut self.resistance);
+            if resp.lost_focus() {
+                let valid =
+                    is_valid_param_str(&self.resistance, app.sim_state.param_system.as_deref());
+                if !valid && app.sim_state.param_system.is_some() {
+                    ui.colored_label(egui::Color32::RED, "Invalid value or formula");
+                }
+            }
         });
 
         false
@@ -94,7 +94,11 @@ impl ComponentUIExt for ResistorDef {
     fn draw_labels(&self, painter: &Painter, center: Pos2, rotation: u8, zoom: f32, name: &str) {
         let engine = LabelEngine::new(painter, center, rotation, zoom, self.size(), self.offset());
 
-        let formatted_value = format_si_single(self.resistance, 2) + "Ω";
+        let formatted_value = if let Ok(v) = self.resistance.trim().parse::<f64>() {
+            format_si_single(v, 2) + "Ω"
+        } else {
+            self.resistance.clone() + "Ω"
+        };
 
         engine.draw_axial_labels(name, &formatted_value);
     }

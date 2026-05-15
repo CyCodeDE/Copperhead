@@ -32,6 +32,7 @@ use crate::components::triode::generic_triode::GenericTriode;
 use crate::components::triode::physical_triode::PhysicalTriode;
 use crate::components::voltage_source::VoltageSource;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
 
@@ -90,12 +91,19 @@ macro_rules! define_circuit_components {
                 )*
             }
 
-            // Generate a static stamping loop
+            // Generate a static stamping loop.
+            // Skips components whose effective linearity is TimeVariant —
+            // those stamp their conductance into A_NN via stamp_time_variant
+            // every Newton iteration. NonLinear components are NOT skipped:
+            // they may still stamp constant parts (e.g. a diode's series
+            // resistance) into A_NN at prepare() time.
             #[inline(always)]
             pub fn stamp_all_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
                 $(
                     for comp in &self.$field {
-                        comp.stamp_static(matrix, ctx);
+                        if comp.linearity() != ComponentLinearity::TimeVariant {
+                            comp.stamp_static(matrix, ctx);
+                        }
                     }
                 )*
             }
@@ -104,7 +112,9 @@ macro_rules! define_circuit_components {
             pub fn stamp_all_time_variant(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>, offset: usize) {
                 $(
                     for comp in &self.$field {
-                        comp.stamp_time_variant(matrix, ctx, offset);
+                        if comp.linearity() == ComponentLinearity::TimeVariant {
+                            comp.stamp_time_variant(matrix, ctx, offset);
+                        }
                     }
                 )*
             }
@@ -114,7 +124,6 @@ macro_rules! define_circuit_components {
             pub fn stamp_all_dynamic(&mut self, prev: &ColRef<T>, b: &mut ColMut<T>, ctx: &SimulationContext<T>) {
                 $(
                     for comp in &mut self.$field {
-                        // Assuming all components implement a trait or have this method
                         comp.stamp_dynamic(prev, b, ctx);
                     }
                 )*
@@ -159,6 +168,67 @@ macro_rules! define_circuit_components {
                             }
                             _ => {} // Completely stripped out for static components
                         }
+                    }
+                )*
+            }
+
+            /// Per-step refresh: re-evaluate ParamValues whose formulas do
+            /// NOT depend on a node voltage. Called once after stamp_dynamic,
+            /// before entering the Newton-Raphson loop. Hoists the formula
+            /// eval cost out of the iteration loop for non-voltage-dependent
+            /// formulas.
+            #[inline(always)]
+            pub fn refresh_all_per_step(
+                &mut self,
+                eval: &ComponentEvalCtx,
+                sim: &SimulationContext<T>,
+            ) {
+                $(
+                    for comp in &mut self.$field {
+                        comp.refresh_per_step(eval, sim);
+                    }
+                )*
+            }
+
+            /// Per-iteration refresh: re-evaluate ParamValues whose formulas
+            /// depend on a node voltage. Called once per Newton-Raphson
+            /// iteration after the voltage_view has been updated from the
+            /// latest x_n guess.
+            #[inline(always)]
+            pub fn refresh_all_per_iter(
+                &mut self,
+                eval: &ComponentEvalCtx,
+                sim: &SimulationContext<T>,
+            ) {
+                $(
+                    for comp in &mut self.$field {
+                        comp.refresh_per_iter(eval, sim);
+                    }
+                )*
+            }
+
+            /// Freeze every `TimeVariant` component that is freeze-eligible.
+            /// Returns the number of components frozen.
+            pub fn freeze_eligible_components(&mut self) -> usize {
+                let mut count = 0;
+                $(
+                    for comp in &mut self.$field {
+                        if comp.linearity() == ComponentLinearity::TimeVariant
+                            && comp.is_freeze_eligible()
+                        {
+                            comp.set_frozen(true);
+                            count += 1;
+                        }
+                    }
+                )*
+                count
+            }
+
+            /// Restore all components that were frozen back to their normal linearity.
+            pub fn unfreeze_all_components(&mut self) {
+                $(
+                    for comp in &mut self.$field {
+                        comp.set_frozen(false);
                     }
                 )*
             }
@@ -379,7 +449,7 @@ pub trait Component<T: CircuitScalar> {
 
     /// Called after partitioning, but before solving
     /// Gives the component the ability to cache the matrix indices for ports and auxiliary rows
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {}
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, _node_map: &HashMap<NodeId, usize>) {}
 
     /// How many extra rows/cols does this component add to the matrix?
     /// For example Resistors = 0, Voltage Sources = 1, ...
@@ -397,7 +467,10 @@ pub trait Component<T: CircuitScalar> {
     /// Used for components that do not change over time
     /// (e.g. Resistors, discretized capacitors and inductors with fixed sample rate)
     /// Adds G (conductance) values to the A Matrix.
-    fn stamp_static(&self, _matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {}
+    ///
+    /// The orchestrator skips this call for `TimeVariant` components — they
+    /// stamp into A_NN every iteration via `stamp_time_variant` instead.
+    fn stamp_static(&self, _matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {}
 
     /// Time step preparation
     /// Called at the start of every audio sample
@@ -405,9 +478,9 @@ pub trait Component<T: CircuitScalar> {
     /// Modifies the Vector b
     fn stamp_dynamic(
         &mut self,
-        prev_node_voltages: &ColRef<T>,
-        rhs: &mut ColMut<T>,
-        ctx: &SimulationContext<T>,
+        _prev_node_voltages: &ColRef<T>,
+        _rhs: &mut ColMut<T>,
+        _ctx: &SimulationContext<T>,
     ) {
     }
 
@@ -435,10 +508,27 @@ pub trait Component<T: CircuitScalar> {
     ) {
     }
 
+    /// Re-evaluate any `ParamValue` whose formula does NOT read a node
+    /// voltage and recompute derived fields (conductances, etc).
+    ///
+    /// Called by the orchestrator once per audio sample, after
+    /// `stamp_dynamic` and before the Newton-Raphson loop.
+    /// Constant-only components leave this empty.
+    fn refresh_per_step(&mut self, _eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {}
+
+    /// Re-evaluate any `ParamValue` whose formula reads a node voltage
+    /// (i.e. acts as a user-defined nonlinearity) and recompute derived
+    /// fields. Called by the orchestrator at the top of every Newton-
+    /// Raphson iteration after `voltage_view` has been updated from the
+    /// latest x_n guess.
+    ///
+    /// Components without voltage-dependent formulas leave this empty.
+    fn refresh_per_iter(&mut self, _eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {}
+
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
     /// Used to update internal state (e.g. capacitor charge)
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {}
+    fn update_state(&mut self, _current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {}
 
     fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
         false
@@ -452,9 +542,9 @@ pub trait Component<T: CircuitScalar> {
     /// TODO: pass a mutable slice of the probe values to avoid allocations in the audio thread.
     fn calculate_observables(
         &self,
-        node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
-        out_observables: &mut [T],
+        _node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+        _out_observables: &mut [T],
     ) {
     }
 
@@ -468,12 +558,39 @@ pub trait Component<T: CircuitScalar> {
         out_currents: &mut [T],
     );
 
-    /// Updates a parameter by name.
-    /// Returns true if the static matrix needs to be rebuilt.
-    /// For example if a Resistor value changes -> true
-    /// If a Voltage source amplitude changes, return false since it only affects the b vector.
-    fn set_parameter(&mut self, name: &str, value: T, ctx: &SimulationContext<T>) -> bool {
+    /// Returns true if this component can be promoted to `LinearStatic`
+    /// during freeze mode. Only meaningful for `TimeVariant` components
+    /// whose every `ParamValue` field is freeze-eligible (no voltage or
+    /// builtin dependencies). `NonLinear` components always return false.
+    fn is_freeze_eligible(&self) -> bool {
         false
+    }
+
+    /// Enable or disable the frozen override. When `frozen = true` and
+    /// `is_freeze_eligible()` is true, the component should report
+    /// `LinearStatic` from `linearity()` so the partition moves its nodes
+    /// into the L-block. Called by `Circuit::freeze` / `Circuit::unfreeze`.
+    fn set_frozen(&mut self, _frozen: bool) {}
+
+    /// Legacy: update a parameter by name with a raw scalar.
+    /// Returns true if the static matrix needs to be rebuilt.
+    ///
+    /// Components that hold their parameters as `ParamValue` should
+    /// override `set_param_value` instead and let the default impl here
+    /// route through with `ParamValue::Constant`.
+    fn set_parameter(&mut self, name: &str, value: T, _ctx: &SimulationContext<T>) -> bool {
+        let v = value.to_f64().unwrap_or(0.0);
+        !matches!(
+            self.set_param_value(name, ParamValue::Constant(v)),
+            RebuildKind::None
+        )
+    }
+
+    /// Replace a named parameter with a new `ParamValue` (constant or
+    /// formula). Returns the rebuild kind so the simulation thread knows
+    /// whether to re-stamp, re-partition, or do nothing.
+    fn set_param_value(&mut self, _name: &str, _pv: ParamValue) -> RebuildKind {
+        RebuildKind::None
     }
 }
 

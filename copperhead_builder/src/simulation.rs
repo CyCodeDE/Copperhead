@@ -21,11 +21,12 @@ use crate::ui::app::StateUpdate;
 use crate::ui::{CircuitMetadata, ComponentMetadata, SimCommand};
 use copperhead_core::audio::write_to_wav;
 use copperhead_core::circuit::{Circuit, CircuitElement};
-use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{SimBatchData, SimulationContext};
+use copperhead_core::parameter::ParamSystemBuilder;
 use copperhead_core::processor::CircuitProcessor;
 use crossbeam::channel::{Receiver, Sender};
 use log::info;
+use std::sync::Arc;
 #[cfg(feature = "profiling")]
 use tracy_client::Client;
 
@@ -44,7 +45,7 @@ pub fn run_simulation_loop(
     let sample_rate = 96000.;
     let mut processor: Option<CircuitProcessor<f64>> = None;
     let mut running = false;
-    state.send(StateUpdate::UpdateRunning(false));
+    let _ = state.send(StateUpdate::UpdateRunning(false));
     let dt = 1. / sample_rate;
 
     // Batch size: Push data to UI roughly at 60fps
@@ -62,11 +63,21 @@ pub fn run_simulation_loop(
             match cmd {
                 SimCommand::Pause => {
                     running = false;
-                    state.send(StateUpdate::UpdateRunning(false));
+                    if let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        if ckt.frozen {
+                            ckt.unfreeze(dt);
+                            let _ = state.send(StateUpdate::FreezeChanged {
+                                frozen: false,
+                                components_frozen: 0,
+                            });
+                        }
+                    }
+                    let _ = state.send(StateUpdate::UpdateRunning(false));
                 }
                 SimCommand::Resume => {
                     running = true;
-                    state.send(StateUpdate::UpdateRunning(true));
+                    let _ = state.send(StateUpdate::UpdateRunning(true));
                     current_start = std::time::Instant::now();
                 }
                 SimCommand::LoadCircuit(netlist) => {
@@ -75,12 +86,21 @@ pub fn run_simulation_loop(
                         usize::MAX,
                         "usize overflow protection: Did you forget to set the maximum run time before loading the circuit?"
                     );
-                    //let mut s = state.write();
-                    state.send(StateUpdate::UpdateRunning(false));
+                    let _ = state.send(StateUpdate::UpdateRunning(false));
                     running = false;
                     current_step = 0;
 
+                    // build the ParamSystem from declared global parameters.
+                    let mut psb = ParamSystemBuilder::new();
+                    for decl in &netlist.parameters {
+                        psb.declare_param(&decl.name, decl.default);
+                    }
+                    let param_system = Arc::new(psb.build());
+
+                    // instantiate components; inject param_system so
+                    // formula-bearing component definition structs can compile their strings.
                     let mut new_ckt = Circuit::<f64>::new();
+                    new_ckt.param_system = Some(param_system.clone());
                     for instr in netlist.entries {
                         instr.component.instantiate(
                             instr.nodes.as_slice(),
@@ -90,7 +110,9 @@ pub fn run_simulation_loop(
                         );
                     }
 
-                    processor = Some(CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap());
+                    let (ckt_processor, param_system) =
+                        CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap();
+                    processor = Some(ckt_processor);
 
                     let mut comp_meta = Vec::new();
                     let mut total_terminals = 0;
@@ -113,10 +135,13 @@ pub fn run_simulation_loop(
                         }
                     }
 
-                    state.send(StateUpdate::ClearHistory);
-                    state.send(StateUpdate::CircuitLoaded(CircuitMetadata {
-                        components: comp_meta,
-                    }));
+                    let _ = state.send(StateUpdate::ClearHistory);
+                    let _ = state.send(StateUpdate::CircuitLoaded(
+                        CircuitMetadata {
+                            components: comp_meta,
+                        },
+                        param_system,
+                    ));
 
                     active_batch = SimBatchData {
                         times: Vec::with_capacity(0),
@@ -133,36 +158,58 @@ pub fn run_simulation_loop(
                     name,
                     value,
                 } => {
-                    if running {
-                        if let Some(ref mut proc) = processor {
-                            let ckt = proc.get_circuit_mut();
-                            let node_idx = ckt.component_order[component_idx];
-                            let component = &ckt.graph[node_idx];
-                            if let CircuitElement::Device(comp_id) = component {
-                                ckt.components.set_parameter(
-                                    *comp_id,
-                                    name.as_str(),
-                                    value,
-                                    &SimulationContext {
-                                        dt,
-                                        time: ckt.time,
-                                        step: ckt.step_count,
-                                        is_dc_analysis: false,
-                                    },
-                                );
-                            }
+                    if running && let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        let node_idx = ckt.component_order[component_idx];
+                        let component = &ckt.graph[node_idx];
+                        if let CircuitElement::Device(comp_id) = component {
+                            ckt.components.set_parameter(
+                                *comp_id,
+                                name.as_str(),
+                                value,
+                                &SimulationContext {
+                                    dt,
+                                    time: ckt.time,
+                                    step: ckt.step_count,
+                                    is_dc_analysis: false,
+                                },
+                            );
                         }
                     }
                 }
                 SimCommand::SetRunTime(run_time) => {
                     if !realtime_mode {
                         // sets how long to simulate (called before the next LoadCircuit)
-                        let total_steps = (run_time * (sample_rate as f64)) as usize;
+                        let total_steps = (run_time * sample_rate) as usize;
                         max_steps = total_steps;
                     }
                 }
                 SimCommand::SetRealtime(realtime) => {
                     realtime_mode = realtime;
+                }
+                SimCommand::Freeze => {
+                    if let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        if !ckt.frozen {
+                            let count = ckt.freeze(dt);
+                            let _ = state.send(StateUpdate::FreezeChanged {
+                                frozen: true,
+                                components_frozen: count,
+                            });
+                        }
+                    }
+                }
+                SimCommand::Unfreeze => {
+                    if let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        if ckt.frozen {
+                            ckt.unfreeze(dt);
+                            let _ = state.send(StateUpdate::FreezeChanged {
+                                frozen: false,
+                                components_frozen: 0,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -180,7 +227,7 @@ pub fn run_simulation_loop(
 
             if current_step >= max_steps {
                 running = false;
-                state.send(StateUpdate::UpdateRunning(false));
+                let _ = state.send(StateUpdate::UpdateRunning(false));
             } else if let Some(ref mut proc) = processor {
                 let mut steps_performed = 0;
                 {
@@ -227,23 +274,31 @@ pub fn run_simulation_loop(
                         });
 
                     let data_to_send = std::mem::replace(&mut active_batch, empty_recycled_batch);
-                    state.send(StateUpdate::SendHistory(data_to_send, current_step));
+                    let _ = state.send(StateUpdate::SendHistory(data_to_send, current_step));
                 }
 
-                if realtime_mode && steps_performed > 0 {
-                    if let Some(start) = batch_start {
-                        let elapsed = start.elapsed();
-                        let target_duration =
-                            std::time::Duration::from_secs_f64(steps_performed as f64 * dt);
-                        if target_duration > elapsed {
-                            std::thread::sleep(target_duration - elapsed);
-                        }
+                if realtime_mode
+                    && steps_performed > 0
+                    && let Some(start) = batch_start
+                {
+                    let elapsed = start.elapsed();
+                    let target_duration =
+                        std::time::Duration::from_secs_f64(steps_performed as f64 * dt);
+                    if target_duration > elapsed {
+                        std::thread::sleep(target_duration - elapsed);
                     }
                 }
 
                 if current_step >= max_steps {
                     running = false;
-                    state.send(StateUpdate::UpdateRunning(false));
+                    if proc.get_circuit_mut().frozen {
+                        proc.get_circuit_mut().unfreeze(dt);
+                        let _ = state.send(StateUpdate::FreezeChanged {
+                            frozen: false,
+                            components_frozen: 0,
+                        });
+                    }
+                    let _ = state.send(StateUpdate::UpdateRunning(false));
                     let elapsed = current_start.elapsed();
                     println!("Finished after: {:?}", elapsed);
                     println!("Average time per step: {:?}", elapsed / current_step as u32);
