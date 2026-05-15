@@ -49,7 +49,8 @@ impl ComponentUIExt for ResistorDef {
             ui.label("Resistance (Ω):");
             let resp = ui.text_edit_singleline(&mut self.resistance);
             if resp.lost_focus() {
-                let valid = is_valid_param_str(&self.resistance, app.sim_state.param_system.as_deref());
+                let valid =
+                    is_valid_param_str(&self.resistance, app.sim_state.param_system.as_deref());
                 if !valid && app.sim_state.param_system.is_some() {
                     ui.colored_label(egui::Color32::RED, "Invalid value or formula");
                 }

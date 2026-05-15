@@ -449,7 +449,7 @@ pub trait Component<T: CircuitScalar> {
 
     /// Called after partitioning, but before solving
     /// Gives the component the ability to cache the matrix indices for ports and auxiliary rows
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {}
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, _node_map: &HashMap<NodeId, usize>) {}
 
     /// How many extra rows/cols does this component add to the matrix?
     /// For example Resistors = 0, Voltage Sources = 1, ...
@@ -528,7 +528,7 @@ pub trait Component<T: CircuitScalar> {
     /// Post-Step update
     /// Called after the solver found the solution for the current frame
     /// Used to update internal state (e.g. capacitor charge)
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {}
+    fn update_state(&mut self, _current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {}
 
     fn is_converged(&self, _current_node_voltages: &ColRef<T>) -> bool {
         false
@@ -542,9 +542,9 @@ pub trait Component<T: CircuitScalar> {
     /// TODO: pass a mutable slice of the probe values to avoid allocations in the audio thread.
     fn calculate_observables(
         &self,
-        node_voltages: &ColRef<T>,
-        ctx: &SimulationContext<T>,
-        out_observables: &mut [T],
+        _node_voltages: &ColRef<T>,
+        _ctx: &SimulationContext<T>,
+        _out_observables: &mut [T],
     ) {
     }
 

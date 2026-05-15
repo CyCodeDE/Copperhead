@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::ui::ComponentDef;
 use crate::ui::GridPos;
 use crate::ui::app::{CircuitApp, Tool};
-use crate::ui::ComponentDef;
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
 use crate::ui::drawing::check_line_rect_intersection;
 use crate::ui::util::rotate_offset;
@@ -42,9 +42,9 @@ fn remove_auto_params_for(app: &mut CircuitApp, comp_ids: &[usize]) {
             }
         }
     }
-    app.state.parameters.retain(|p| {
-        !(p.auto && param_names_to_remove.contains(&p.name))
-    });
+    app.state
+        .parameters
+        .retain(|p| !(p.auto && param_names_to_remove.contains(&p.name)));
 }
 
 pub fn handle(

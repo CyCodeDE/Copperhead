@@ -20,7 +20,7 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind, resolve_param_value};
 use crate::util::deserialize_number_or_string;
 use crate::util::mna::{stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
@@ -92,7 +92,13 @@ pub struct Inductor<T> {
 }
 
 impl<T: CircuitScalar> Inductor<T> {
-    pub fn new(a: NodeId, b: NodeId, inductance: ParamValue, series_resistance: ParamValue, dt: T) -> Self {
+    pub fn new(
+        a: NodeId,
+        b: NodeId,
+        inductance: ParamValue,
+        series_resistance: ParamValue,
+        dt: T,
+    ) -> Self {
         let l0 = inductance.as_constant().unwrap_or(1e-6);
         let r0 = series_resistance.as_constant().unwrap_or(0.0);
 
@@ -145,8 +151,8 @@ impl<T: CircuitScalar> Inductor<T> {
 
 impl<T: CircuitScalar> Component<T> for Inductor<T> {
     fn linearity(&self) -> ComponentLinearity {
-        let any_voltage = self.inductance.depends_on_voltage()
-            || self.series_resistance.depends_on_voltage();
+        let any_voltage =
+            self.inductance.depends_on_voltage() || self.series_resistance.depends_on_voltage();
         let any_dynamic = self.inductance.is_dynamic() || self.series_resistance.is_dynamic();
 
         if any_voltage {
@@ -227,7 +233,13 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
         if ctx.is_dc_analysis {
             return;
         }
-        stamp_current_source(rhs, self.cached_idx_a, self.cached_idx_b, self.eq_current, 0);
+        stamp_current_source(
+            rhs,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.eq_current,
+            0,
+        );
     }
 
     fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, sim: &SimulationContext<T>) {
@@ -281,9 +293,18 @@ impl<T: CircuitScalar> Component<T> for Inductor<T> {
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "Voltage".to_string(), unit: "V".to_string() },
-            ComponentProbe { name: "Current".to_string(), unit: "A".to_string() },
-            ComponentProbe { name: "Power".to_string(), unit: "W".to_string() },
+            ComponentProbe {
+                name: "Voltage".to_string(),
+                unit: "V".to_string(),
+            },
+            ComponentProbe {
+                name: "Current".to_string(),
+                unit: "A".to_string(),
+            },
+            ComponentProbe {
+                name: "Power".to_string(),
+                unit: "W".to_string(),
+            },
         ]
     }
 

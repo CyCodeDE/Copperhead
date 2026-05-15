@@ -21,7 +21,7 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue};
+use crate::parameter::{ComponentEvalCtx, ParamValue, resolve_param_value};
 use crate::signals::{AudioBufferSignal, ConstantSignal, SignalType, SineSignal};
 use crate::util::deserialize_number_or_string;
 use faer::{ColMut, ColRef, MatMut};
@@ -70,7 +70,11 @@ impl<T: CircuitScalar> Instantiable<T> for VoltageSourceDef {
                 let comp = VoltageSource::new_dc(nodes[0], nodes[1], signal, pv);
                 circuit.add_component(comp);
             }
-            VoltageSourceType::AC { amplitude, frequency, phase } => {
+            VoltageSourceType::AC {
+                amplitude,
+                frequency,
+                phase,
+            } => {
                 let amp_pv = ps
                     .map(|ps| resolve_param_value(amplitude, ps))
                     .unwrap_or_else(|| {
@@ -98,7 +102,8 @@ impl<T: CircuitScalar> Instantiable<T> for VoltageSourceDef {
                     phase: phase0,
                     omega: cast(omega0).unwrap(),
                 });
-                let comp = VoltageSource::new_ac(nodes[0], nodes[1], signal, amp_pv, freq_pv, phase_pv);
+                let comp =
+                    VoltageSource::new_ac(nodes[0], nodes[1], signal, amp_pv, freq_pv, phase_pv);
                 circuit.add_component(comp);
             }
             VoltageSourceType::AudioBuffer { file_path } => {
@@ -266,8 +271,14 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_src".to_string(), unit: "V".to_string() },
-            ComponentProbe { name: "I_src".to_string(), unit: "A".to_string() },
+            ComponentProbe {
+                name: "V_src".to_string(),
+                unit: "V".to_string(),
+            },
+            ComponentProbe {
+                name: "I_src".to_string(),
+                unit: "A".to_string(),
+            },
         ]
     }
 
@@ -278,7 +289,10 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         out_observables: &mut [T],
     ) {
         out_observables[0] = self.current_voltage;
-        out_observables[1] = self.matrix_idx.map(|i| node_voltages[i]).unwrap_or(T::zero());
+        out_observables[1] = self
+            .matrix_idx
+            .map(|i| node_voltages[i])
+            .unwrap_or(T::zero());
     }
 
     fn terminal_currents(
@@ -287,7 +301,10 @@ impl<T: CircuitScalar> Component<T> for VoltageSource<T> {
         _ctx: &SimulationContext<T>,
         out_currents: &mut [T],
     ) {
-        let i_src = self.matrix_idx.map(|i| node_voltages[i]).unwrap_or(T::zero());
+        let i_src = self
+            .matrix_idx
+            .map(|i| node_voltages[i])
+            .unwrap_or(T::zero());
         out_currents[0] = -i_src;
         out_currents[1] = i_src;
     }

@@ -17,10 +17,10 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::path::PathBuf;
-use serde::{Deserialize, Deserializer};
-use serde::de::{DeserializeOwned, SeqAccess, Visitor};
 use copperhead_core::parameter::ParamSystem;
+use serde::de::{DeserializeOwned, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use std::path::PathBuf;
 
 /// Formats values with SI prefixes.
 ///

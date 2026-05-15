@@ -57,7 +57,9 @@ impl PaletteItem {
                 label: "Capacitor",
                 shortcut_key: Some(Key::C),
                 shortcut_name: "C",
-                element: SchematicElement::Core(ComponentDef::Capacitor(CapacitorDef::new(1e-6, 0.))),
+                element: SchematicElement::Core(ComponentDef::Capacitor(CapacitorDef::new(
+                    1e-6, 0.,
+                ))),
             },
             PaletteItem {
                 label: "Inductor",
@@ -104,7 +106,9 @@ impl PaletteItem {
                 shortcut_key: Some(Key::Y),
                 shortcut_name: "Y",
                 element: SchematicElement::Core(ComponentDef::VoltageSource(VoltageSourceDef {
-                    source_type: VoltageSourceType::DC { voltage: "5".to_string() },
+                    source_type: VoltageSourceType::DC {
+                        voltage: "5".to_string(),
+                    },
                 })),
             },
             PaletteItem {
@@ -196,9 +200,9 @@ impl PaletteItem {
                 shortcut_key: None,
                 shortcut_name: "",
                 // param_name is a placeholder; replaced with a unique name at placement time.
-                element: SchematicElement::Core(ComponentDef::Switch(SwitchDef::new(
-                    String::new(),
-                ))),
+                element: SchematicElement::Core(ComponentDef::Switch(
+                    SwitchDef::new(String::new()),
+                )),
             },
         ]
     }

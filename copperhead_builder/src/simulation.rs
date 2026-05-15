@@ -45,7 +45,7 @@ pub fn run_simulation_loop(
     let sample_rate = 96000.;
     let mut processor: Option<CircuitProcessor<f64>> = None;
     let mut running = false;
-    state.send(StateUpdate::UpdateRunning(false));
+    let _ = state.send(StateUpdate::UpdateRunning(false));
     let dt = 1. / sample_rate;
 
     // Batch size: Push data to UI roughly at 60fps
@@ -73,11 +73,11 @@ pub fn run_simulation_loop(
                             });
                         }
                     }
-                    state.send(StateUpdate::UpdateRunning(false));
+                    let _ = state.send(StateUpdate::UpdateRunning(false));
                 }
                 SimCommand::Resume => {
                     running = true;
-                    state.send(StateUpdate::UpdateRunning(true));
+                    let _ = state.send(StateUpdate::UpdateRunning(true));
                     current_start = std::time::Instant::now();
                 }
                 SimCommand::LoadCircuit(netlist) => {
@@ -86,7 +86,7 @@ pub fn run_simulation_loop(
                         usize::MAX,
                         "usize overflow protection: Did you forget to set the maximum run time before loading the circuit?"
                     );
-                    state.send(StateUpdate::UpdateRunning(false));
+                    let _ = state.send(StateUpdate::UpdateRunning(false));
                     running = false;
                     current_step = 0;
 
@@ -110,7 +110,8 @@ pub fn run_simulation_loop(
                         );
                     }
 
-                    let (ckt_processor, param_system) = CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap();
+                    let (ckt_processor, param_system) =
+                        CircuitProcessor::new(new_ckt, sample_rate, dt).unwrap();
                     processor = Some(ckt_processor);
 
                     let mut comp_meta = Vec::new();
@@ -134,10 +135,13 @@ pub fn run_simulation_loop(
                         }
                     }
 
-                    state.send(StateUpdate::ClearHistory);
-                    state.send(StateUpdate::CircuitLoaded(CircuitMetadata {
-                        components: comp_meta,
-                    }, param_system));
+                    let _ = state.send(StateUpdate::ClearHistory);
+                    let _ = state.send(StateUpdate::CircuitLoaded(
+                        CircuitMetadata {
+                            components: comp_meta,
+                        },
+                        param_system,
+                    ));
 
                     active_batch = SimBatchData {
                         times: Vec::with_capacity(0),
@@ -154,31 +158,29 @@ pub fn run_simulation_loop(
                     name,
                     value,
                 } => {
-                    if running {
-                        if let Some(ref mut proc) = processor {
-                            let ckt = proc.get_circuit_mut();
-                            let node_idx = ckt.component_order[component_idx];
-                            let component = &ckt.graph[node_idx];
-                            if let CircuitElement::Device(comp_id) = component {
-                                ckt.components.set_parameter(
-                                    *comp_id,
-                                    name.as_str(),
-                                    value,
-                                    &SimulationContext {
-                                        dt,
-                                        time: ckt.time,
-                                        step: ckt.step_count,
-                                        is_dc_analysis: false,
-                                    },
-                                );
-                            }
+                    if running && let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        let node_idx = ckt.component_order[component_idx];
+                        let component = &ckt.graph[node_idx];
+                        if let CircuitElement::Device(comp_id) = component {
+                            ckt.components.set_parameter(
+                                *comp_id,
+                                name.as_str(),
+                                value,
+                                &SimulationContext {
+                                    dt,
+                                    time: ckt.time,
+                                    step: ckt.step_count,
+                                    is_dc_analysis: false,
+                                },
+                            );
                         }
                     }
                 }
                 SimCommand::SetRunTime(run_time) => {
                     if !realtime_mode {
                         // sets how long to simulate (called before the next LoadCircuit)
-                        let total_steps = (run_time * (sample_rate as f64)) as usize;
+                        let total_steps = (run_time * sample_rate) as usize;
                         max_steps = total_steps;
                     }
                 }
@@ -225,7 +227,7 @@ pub fn run_simulation_loop(
 
             if current_step >= max_steps {
                 running = false;
-                state.send(StateUpdate::UpdateRunning(false));
+                let _ = state.send(StateUpdate::UpdateRunning(false));
             } else if let Some(ref mut proc) = processor {
                 let mut steps_performed = 0;
                 {
@@ -272,7 +274,7 @@ pub fn run_simulation_loop(
                         });
 
                     let data_to_send = std::mem::replace(&mut active_batch, empty_recycled_batch);
-                    state.send(StateUpdate::SendHistory(data_to_send, current_step));
+                    let _ = state.send(StateUpdate::SendHistory(data_to_send, current_step));
                 }
 
                 if realtime_mode && steps_performed > 0 {
@@ -295,7 +297,7 @@ pub fn run_simulation_loop(
                             components_frozen: 0,
                         });
                     }
-                    state.send(StateUpdate::UpdateRunning(false));
+                    let _ = state.send(StateUpdate::UpdateRunning(false));
                     let elapsed = current_start.elapsed();
                     println!("Finished after: {:?}", elapsed);
                     println!("Average time per step: {:?}", elapsed / current_step as u32);

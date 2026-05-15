@@ -60,7 +60,10 @@ impl CircuitApp {
                     self.sim_state.frozen = false;
                     self.sim_state.frozen_component_count = 0;
                 }
-                StateUpdate::FreezeChanged { frozen, components_frozen } => {
+                StateUpdate::FreezeChanged {
+                    frozen,
+                    components_frozen,
+                } => {
                     self.sim_state.frozen = frozen;
                     self.sim_state.frozen_component_count = components_frozen;
                 }

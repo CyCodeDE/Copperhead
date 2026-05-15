@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use egui::CollapsingHeader;
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::ComponentUIExt;
+use egui::CollapsingHeader;
 
 pub fn show(app: &mut CircuitApp, ui: &mut egui::Ui) {
     let tx = &app.tx_command;

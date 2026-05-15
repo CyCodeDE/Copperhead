@@ -18,13 +18,14 @@
  */
 
 use crate::simulation::run_simulation_loop;
-use crate::ui::{SaveFile, SchematicElement};
 use crate::ui::components::oscilloscope::ScopeState;
 use crate::ui::netlist::compile_netlist;
 use crate::ui::{
     CircuitMetadata, GridPos, Netlist, NetlistEntry, Schematic, SimCommand, SimState, VisualWire,
 };
+use crate::ui::{SaveFile, SchematicElement};
 use copperhead_core::model::{NodeId, SimBatchData};
+use copperhead_core::parameter::ParamSystem;
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Pos2, Stroke, TextStyle, Vec2, ViewportCommand, Visuals};
@@ -32,7 +33,6 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
-use copperhead_core::parameter::ParamSystem;
 
 pub struct AppTheme {
     pub background: Color32,
@@ -220,7 +220,10 @@ pub enum StateUpdate {
     ClearHistory,
     /// Emitted by the simulation thread after freeze or unfreeze completes.
     /// `components_frozen` is how many components moved to the L-block (0 on unfreeze).
-    FreezeChanged { frozen: bool, components_frozen: usize },
+    FreezeChanged {
+        frozen: bool,
+        components_frozen: usize,
+    },
 }
 
 #[derive(PartialEq)]

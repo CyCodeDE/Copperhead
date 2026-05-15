@@ -35,7 +35,7 @@ pub struct PhysicalTriodeDef {
 }
 
 impl<T: CircuitScalar> Instantiable<T> for PhysicalTriodeDef {
-    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+    fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (v_ct, m1_k, m1_ex, m2_k, m2_mu, m2_ex, p_k, p_mu, ik_k, ig_k, iak_k, c_ga, c_gk, c_pk) =
             self.model.parameters();
         let comp = PhysicalTriode::new(
@@ -238,7 +238,7 @@ impl<T: CircuitScalar> Component<T> for PhysicalTriode<T> {
         0
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
+    fn stamp_static(&self, _matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
         if ctx.is_dc_analysis {
             return;
         }
@@ -246,8 +246,8 @@ impl<T: CircuitScalar> Component<T> for PhysicalTriode<T> {
 
     fn stamp_dynamic(
         &mut self,
-        prev_node_voltages: &ColRef<T>,
-        rhs: &mut ColMut<T>,
+        _prev_node_voltages: &ColRef<T>,
+        _rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
     ) {
         if ctx.is_dc_analysis {
@@ -424,7 +424,7 @@ impl<T: CircuitScalar> Component<T> for PhysicalTriode<T> {
         stamp_current_source(rhs, idx_g, idx_c, i_eq_gk, l_size);
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
         let v_p = get_voltage(current_node_voltages, self.cached_idx_p);
         let v_g = get_voltage(current_node_voltages, self.cached_idx_g);
         let v_c = get_voltage(current_node_voltages, self.cached_idx_c);

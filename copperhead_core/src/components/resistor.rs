@@ -20,7 +20,7 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind, resolve_param_value};
 use crate::util::deserialize_number_or_string;
 use crate::util::mna::stamp_conductance;
 use faer::ColRef;
@@ -34,7 +34,9 @@ pub struct ResistorDef {
 
 impl ResistorDef {
     pub fn new(resistance: f64) -> Self {
-        Self { resistance: resistance.to_string() }
+        Self {
+            resistance: resistance.to_string(),
+        }
     }
 }
 

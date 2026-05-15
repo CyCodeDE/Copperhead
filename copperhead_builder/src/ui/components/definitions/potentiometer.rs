@@ -104,7 +104,8 @@ impl ComponentUIExt for PotentiometerDef {
                 let edit_id = egui::Id::new("pot_param_name_orig");
                 let resp = ui.text_edit_singleline(&mut self.param_name);
                 if resp.gained_focus() {
-                    ui.ctx().data_mut(|d| d.insert_temp(edit_id, self.param_name.clone()));
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(edit_id, self.param_name.clone()));
                 }
                 if resp.lost_focus() {
                     if let Some(original) = ui.ctx().data(|d| d.get_temp::<String>(edit_id)) {

@@ -888,8 +888,7 @@ impl<T: CircuitScalar> Circuit<T> {
                         voltages: &self.voltage_view,
                         builtins: &self.builtins,
                     };
-                    self.components
-                        .refresh_all_per_iter(&eval_ctx_iter, &ctx);
+                    self.components.refresh_all_per_iter(&eval_ctx_iter, &ctx);
                 }
 
                 // Stamp Time-Variant components

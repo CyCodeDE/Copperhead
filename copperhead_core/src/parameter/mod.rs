@@ -74,7 +74,7 @@ use std::sync::atomic::Ordering;
 use atomic_float::AtomicF64;
 use portable_atomic::AtomicU64;
 
-use parser::{compile, BuiltinValues, CompileError, Program, SymbolTable};
+use parser::{BuiltinValues, CompileError, Program, SymbolTable, compile};
 
 // ---------------------------------------------------------------------------
 // Shared, lock-free parameter storage
@@ -349,11 +349,7 @@ impl ParamSystem {
 
     /// Compile a formula against the global symbols plus a set of component-
     /// local symbols. Component-local entries shadow globals of the same name.
-    pub fn compile_with(
-        &self,
-        src: &str,
-        locals: &SymbolTable,
-    ) -> Result<Program, CompileError> {
+    pub fn compile_with(&self, src: &str, locals: &SymbolTable) -> Result<Program, CompileError> {
         let merged = self.symbols.merged(locals);
         compile(src, &merged)
     }

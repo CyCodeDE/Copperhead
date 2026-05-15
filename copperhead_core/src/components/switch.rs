@@ -20,7 +20,7 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind, resolve_param_value};
 use crate::util::mna::stamp_conductance;
 use faer::{ColRef, MatMut};
 use std::collections::HashMap;
@@ -164,7 +164,13 @@ impl<T: CircuitScalar> Component<T> for Switch<T> {
 
     fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
         if self.frozen {
-            stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_b, self.effective_conductance(), 0);
+            stamp_conductance(
+                matrix,
+                self.cached_idx_a,
+                self.cached_idx_b,
+                self.effective_conductance(),
+                0,
+            );
         }
     }
 
@@ -256,9 +262,18 @@ impl<T: CircuitScalar> Component<T> for Switch<T> {
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_delta".into(), unit: "V".into() },
-            ComponentProbe { name: "Current".into(), unit: "A".into() },
-            ComponentProbe { name: "Power".into(), unit: "W".into() },
+            ComponentProbe {
+                name: "V_delta".into(),
+                unit: "V".into(),
+            },
+            ComponentProbe {
+                name: "Current".into(),
+                unit: "A".into(),
+            },
+            ComponentProbe {
+                name: "Power".into(),
+                unit: "W".into(),
+            },
         ]
     }
 

@@ -71,7 +71,7 @@ pub fn parse_si(input: &str) -> Option<f64> {
         'G' => 1e9,
         'T' => 1e12,
         'R' | 'r' => 1.0, // "10R" convention
-        _ => 1.0,          // unknown unit suffix — treat as ×1
+        _ => 1.0,         // unknown unit suffix — treat as ×1
     };
 
     Some(value * multiplier)
@@ -90,11 +90,21 @@ pub fn deserialize_number_or_string<'de, D: Deserializer<'de>>(d: D) -> Result<S
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "a number or a string")
         }
-        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_u64<E: de::Error>(self, v: u64) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_str<E: de::Error>(self, v: &str) -> Result<String, E> { Ok(v.to_owned()) }
-        fn visit_string<E: de::Error>(self, v: String) -> Result<String, E> { Ok(v) }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<String, E> {
+            Ok(v.to_owned())
+        }
+        fn visit_string<E: de::Error>(self, v: String) -> Result<String, E> {
+            Ok(v)
+        }
     }
     d.deserialize_any(V)
 }
@@ -114,11 +124,21 @@ pub fn deserialize_bool_or_string<'de, D: Deserializer<'de>>(d: D) -> Result<Str
         fn visit_bool<E: de::Error>(self, v: bool) -> Result<String, E> {
             Ok(if v { "1".to_string() } else { "0".to_string() })
         }
-        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_u64<E: de::Error>(self, v: u64) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> { Ok(v.to_string()) }
-        fn visit_str<E: de::Error>(self, v: &str) -> Result<String, E> { Ok(v.to_owned()) }
-        fn visit_string<E: de::Error>(self, v: String) -> Result<String, E> { Ok(v) }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> {
+            Ok(v.to_string())
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<String, E> {
+            Ok(v.to_owned())
+        }
+        fn visit_string<E: de::Error>(self, v: String) -> Result<String, E> {
+            Ok(v)
+        }
     }
     d.deserialize_any(V)
 }

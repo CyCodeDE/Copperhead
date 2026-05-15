@@ -27,16 +27,16 @@ pub mod ui;
 pub mod util;
 
 use crate::ui::components::definitions::{ComponentUIExt, SchematicElement};
+use crate::ui::util::deserialize_lossy_vec;
 use copperhead_core::components::{ComponentId, ComponentProbe};
 use copperhead_core::descriptor::ComponentDef;
 use copperhead_core::model::{NodeId, SimStepData};
+use copperhead_core::parameter::ParamSystem;
 use egui::{Color32, Pos2, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Sub};
 use std::sync::Arc;
-use copperhead_core::parameter::ParamSystem;
-use crate::ui::util::deserialize_lossy_vec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct GridPos {

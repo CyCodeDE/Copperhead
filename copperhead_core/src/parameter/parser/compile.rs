@@ -51,14 +51,26 @@ use super::{Builtin, LfoShape, Op, Program, STACK_CAP};
 
 #[derive(Debug, Clone)]
 pub enum CompileError {
-    UnexpectedChar { ch: char, pos: usize },
-    UnexpectedToken { found: String, pos: usize },
+    UnexpectedChar {
+        ch: char,
+        pos: usize,
+    },
+    UnexpectedToken {
+        found: String,
+        pos: usize,
+    },
     UnexpectedEof,
     UnknownIdent(String),
     UnknownFunction(String),
-    WrongArity { name: String, expected: usize, got: usize },
+    WrongArity {
+        name: String,
+        expected: usize,
+        got: usize,
+    },
     TooManySmoothSlots,
-    StackOverflow { depth: i32 },
+    StackOverflow {
+        depth: i32,
+    },
     NumberParse(String),
 }
 
@@ -74,12 +86,20 @@ impl std::fmt::Display for CompileError {
             Self::UnexpectedEof => write!(f, "unexpected end of input"),
             Self::UnknownIdent(s) => write!(f, "unknown identifier `{}`", s),
             Self::UnknownFunction(s) => write!(f, "unknown function `{}`", s),
-            Self::WrongArity { name, expected, got } => {
+            Self::WrongArity {
+                name,
+                expected,
+                got,
+            } => {
                 write!(f, "`{}` expects {} args, got {}", name, expected, got)
             }
             Self::TooManySmoothSlots => write!(f, "too many smooth() calls (max 256)"),
             Self::StackOverflow { depth } => {
-                write!(f, "formula exceeds VM stack depth ({} > {})", depth, STACK_CAP)
+                write!(
+                    f,
+                    "formula exceeds VM stack depth ({} > {})",
+                    depth, STACK_CAP
+                )
             }
             Self::NumberParse(s) => write!(f, "invalid number literal `{}`", s),
         }
@@ -107,9 +127,15 @@ impl SymbolTable {
     /// Useful for composing a component-local table on top of a global one.
     pub fn merged(&self, other: &SymbolTable) -> SymbolTable {
         let mut out = self.clone();
-        for (k, v) in &other.params { out.params.insert(k.clone(), *v); }
-        for (k, v) in &other.enums { out.enums.insert(k.clone(), *v); }
-        for (k, v) in &other.voltages { out.voltages.insert(k.clone(), *v); }
+        for (k, v) in &other.params {
+            out.params.insert(k.clone(), *v);
+        }
+        for (k, v) in &other.enums {
+            out.enums.insert(k.clone(), *v);
+        }
+        for (k, v) in &other.voltages {
+            out.voltages.insert(k.clone(), *v);
+        }
         out
     }
 }
@@ -175,7 +201,11 @@ struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     fn new(s: &'a str) -> Self {
-        Self { src: s.as_bytes(), pos: 0, tok_start: 0 }
+        Self {
+            src: s.as_bytes(),
+            pos: 0,
+            tok_start: 0,
+        }
     }
 
     fn peek(&self) -> Option<u8> {
@@ -272,7 +302,10 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     Tok::Eq
                 } else {
-                    return Err(CompileError::UnexpectedChar { ch: '=', pos: start });
+                    return Err(CompileError::UnexpectedChar {
+                        ch: '=',
+                        pos: start,
+                    });
                 }
             }
             b'!' => {
@@ -304,7 +337,10 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     Tok::And
                 } else {
-                    return Err(CompileError::UnexpectedChar { ch: '&', pos: start });
+                    return Err(CompileError::UnexpectedChar {
+                        ch: '&',
+                        pos: start,
+                    });
                 }
             }
             b'|' => {
@@ -312,10 +348,18 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     Tok::Or
                 } else {
-                    return Err(CompileError::UnexpectedChar { ch: '|', pos: start });
+                    return Err(CompileError::UnexpectedChar {
+                        ch: '|',
+                        pos: start,
+                    });
                 }
             }
-            _ => return Err(CompileError::UnexpectedChar { ch: c as char, pos: start }),
+            _ => {
+                return Err(CompileError::UnexpectedChar {
+                    ch: c as char,
+                    pos: start,
+                });
+            }
         })
     }
 }
@@ -600,30 +644,84 @@ impl<'a> Compiler<'a> {
 
         match name {
             // 1-arg math
-            "sin" => { arity(1)?; self.emit(Op::Sin, 0); }
-            "cos" => { arity(1)?; self.emit(Op::Cos, 0); }
-            "tan" => { arity(1)?; self.emit(Op::Tan, 0); }
-            "tanh" => { arity(1)?; self.emit(Op::Tanh, 0); }
-            "abs" => { arity(1)?; self.emit(Op::Abs, 0); }
-            "sqrt" => { arity(1)?; self.emit(Op::Sqrt, 0); }
-            "exp" => { arity(1)?; self.emit(Op::Exp, 0); }
-            "ln" => { arity(1)?; self.emit(Op::Ln, 0); }
-            "floor" => { arity(1)?; self.emit(Op::Floor, 0); }
-            "ceil" => { arity(1)?; self.emit(Op::Ceil, 0); }
+            "sin" => {
+                arity(1)?;
+                self.emit(Op::Sin, 0);
+            }
+            "cos" => {
+                arity(1)?;
+                self.emit(Op::Cos, 0);
+            }
+            "tan" => {
+                arity(1)?;
+                self.emit(Op::Tan, 0);
+            }
+            "tanh" => {
+                arity(1)?;
+                self.emit(Op::Tanh, 0);
+            }
+            "abs" => {
+                arity(1)?;
+                self.emit(Op::Abs, 0);
+            }
+            "sqrt" => {
+                arity(1)?;
+                self.emit(Op::Sqrt, 0);
+            }
+            "exp" => {
+                arity(1)?;
+                self.emit(Op::Exp, 0);
+            }
+            "ln" => {
+                arity(1)?;
+                self.emit(Op::Ln, 0);
+            }
+            "floor" => {
+                arity(1)?;
+                self.emit(Op::Floor, 0);
+            }
+            "ceil" => {
+                arity(1)?;
+                self.emit(Op::Ceil, 0);
+            }
 
             // 2-arg math
-            "pow" => { arity(2)?; self.emit(Op::Pow, -1); }
-            "min" => { arity(2)?; self.emit(Op::Min, -1); }
-            "max" => { arity(2)?; self.emit(Op::Max, -1); }
+            "pow" => {
+                arity(2)?;
+                self.emit(Op::Pow, -1);
+            }
+            "min" => {
+                arity(2)?;
+                self.emit(Op::Min, -1);
+            }
+            "max" => {
+                arity(2)?;
+                self.emit(Op::Max, -1);
+            }
 
             // 3-arg
-            "clamp" => { arity(3)?; self.emit(Op::Clamp, -2); }
+            "clamp" => {
+                arity(3)?;
+                self.emit(Op::Clamp, -2);
+            }
 
             // LFOs. Shape is picked by name to avoid needing string-arg tokens.
-            "lfo_sine" => { arity(1)?; self.emit(Op::Lfo(LfoShape::Sine), 0); }
-            "lfo_tri" => { arity(1)?; self.emit(Op::Lfo(LfoShape::Triangle), 0); }
-            "lfo_sqr" => { arity(1)?; self.emit(Op::Lfo(LfoShape::Square), 0); }
-            "lfo_saw" => { arity(1)?; self.emit(Op::Lfo(LfoShape::Saw), 0); }
+            "lfo_sine" => {
+                arity(1)?;
+                self.emit(Op::Lfo(LfoShape::Sine), 0);
+            }
+            "lfo_tri" => {
+                arity(1)?;
+                self.emit(Op::Lfo(LfoShape::Triangle), 0);
+            }
+            "lfo_sqr" => {
+                arity(1)?;
+                self.emit(Op::Lfo(LfoShape::Square), 0);
+            }
+            "lfo_saw" => {
+                arity(1)?;
+                self.emit(Op::Lfo(LfoShape::Saw), 0);
+            }
 
             // Smoothing. Allocates a fresh per-formula slot.
             "smooth" => {

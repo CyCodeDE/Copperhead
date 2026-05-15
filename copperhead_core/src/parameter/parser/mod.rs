@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 
 pub mod compile;
 
-pub use compile::{compile, CompileError, SymbolTable};
+pub use compile::{CompileError, SymbolTable, compile};
 
 /// Bytecode operation. The VM is a stack machine over f64.
 ///
@@ -39,10 +39,35 @@ pub enum Op {
     LoadVoltage(u16),
     LoadBuiltin(Builtin),
     LoadEnum(u16),
-    Add, Sub, Mul, Div, Neg, Mod,
-    Sin, Cos, Tan, Tanh, Abs, Sqrt, Exp, Ln, Pow, Floor, Ceil, Min, Max, Clamp,
-    Gt, Lt, Ge, Le, Eq, Ne,
-    And, Or, Not,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Neg,
+    Mod,
+    Sin,
+    Cos,
+    Tan,
+    Tanh,
+    Abs,
+    Sqrt,
+    Exp,
+    Ln,
+    Pow,
+    Floor,
+    Ceil,
+    Min,
+    Max,
+    Clamp,
+    Gt,
+    Lt,
+    Ge,
+    Le,
+    Eq,
+    Ne,
+    And,
+    Or,
+    Not,
     /// Ternary select. Stack before: [cond, then_val, else_val]. Branchless.
     Select,
     /// LFO of the given shape. Pops frequency (Hz), pushes value in [-1,1].
@@ -121,9 +146,7 @@ impl Program {
     /// the solution being iterated) or only `TimeVariant` (value fixed
     /// within one Newton iteration).
     pub fn depends_on_voltage(&self) -> bool {
-        self.code
-            .iter()
-            .any(|op| matches!(op, Op::LoadVoltage(_)))
+        self.code.iter().any(|op| matches!(op, Op::LoadVoltage(_)))
     }
 
     /// Returns true if any opcode reads a builtin scalar (sample rate, dt,
@@ -191,8 +214,7 @@ impl Program {
                 Op::Const(c) => push!(c),
 
                 Op::LoadParam(i) => {
-                    let v = unsafe { params.get_unchecked(i as usize) }
-                        .load(Ordering::Relaxed);
+                    let v = unsafe { params.get_unchecked(i as usize) }.load(Ordering::Relaxed);
                     push!(v);
                 }
                 Op::LoadVoltage(i) => {
@@ -200,8 +222,7 @@ impl Program {
                     push!(v);
                 }
                 Op::LoadEnum(i) => {
-                    let v = unsafe { enums.get_unchecked(i as usize) }
-                        .load(Ordering::Relaxed);
+                    let v = unsafe { enums.get_unchecked(i as usize) }.load(Ordering::Relaxed);
                     push!(v as f64);
                 }
                 Op::LoadBuiltin(bi) => {
@@ -216,40 +237,88 @@ impl Program {
                     push!(v);
                 }
 
-                Op::Add => { let y = pop1!(); *top!() += y; }
-                Op::Sub => { let y = pop1!(); *top!() -= y; }
-                Op::Mul => { let y = pop1!(); *top!() *= y; }
+                Op::Add => {
+                    let y = pop1!();
+                    *top!() += y;
+                }
+                Op::Sub => {
+                    let y = pop1!();
+                    *top!() -= y;
+                }
+                Op::Mul => {
+                    let y = pop1!();
+                    *top!() *= y;
+                }
                 Op::Div => {
                     let y = pop1!();
                     let t = top!();
                     *t = if y != 0.0 { *t / y } else { 0.0 };
                 }
-                Op::Neg => { let t = top!(); *t = -*t; }
+                Op::Neg => {
+                    let t = top!();
+                    *t = -*t;
+                }
                 Op::Mod => {
                     let y = pop1!();
                     let t = top!();
                     *t = if y != 0.0 { t.rem_euclid(y) } else { 0.0 };
                 }
 
-                Op::Sin  => { let t = top!(); *t = t.sin(); }
-                Op::Cos  => { let t = top!(); *t = t.cos(); }
-                Op::Tan  => { let t = top!(); *t = t.tan(); }
-                Op::Tanh => { let t = top!(); *t = t.tanh(); }
-                Op::Abs  => { let t = top!(); *t = t.abs(); }
+                Op::Sin => {
+                    let t = top!();
+                    *t = t.sin();
+                }
+                Op::Cos => {
+                    let t = top!();
+                    *t = t.cos();
+                }
+                Op::Tan => {
+                    let t = top!();
+                    *t = t.tan();
+                }
+                Op::Tanh => {
+                    let t = top!();
+                    *t = t.tanh();
+                }
+                Op::Abs => {
+                    let t = top!();
+                    *t = t.abs();
+                }
                 Op::Sqrt => {
                     let t = top!();
                     *t = if *t >= 0.0 { t.sqrt() } else { 0.0 };
                 }
-                Op::Exp  => { let t = top!(); *t = t.exp(); }
-                Op::Ln   => {
+                Op::Exp => {
+                    let t = top!();
+                    *t = t.exp();
+                }
+                Op::Ln => {
                     let t = top!();
                     *t = if *t > 0.0 { t.ln() } else { 0.0 };
                 }
-                Op::Pow  => { let y = pop1!(); let t = top!(); *t = t.powf(y); }
-                Op::Floor => { let t = top!(); *t = t.floor(); }
-                Op::Ceil  => { let t = top!(); *t = t.ceil(); }
-                Op::Min => { let y = pop1!(); let t = top!(); *t = t.min(y); }
-                Op::Max => { let y = pop1!(); let t = top!(); *t = t.max(y); }
+                Op::Pow => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = t.powf(y);
+                }
+                Op::Floor => {
+                    let t = top!();
+                    *t = t.floor();
+                }
+                Op::Ceil => {
+                    let t = top!();
+                    *t = t.ceil();
+                }
+                Op::Min => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = t.min(y);
+                }
+                Op::Max => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = t.max(y);
+                }
                 Op::Clamp => {
                     let hi = pop1!();
                     let lo = pop1!();
@@ -257,12 +326,36 @@ impl Program {
                     *t = t.clamp(lo, hi);
                 }
 
-                Op::Gt => { let y = pop1!(); let t = top!(); *t = (*t >  y) as i32 as f64; }
-                Op::Lt => { let y = pop1!(); let t = top!(); *t = (*t <  y) as i32 as f64; }
-                Op::Ge => { let y = pop1!(); let t = top!(); *t = (*t >= y) as i32 as f64; }
-                Op::Le => { let y = pop1!(); let t = top!(); *t = (*t <= y) as i32 as f64; }
-                Op::Eq => { let y = pop1!(); let t = top!(); *t = (*t == y) as i32 as f64; }
-                Op::Ne => { let y = pop1!(); let t = top!(); *t = (*t != y) as i32 as f64; }
+                Op::Gt => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = (*t > y) as i32 as f64;
+                }
+                Op::Lt => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = (*t < y) as i32 as f64;
+                }
+                Op::Ge => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = (*t >= y) as i32 as f64;
+                }
+                Op::Le => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = (*t <= y) as i32 as f64;
+                }
+                Op::Eq => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = (*t == y) as i32 as f64;
+                }
+                Op::Ne => {
+                    let y = pop1!();
+                    let t = top!();
+                    *t = (*t != y) as i32 as f64;
+                }
                 Op::And => {
                     let y = pop1!();
                     let t = top!();
@@ -273,7 +366,10 @@ impl Program {
                     let t = top!();
                     *t = ((*t != 0.0) | (y != 0.0)) as i32 as f64;
                 }
-                Op::Not => { let t = top!(); *t = (*t == 0.0) as i32 as f64; }
+                Op::Not => {
+                    let t = top!();
+                    *t = (*t == 0.0) as i32 as f64;
+                }
 
                 Op::Select => {
                     // stack: cond, then, else  (top is else)
@@ -289,9 +385,19 @@ impl Program {
                     let v = match shape {
                         LfoShape::Sine => (phase * std::f64::consts::TAU).sin(),
                         LfoShape::Triangle => {
-                            if phase < 0.5 { 4.0 * phase - 1.0 } else { 3.0 - 4.0 * phase }
+                            if phase < 0.5 {
+                                4.0 * phase - 1.0
+                            } else {
+                                3.0 - 4.0 * phase
+                            }
                         }
-                        LfoShape::Square => if phase < 0.5 { 1.0 } else { -1.0 },
+                        LfoShape::Square => {
+                            if phase < 0.5 {
+                                1.0
+                            } else {
+                                -1.0
+                            }
+                        }
                         LfoShape::Saw => 2.0 * phase - 1.0,
                     };
                     push!(v);

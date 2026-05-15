@@ -18,12 +18,8 @@
  */
 
 use crate::circuit::Circuit;
-use crate::components::triode::generic_triode::{
-    GenericTriode, GenericTriodeDef, GenericTriodeModel,
-};
-use crate::components::triode::physical_triode::{
-    PhysicalTriode, PhysicalTriodeDef, PhysicalTriodeModel,
-};
+use crate::components::triode::generic_triode::{GenericTriodeDef, GenericTriodeModel};
+use crate::components::triode::physical_triode::{PhysicalTriodeDef, PhysicalTriodeModel};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId};
 use serde::{Deserialize, Serialize};

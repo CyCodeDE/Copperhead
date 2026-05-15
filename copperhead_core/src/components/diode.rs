@@ -65,7 +65,7 @@ struct IterationState<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DiodeModel {
     _1N4148,
-    _1N4007
+    _1N4007,
 }
 
 impl DiodeModel {
@@ -96,14 +96,14 @@ impl DiodeModel {
                 5.0e-6,  // breakdown current at BV | typical 5µA
             ),
             DiodeModel::_1N4007 => (
-                4.352e-9, // Saturation Current | typical 4.352nA
-                1.906,    // Emission Coefficient | typical 1.906
-                0.6458,   // Series Resistance | typical 0.6458 Ohms
-                26.08e-12,// Zero-bias junction capacitance | typical 26.08pF
-                0.3294,   // Grading coefficient | typical 0.3294
-                5.7e-6,   // Transit time | typical 5.7µs
-                1000.0,   // Breakdown voltage | 1000V rated
-                5.0e-6,   // Breakdown current at BV | typical 5µA
+                4.352e-9,  // Saturation Current | typical 4.352nA
+                1.906,     // Emission Coefficient | typical 1.906
+                0.6458,    // Series Resistance | typical 0.6458 Ohms
+                26.08e-12, // Zero-bias junction capacitance | typical 26.08pF
+                0.3294,    // Grading coefficient | typical 0.3294
+                5.7e-6,    // Transit time | typical 5.7µs
+                1000.0,    // Breakdown voltage | 1000V rated
+                5.0e-6,    // Breakdown current at BV | typical 5µA
             ),
         }
     }
@@ -111,7 +111,7 @@ impl DiodeModel {
     pub fn format_name(&self) -> &'static str {
         match self {
             DiodeModel::_1N4148 => "1N4148",
-            DiodeModel::_1N4007 => "1N4007"
+            DiodeModel::_1N4007 => "1N4007",
         }
     }
 }
@@ -136,7 +136,7 @@ pub struct Diode<T: CircuitScalar> {
     /// driven would let it toggle between zero (no aux row) and non-zero
     /// (an aux row in the matrix), changing the matrix shape on the fly.
     /// That's a re-partition trigger we'd rather model explicitly.
-    pub series_resistance: T,             // Rs
+    pub series_resistance: T, // Rs
 
     // Cached T-typed copies of the ParamValues, refreshed by
     // refresh_per_step / refresh_per_iter. The hot path (stamp_nonlinear,
@@ -150,9 +150,9 @@ pub struct Diode<T: CircuitScalar> {
     bv_t: T,
     ibv_t: T,
 
-    pub vt: T,                   // Thermal voltage (kT/q)
-    pub junction_potential: T,   // phi
-    pub fc: T,                   // Forward-bias depletion capacitance coefficient (typ 0.5)
+    pub vt: T,                 // Thermal voltage (kT/q)
+    pub junction_potential: T, // phi
+    pub fc: T,                 // Forward-bias depletion capacitance coefficient (typ 0.5)
 
     /// Voltage across the intrinsic diode at the end of the previous time step
     prev_voltage: T,
@@ -284,7 +284,7 @@ impl<T: CircuitScalar> Diode<T> {
     }
 
     /// Determines the index of the Anode of the *Intrinsic* diode
-    fn get_intrinsic_anode_idx(&self, offset: usize) -> Option<usize> {
+    fn get_intrinsic_anode_idx(&self, _offset: usize) -> Option<usize> {
         if self.series_resistance > T::epsilon() {
             self.internal_node_idx
         } else {
@@ -433,7 +433,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         vec![self.node_a, self.node_b]
     }
 
-    fn bake_indices(&mut self, ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
+    fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
         // Map global node indices to local matrix indices
         self.cached_idx_a = if self.node_a.0 == 0 {
             None
@@ -463,7 +463,7 @@ impl<T: CircuitScalar> Component<T> for Diode<T> {
         }
     }
 
-    fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
+    fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
         let idx_a = self.cached_idx_a;
 
         if let Some(r_idx) = self.internal_node_idx {

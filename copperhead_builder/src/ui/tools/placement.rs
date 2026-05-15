@@ -27,14 +27,16 @@ use egui::{Color32, Id};
 fn next_param_name(params: &[ParameterDecl], prefix: &str) -> String {
     let mut indices: Vec<usize> = params
         .iter()
-        .filter_map(|p| {
-            p.name.strip_prefix(prefix)?.parse::<usize>().ok()
-        })
+        .filter_map(|p| p.name.strip_prefix(prefix)?.parse::<usize>().ok())
         .collect();
     indices.sort_unstable();
     let mut next = 1;
     for idx in indices {
-        if idx == next { next += 1; } else if idx > next { break; }
+        if idx == next {
+            next += 1;
+        } else if idx > next {
+            break;
+        }
     }
     format!("{prefix}{next}")
 }

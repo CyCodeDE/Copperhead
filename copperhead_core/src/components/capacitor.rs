@@ -16,16 +16,15 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::util::deserialize_number_or_string;
 use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind, resolve_param_value};
+use crate::util::deserialize_number_or_string;
 use crate::util::mna::{get_voltage_diff, stamp_conductance, stamp_current_source};
 use faer::{ColMut, ColRef, MatMut};
 use std::collections::HashMap;
-use crate::components::resistor::ResistorDef;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CapacitorDef {
@@ -36,7 +35,10 @@ pub struct CapacitorDef {
 
 impl CapacitorDef {
     pub fn new(capacitance: f64, esr: f64) -> Self {
-        Self { capacitance: capacitance.to_string(), esr: esr.to_string() }
+        Self {
+            capacitance: capacitance.to_string(),
+            esr: esr.to_string(),
+        }
     }
 }
 
@@ -134,16 +136,17 @@ impl<T: CircuitScalar> Capacitor<T> {
         self.conductance = Self::compute_conductance(c, r, dt);
     }
 
+    /*
     fn esr_value(&mut self, eval: &ComponentEvalCtx) -> T {
         T::from(self.esr.eval(eval)).unwrap()
     }
+    */
 }
 
 impl<T: CircuitScalar> Component<T> for Capacitor<T> {
     fn linearity(&self) -> ComponentLinearity {
         let any_dynamic = self.capacitance.is_dynamic() || self.esr.is_dynamic();
-        let any_voltage =
-            self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
+        let any_voltage = self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
 
         if any_voltage {
             ComponentLinearity::NonLinear
@@ -152,6 +155,10 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         } else {
             ComponentLinearity::LinearDynamic
         }
+    }
+
+    fn ports(&self) -> Vec<NodeId> {
+        vec![self.node_a, self.node_b]
     }
 
     fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
@@ -167,10 +174,6 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         };
     }
 
-    fn ports(&self) -> Vec<NodeId> {
-        vec![self.node_a, self.node_b]
-    }
-
     fn stamp_static(&self, matrix: &mut MatMut<T>, ctx: &SimulationContext<T>) {
         if ctx.is_dc_analysis {
             return;
@@ -181,7 +184,33 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         if self.capacitance.is_dynamic() || self.esr.is_dynamic() {
             return;
         }
-        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_b, self.conductance, 0);
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.conductance,
+            0,
+        );
+    }
+
+    fn stamp_dynamic(
+        &mut self,
+        _prev: &ColRef<T>,
+        rhs: &mut ColMut<T>,
+        ctx: &SimulationContext<T>,
+    ) {
+        if ctx.is_dc_analysis {
+            return;
+        }
+        // eq_current goes to the cached row, which the partition placed in
+        // either L or N depending on linearity — both work transparently.
+        stamp_current_source(
+            rhs,
+            self.cached_idx_a,
+            self.cached_idx_b,
+            self.eq_current,
+            0,
+        );
     }
 
     fn stamp_time_variant(
@@ -224,38 +253,16 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         );
     }
 
-    fn stamp_dynamic(
-        &mut self,
-        _prev: &ColRef<T>,
-        rhs: &mut ColMut<T>,
-        ctx: &SimulationContext<T>,
-    ) {
-        if ctx.is_dc_analysis {
-            return;
-        }
-        // eq_current goes to the cached row, which the partition placed in
-        // either L or N depending on linearity — both work transparently.
-        stamp_current_source(
-            rhs,
-            self.cached_idx_a,
-            self.cached_idx_b,
-            self.eq_current,
-            0,
-        );
-    }
-
     fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, sim: &SimulationContext<T>) {
         let any_dynamic = self.capacitance.is_dynamic() || self.esr.is_dynamic();
-        let any_voltage =
-            self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
+        let any_voltage = self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
         if any_dynamic && !any_voltage {
             self.refresh_conductance(eval, sim.dt);
         }
     }
 
     fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, sim: &SimulationContext<T>) {
-        let any_voltage =
-            self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
+        let any_voltage = self.capacitance.depends_on_voltage() || self.esr.depends_on_voltage();
         if any_voltage {
             self.refresh_conductance(eval, sim.dt);
         }

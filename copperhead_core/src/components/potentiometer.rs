@@ -21,7 +21,7 @@ use crate::circuit::Circuit;
 use crate::components::{Component, ComponentLinearity, ComponentProbe};
 use crate::descriptor::Instantiable;
 use crate::model::{CircuitScalar, NodeId, SimulationContext};
-use crate::parameter::{resolve_param_value, ComponentEvalCtx, ParamValue, RebuildKind};
+use crate::parameter::{ComponentEvalCtx, ParamValue, RebuildKind, resolve_param_value};
 use crate::util::deserialize_number_or_string;
 use crate::util::mna::stamp_conductance;
 use faer::{ColRef, MatMut};
@@ -115,9 +115,7 @@ impl<T: CircuitScalar> Instantiable<T> for PotentiometerDef {
             .param_system
             .as_ref()
             .map(|ps| resolve_param_value(pos_src, ps))
-            .unwrap_or_else(|| {
-                ParamValue::Constant(pos_src.trim().parse::<f64>().unwrap_or(0.5))
-            });
+            .unwrap_or_else(|| ParamValue::Constant(pos_src.trim().parse::<f64>().unwrap_or(0.5)));
 
         // Scale only applies when driven by the parameter, not by an explicit formula.
         let scale = if self.is_formula_mode() {
@@ -126,7 +124,9 @@ impl<T: CircuitScalar> Instantiable<T> for PotentiometerDef {
             self.scale.clone()
         };
 
-        circuit.add_component(Potentiometer::new(nodes[0], nodes[1], nodes[2], rpv, ppv, scale));
+        circuit.add_component(Potentiometer::new(
+            nodes[0], nodes[1], nodes[2], rpv, ppv, scale,
+        ));
     }
 }
 
@@ -200,8 +200,16 @@ impl<T: CircuitScalar> Potentiometer<T> {
         let r_aw = position * total_resistance;
         let r_bw = (T::one() - position) * total_resistance;
 
-        let g_aw = if r_aw.abs() < min_r { max_g } else { T::one() / r_aw };
-        let g_bw = if r_bw.abs() < min_r { max_g } else { T::one() / r_bw };
+        let g_aw = if r_aw.abs() < min_r {
+            max_g
+        } else {
+            T::one() / r_aw
+        };
+        let g_bw = if r_bw.abs() < min_r {
+            max_g
+        } else {
+            T::one() / r_bw
+        };
 
         (g_aw, g_bw)
     }
@@ -260,8 +268,20 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
         if self.frozen {
             // Bake the frozen conductances directly into the L-block.
-            stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_w, self.conductance_aw, 0);
-            stamp_conductance(matrix, self.cached_idx_b, self.cached_idx_w, self.conductance_bw, 0);
+            stamp_conductance(
+                matrix,
+                self.cached_idx_a,
+                self.cached_idx_w,
+                self.conductance_aw,
+                0,
+            );
+            stamp_conductance(
+                matrix,
+                self.cached_idx_b,
+                self.cached_idx_w,
+                self.conductance_bw,
+                0,
+            );
         }
     }
 
@@ -271,8 +291,20 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
         _ctx: &SimulationContext<T>,
         offset: usize,
     ) {
-        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_w, self.conductance_aw, offset);
-        stamp_conductance(matrix, self.cached_idx_b, self.cached_idx_w, self.conductance_bw, offset);
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_w,
+            self.conductance_aw,
+            offset,
+        );
+        stamp_conductance(
+            matrix,
+            self.cached_idx_b,
+            self.cached_idx_w,
+            self.conductance_bw,
+            offset,
+        );
     }
 
     fn stamp_nonlinear(
@@ -283,8 +315,20 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
         _ctx: &SimulationContext<T>,
         l_size: usize,
     ) {
-        stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_w, self.conductance_aw, l_size);
-        stamp_conductance(matrix, self.cached_idx_b, self.cached_idx_w, self.conductance_bw, l_size);
+        stamp_conductance(
+            matrix,
+            self.cached_idx_a,
+            self.cached_idx_w,
+            self.conductance_aw,
+            l_size,
+        );
+        stamp_conductance(
+            matrix,
+            self.cached_idx_b,
+            self.cached_idx_w,
+            self.conductance_bw,
+            l_size,
+        );
     }
 
     fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
@@ -381,11 +425,26 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
 
     fn probe_definitions(&self) -> Vec<ComponentProbe> {
         vec![
-            ComponentProbe { name: "V_aw".into(), unit: "V".into() },
-            ComponentProbe { name: "V_bw".into(), unit: "V".into() },
-            ComponentProbe { name: "I_aw".into(), unit: "A".into() },
-            ComponentProbe { name: "I_bw".into(), unit: "A".into() },
-            ComponentProbe { name: "Power".into(), unit: "W".into() },
+            ComponentProbe {
+                name: "V_aw".into(),
+                unit: "V".into(),
+            },
+            ComponentProbe {
+                name: "V_bw".into(),
+                unit: "V".into(),
+            },
+            ComponentProbe {
+                name: "I_aw".into(),
+                unit: "A".into(),
+            },
+            ComponentProbe {
+                name: "I_bw".into(),
+                unit: "A".into(),
+            },
+            ComponentProbe {
+                name: "Power".into(),
+                unit: "W".into(),
+            },
         ]
     }
 

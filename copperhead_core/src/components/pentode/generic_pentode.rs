@@ -34,7 +34,7 @@ pub struct GenericPentodeDef {
 }
 
 impl<T: CircuitScalar> Instantiable<T> for GenericPentodeDef {
-    fn instantiate(&self, nodes: &[NodeId], dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
+    fn instantiate(&self, nodes: &[NodeId], _dt: T, circuit: &mut Circuit<T>, _max_steps: usize) {
         let (mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k, cpk, is, vt) = self.model.parameters();
         let comp = GenericPentode::new(
             nodes[0], nodes[1], nodes[2], nodes[3], mu, ex, kg1, kg2, kp, kvb, rgi, cg1p, cg1k,
@@ -246,8 +246,8 @@ impl<T: CircuitScalar> Component<T> for GenericPentode<T> {
 
     fn stamp_dynamic(
         &mut self,
-        prev_node_voltages: &ColRef<T>,
-        rhs: &mut ColMut<T>,
+        _prev_node_voltages: &ColRef<T>,
+        _rhs: &mut ColMut<T>,
         ctx: &SimulationContext<T>,
     ) {
         if ctx.is_dc_analysis {
@@ -525,7 +525,7 @@ impl<T: CircuitScalar> Component<T> for GenericPentode<T> {
         out_currents[3] = total_i_c;
     }
 
-    fn update_state(&mut self, current_node_voltages: &ColRef<T>, ctx: &SimulationContext<T>) {
+    fn update_state(&mut self, current_node_voltages: &ColRef<T>, _ctx: &SimulationContext<T>) {
         let v_p = get_voltage(current_node_voltages, self.cached_idx_p);
         let v_g1 = get_voltage(current_node_voltages, self.cached_idx_g1);
         let v_c = get_voltage(current_node_voltages, self.cached_idx_c);

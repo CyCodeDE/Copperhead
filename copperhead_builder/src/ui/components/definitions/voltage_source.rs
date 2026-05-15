@@ -209,7 +209,11 @@ impl ComponentUIExt for VoltageSourceDef {
                     voltage.clone() + "V"
                 }
             }
-            VoltageSourceType::AC { amplitude, frequency, .. } => {
+            VoltageSourceType::AC {
+                amplitude,
+                frequency,
+                ..
+            } => {
                 let amp_str = if let Ok(v) = amplitude.trim().parse::<f64>() {
                     format_si_single(v, 2) + "V"
                 } else {
@@ -301,7 +305,10 @@ fn draw_ac_source(
     let end = center + rotate_vec(Vec2::new(wave_width, 0.0) * zoom, rotation);
 
     let c1 = center
-        + rotate_vec(Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom, rotation);
+        + rotate_vec(
+            Vec2::new(-wave_width / 2.0, -wave_amp * 2.0) * zoom,
+            rotation,
+        );
     let c2 = center + rotate_vec(Vec2::new(wave_width / 2.0, wave_amp * 2.0) * zoom, rotation);
 
     let bezier = egui::epaint::CubicBezierShape::from_points_stroke(

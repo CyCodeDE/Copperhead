@@ -16,9 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
-use crate::ui::{ComponentDef, ParameterKind};
 use crate::ui::app::CircuitApp;
 use crate::ui::components::definitions::SchematicElement;
+use crate::ui::{ComponentDef, ParameterKind};
 use egui::{ComboBox, Ui};
 
 /// Rename-sync: when a parameter's name changes, update any pot/switch that referenced the old name.
@@ -66,7 +66,11 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
 
         let frozen = app.sim_state.frozen;
         if frozen {
-            ui.label(egui::RichText::new("Frozen — parameters locked").color(egui::Color32::YELLOW).small());
+            ui.label(
+                egui::RichText::new("Frozen — parameters locked")
+                    .color(egui::Color32::YELLOW)
+                    .small(),
+            );
         }
 
         for i in 0..app.state.parameters.len() {
@@ -82,7 +86,8 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
                         .hint_text("name"),
                 );
                 if name_resp.gained_focus() {
-                    ui.ctx().data_mut(|d| d.insert_temp(edit_id, app.state.parameters[i].name.clone()));
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(edit_id, app.state.parameters[i].name.clone()));
                 }
                 if name_resp.lost_focus() {
                     if let Some(original) = ui.ctx().data(|d| d.get_temp::<String>(edit_id)) {
@@ -95,13 +100,12 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
 
                 // Value widget — kind-dependent. Disabled during freeze so the
                 // user cannot change parameters that are baked into the L-block.
-                let new_val = ui.add_enabled_ui(!frozen, |ui| {
-                    match &app.state.parameters[i].kind.clone() {
+                let new_val = ui
+                    .add_enabled_ui(!frozen, |ui| match &app.state.parameters[i].kind.clone() {
                         ParameterKind::Number => {
                             let mut v = app.state.parameters[i].default;
-                            let changed = ui
-                                .add(egui::DragValue::new(&mut v).speed(0.01))
-                                .changed();
+                            let changed =
+                                ui.add(egui::DragValue::new(&mut v).speed(0.01)).changed();
                             if changed { Some(v) } else { None }
                         }
                         ParameterKind::Boolean => {
@@ -116,13 +120,11 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
                         ParameterKind::Slider { min, max } => {
                             let (min, max) = (*min, *max);
                             let mut v = app.state.parameters[i].default;
-                            let changed = ui
-                                .add(egui::Slider::new(&mut v, min..=max))
-                                .changed();
+                            let changed = ui.add(egui::Slider::new(&mut v, min..=max)).changed();
                             if changed { Some(v) } else { None }
                         }
-                    }
-                }).inner;
+                    })
+                    .inner;
 
                 if let Some(v) = new_val {
                     app.state.parameters[i].default = v;
@@ -144,23 +146,56 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
                         .width(36.0)
                         .show_ui(ui, |ui| {
                             let cur = app.state.parameters[i].kind.clone();
-                            if ui.selectable_label(matches!(cur, ParameterKind::Number), "Number (№)").clicked() {
+                            if ui
+                                .selectable_label(
+                                    matches!(cur, ParameterKind::Number),
+                                    "Number (№)",
+                                )
+                                .clicked()
+                            {
                                 app.state.parameters[i].kind = ParameterKind::Number;
                             }
-                            if ui.selectable_label(matches!(cur, ParameterKind::Boolean), "Boolean (☑)").clicked() {
+                            if ui
+                                .selectable_label(
+                                    matches!(cur, ParameterKind::Boolean),
+                                    "Boolean (☑)",
+                                )
+                                .clicked()
+                            {
                                 app.state.parameters[i].kind = ParameterKind::Boolean;
                                 app.state.parameters[i].default =
-                                    if app.state.parameters[i].default != 0.0 { 1.0 } else { 0.0 };
+                                    if app.state.parameters[i].default != 0.0 {
+                                        1.0
+                                    } else {
+                                        0.0
+                                    };
                             }
-                            if ui.selectable_label(matches!(cur, ParameterKind::Slider { .. }), "Slider (⇔)").clicked() {
-                                app.state.parameters[i].kind = ParameterKind::Slider { min: 0.0, max: 1.0 };
+                            if ui
+                                .selectable_label(
+                                    matches!(cur, ParameterKind::Slider { .. }),
+                                    "Slider (⇔)",
+                                )
+                                .clicked()
+                            {
+                                app.state.parameters[i].kind =
+                                    ParameterKind::Slider { min: 0.0, max: 1.0 };
                             }
                         });
 
                     // Slider min/max editors
                     if let ParameterKind::Slider { min, max } = &mut app.state.parameters[i].kind {
-                        ui.add(egui::DragValue::new(min).prefix("min:").speed(0.01).max_decimals(3));
-                        ui.add(egui::DragValue::new(max).prefix("max:").speed(0.01).max_decimals(3));
+                        ui.add(
+                            egui::DragValue::new(min)
+                                .prefix("min:")
+                                .speed(0.01)
+                                .max_decimals(3),
+                        );
+                        ui.add(
+                            egui::DragValue::new(max)
+                                .prefix("max:")
+                                .speed(0.01)
+                                .max_decimals(3),
+                        );
                     }
 
                     if ui.small_button("×").clicked() {
