@@ -245,7 +245,23 @@ pub fn show(app: &mut CircuitApp, ctx: &egui::Context) {
                                 .send(SimCommand::LoadCircuit(netlist))
                                 .unwrap();
                             app.tx_command.send(SimCommand::Resume).unwrap();
+                            // Auto-freeze immediately: all eligible TimeVariant components
+                            // move to the L-block for the duration of this run.
+                            let _ = app.tx_command.send(SimCommand::Freeze);
                         }
+                    }
+
+                    // Frozen status indicator (informational, not interactive).
+                    if app.sim_state.frozen {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Frozen ({} components)",
+                                app.sim_state.frozen_component_count
+                            ))
+                            .color(egui::Color32::YELLOW)
+                            .small(),
+                        )
+                        .on_hover_text("User parameters are locked and eligible components are solved in the pre-inverted L-block for faster simulation.");
                     }
                 });
 

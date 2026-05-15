@@ -153,6 +153,10 @@ pub struct Potentiometer<T: CircuitScalar> {
     cached_idx_a: Option<usize>,
     cached_idx_b: Option<usize>,
     cached_idx_w: Option<usize>,
+
+    /// When true, this component reports `LinearStatic` linearity so the
+    /// solver can move its nodes into the pre-inverted L-block.
+    frozen: bool,
 }
 
 impl<T: CircuitScalar> Potentiometer<T> {
@@ -185,6 +189,7 @@ impl<T: CircuitScalar> Potentiometer<T> {
             cached_idx_a: None,
             cached_idx_b: None,
             cached_idx_w: None,
+            frozen: false,
         }
     }
 
@@ -225,10 +230,21 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     fn linearity(&self) -> ComponentLinearity {
         if self.resistance.depends_on_voltage() || self.position.depends_on_voltage() {
             ComponentLinearity::NonLinear
+        } else if self.frozen {
+            // Frozen: conductances are baked into the L-block for this session.
+            ComponentLinearity::LinearStatic
         } else {
-            // Always at least TimeVariant: the wiper can move between samples.
+            // Default: wiper can move between samples.
             ComponentLinearity::TimeVariant
         }
+    }
+
+    fn is_freeze_eligible(&self) -> bool {
+        self.resistance.is_freeze_eligible() && self.position.is_freeze_eligible()
+    }
+
+    fn set_frozen(&mut self, frozen: bool) {
+        self.frozen = frozen;
     }
 
     fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
@@ -239,6 +255,14 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
 
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b, self.node_w]
+    }
+
+    fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
+        if self.frozen {
+            // Bake the frozen conductances directly into the L-block.
+            stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_w, self.conductance_aw, 0);
+            stamp_conductance(matrix, self.cached_idx_b, self.cached_idx_w, self.conductance_bw, 0);
+        }
     }
 
     fn stamp_time_variant(
@@ -264,6 +288,9 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     }
 
     fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.frozen {
+            return;
+        }
         let any_voltage =
             self.resistance.depends_on_voltage() || self.position.depends_on_voltage();
         if (self.resistance.is_dynamic() || self.position.is_dynamic()) && !any_voltage {
@@ -275,6 +302,9 @@ impl<T: CircuitScalar> Component<T> for Potentiometer<T> {
     }
 
     fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.frozen {
+            return;
+        }
         if self.resistance.depends_on_voltage() || self.position.depends_on_voltage() {
             self.cached_total_resistance = T::from(self.resistance.eval(eval)).unwrap();
             let raw = self.position.eval(eval);

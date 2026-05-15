@@ -56,6 +56,13 @@ impl CircuitApp {
                     self.sim_state.lookup_map = handle_circuit_loaded(&metadata);
                     self.sim_state.metadata = Some(metadata);
                     self.sim_state.param_system = Some(param_system);
+                    // A new circuit is never frozen.
+                    self.sim_state.frozen = false;
+                    self.sim_state.frozen_component_count = 0;
+                }
+                StateUpdate::FreezeChanged { frozen, components_frozen } => {
+                    self.sim_state.frozen = frozen;
+                    self.sim_state.frozen_component_count = components_frozen;
                 }
             }
         }

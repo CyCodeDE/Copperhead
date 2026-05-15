@@ -126,6 +126,11 @@ pub struct Circuit<T: CircuitScalar> {
     /// `voltage_taps[i]` = matrix row index that supplies `voltage_view[i]`.
     /// Built in `prepare()` from `param_system` and the partition's node map.
     pub voltage_taps: Vec<usize>,
+
+    /// True while freeze mode is active. User-controllable parameters are
+    /// snapshotted and eligible `TimeVariant` components are promoted to
+    /// `LinearStatic`, shrinking the N-block.
+    pub frozen: bool,
 }
 
 pub struct SolverState<T: CircuitScalar> {
@@ -201,6 +206,7 @@ impl<T: CircuitScalar> Circuit<T> {
             builtins: BuiltinValues::default(),
             voltage_view: Vec::new(),
             voltage_taps: Vec::new(),
+            frozen: false,
         }
     }
 
@@ -451,6 +457,30 @@ impl<T: CircuitScalar> Circuit<T> {
             num_n_nodes,
             num_n_aux,
         }
+    }
+
+    /// Enter freeze mode: promote every freeze-eligible `TimeVariant`
+    /// component to `LinearStatic` and repartition the circuit so those
+    /// components move into the pre-inverted L-block. Returns the number
+    /// of components frozen.
+    ///
+    /// The caller is responsible for ensuring that the UI no longer writes
+    /// to user parameters while the circuit is frozen.
+    pub fn freeze(&mut self, dt: T) -> usize {
+        assert!(!self.frozen, "circuit is already frozen");
+        let count = self.components.freeze_eligible_components();
+        self.frozen = true;
+        self.prepare(dt, false);
+        count
+    }
+
+    /// Exit freeze mode: restore all components to their original linearity
+    /// and repartition so the solver reverts to the live N-block layout.
+    pub fn unfreeze(&mut self, dt: T) {
+        assert!(self.frozen, "circuit is not frozen");
+        self.components.unfreeze_all_components();
+        self.frozen = false;
+        self.prepare(dt, false);
     }
 
     pub fn calculate_dc_operating_point(

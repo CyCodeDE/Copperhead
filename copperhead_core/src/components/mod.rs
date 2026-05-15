@@ -207,6 +207,32 @@ macro_rules! define_circuit_components {
                 )*
             }
 
+            /// Freeze every `TimeVariant` component that is freeze-eligible.
+            /// Returns the number of components frozen.
+            pub fn freeze_eligible_components(&mut self) -> usize {
+                let mut count = 0;
+                $(
+                    for comp in &mut self.$field {
+                        if comp.linearity() == ComponentLinearity::TimeVariant
+                            && comp.is_freeze_eligible()
+                        {
+                            comp.set_frozen(true);
+                            count += 1;
+                        }
+                    }
+                )*
+                count
+            }
+
+            /// Restore all components that were frozen back to their normal linearity.
+            pub fn unfreeze_all_components(&mut self) {
+                $(
+                    for comp in &mut self.$field {
+                        comp.set_frozen(false);
+                    }
+                )*
+            }
+
             pub fn find_retained_nodes(&self, node_status: &mut HashMap<NodeId, NodePartition>) {
             $(
                 for comp in &self.$field {
@@ -531,6 +557,20 @@ pub trait Component<T: CircuitScalar> {
         ctx: &SimulationContext<T>,
         out_currents: &mut [T],
     );
+
+    /// Returns true if this component can be promoted to `LinearStatic`
+    /// during freeze mode. Only meaningful for `TimeVariant` components
+    /// whose every `ParamValue` field is freeze-eligible (no voltage or
+    /// builtin dependencies). `NonLinear` components always return false.
+    fn is_freeze_eligible(&self) -> bool {
+        false
+    }
+
+    /// Enable or disable the frozen override. When `frozen = true` and
+    /// `is_freeze_eligible()` is true, the component should report
+    /// `LinearStatic` from `linearity()` so the partition moves its nodes
+    /// into the L-block. Called by `Circuit::freeze` / `Circuit::unfreeze`.
+    fn set_frozen(&mut self, _frozen: bool) {}
 
     /// Legacy: update a parameter by name with a raw scalar.
     /// Returns true if the static matrix needs to be rebuilt.

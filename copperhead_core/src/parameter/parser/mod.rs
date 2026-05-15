@@ -126,6 +126,28 @@ impl Program {
             .any(|op| matches!(op, Op::LoadVoltage(_)))
     }
 
+    /// Returns true if any opcode reads a builtin scalar (sample rate, dt,
+    /// simulation time, etc.). Builtin-dependent formulas produce different
+    /// values across samples even without user interaction, so they cannot
+    /// be frozen.
+    ///
+    /// Note: `Op::Lfo` and `Op::Smooth` also implicitly use builtins but are
+    /// caught here because `Lfo` consumes `simulation_time` and `Smooth`
+    /// consumes `time_step`.
+    pub fn depends_on_builtins(&self) -> bool {
+        self.code
+            .iter()
+            .any(|op| matches!(op, Op::LoadBuiltin(_) | Op::Lfo(_) | Op::Smooth(_)))
+    }
+
+    /// Returns true if this formula can be safely frozen: its only dynamic
+    /// inputs are user-controllable parameters (`LoadParam` / `LoadEnum`).
+    /// A frozen formula evaluates to a constant once all user parameters are
+    /// snapshotted, so the component can be promoted to `LinearStatic`.
+    pub fn is_freeze_eligible(&self) -> bool {
+        !self.depends_on_voltage() && !self.depends_on_builtins()
+    }
+
     /// Evaluate the program. Hot path — called per simulation step, possibly
     /// thousands of times per audio buffer.
     ///

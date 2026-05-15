@@ -64,6 +64,11 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
         let mut to_remove: Option<usize> = None;
         let mut rename: Option<(usize, String, String)> = None; // (idx, old, new)
 
+        let frozen = app.sim_state.frozen;
+        if frozen {
+            ui.label(egui::RichText::new("Frozen — parameters locked").color(egui::Color32::YELLOW).small());
+        }
+
         for i in 0..app.state.parameters.len() {
             let name = app.state.parameters[i].name.clone();
             let is_auto = app.state.parameters[i].auto;
@@ -88,33 +93,36 @@ pub fn show(app: &mut CircuitApp, ui: &mut Ui) {
                     }
                 }
 
-                // Value widget — kind-dependent
-                let new_val = match &app.state.parameters[i].kind.clone() {
-                    ParameterKind::Number => {
-                        let mut v = app.state.parameters[i].default;
-                        let changed = ui
-                            .add(egui::DragValue::new(&mut v).speed(0.01))
-                            .changed();
-                        if changed { Some(v) } else { None }
-                    }
-                    ParameterKind::Boolean => {
-                        let mut checked = app.state.parameters[i].default != 0.0;
-                        let changed = ui.checkbox(&mut checked, "").changed();
-                        if changed {
-                            Some(if checked { 1.0 } else { 0.0 })
-                        } else {
-                            None
+                // Value widget — kind-dependent. Disabled during freeze so the
+                // user cannot change parameters that are baked into the L-block.
+                let new_val = ui.add_enabled_ui(!frozen, |ui| {
+                    match &app.state.parameters[i].kind.clone() {
+                        ParameterKind::Number => {
+                            let mut v = app.state.parameters[i].default;
+                            let changed = ui
+                                .add(egui::DragValue::new(&mut v).speed(0.01))
+                                .changed();
+                            if changed { Some(v) } else { None }
+                        }
+                        ParameterKind::Boolean => {
+                            let mut checked = app.state.parameters[i].default != 0.0;
+                            let changed = ui.checkbox(&mut checked, "").changed();
+                            if changed {
+                                Some(if checked { 1.0 } else { 0.0 })
+                            } else {
+                                None
+                            }
+                        }
+                        ParameterKind::Slider { min, max } => {
+                            let (min, max) = (*min, *max);
+                            let mut v = app.state.parameters[i].default;
+                            let changed = ui
+                                .add(egui::Slider::new(&mut v, min..=max))
+                                .changed();
+                            if changed { Some(v) } else { None }
                         }
                     }
-                    ParameterKind::Slider { min, max } => {
-                        let (min, max) = (*min, *max);
-                        let mut v = app.state.parameters[i].default;
-                        let changed = ui
-                            .add(egui::Slider::new(&mut v, min..=max))
-                            .changed();
-                        if changed { Some(v) } else { None }
-                    }
-                };
+                }).inner;
 
                 if let Some(v) = new_val {
                     app.state.parameters[i].default = v;

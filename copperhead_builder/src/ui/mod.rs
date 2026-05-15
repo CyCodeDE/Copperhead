@@ -321,6 +321,11 @@ pub enum SimCommand {
         name: String,
         value: f64,
     },
+    /// Promote all freeze-eligible TimeVariant components to LinearStatic,
+    /// repartition the circuit, and lock user parameters in the UI.
+    Freeze,
+    /// Restore all frozen components to their normal linearity and repartition.
+    Unfreeze,
 }
 
 /// Controls how a parameter is presented in the parameters panel.
@@ -375,6 +380,11 @@ pub struct SimState {
     pub metadata: Option<CircuitMetadata>,
     pub lookup_map: CircuitDataMap,
     pub param_system: Option<Arc<ParamSystem>>,
+    /// True after a successful `SimCommand::Freeze`; false after `SimCommand::Unfreeze`.
+    /// Used to disable user-parameter controls in the UI.
+    pub frozen: bool,
+    /// How many components were moved to the L-block in the last freeze.
+    pub frozen_component_count: usize,
 }
 
 pub struct CircuitMetadata {
@@ -501,6 +511,8 @@ impl Default for SimState {
             metadata: None,
             lookup_map: HashMap::new(),
             param_system: None,
+            frozen: false,
+            frozen_component_count: 0,
         }
     }
 }

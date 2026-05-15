@@ -146,6 +146,16 @@ impl ParamValue {
         }
     }
 
+    /// True if this value can be safely treated as constant during freeze.
+    /// Constants always qualify; formulas qualify when they have no voltage
+    /// or builtin dependencies (see `Program::is_freeze_eligible`).
+    pub fn is_freeze_eligible(&self) -> bool {
+        match self {
+            Self::Constant(_) => true,
+            Self::Formula(f) => f.is_freeze_eligible(),
+        }
+    }
+
     /// Returns `Some(v)` if this value is a plain constant.
     pub fn as_constant(&self) -> Option<f64> {
         match self {
@@ -404,17 +414,20 @@ pub struct FormulaInstance {
     table: Arc<ParamTable>,
     smooth_state: Vec<f64>,
     depends_on_voltage: bool,
+    is_freeze_eligible: bool,
 }
 
 impl FormulaInstance {
     pub fn new(program: Arc<Program>, table: Arc<ParamTable>) -> Self {
         let smooth_state = vec![0.0; program.smooth_slots as usize];
         let depends_on_voltage = program.depends_on_voltage();
+        let is_freeze_eligible = program.is_freeze_eligible();
         Self {
             program,
             table,
             smooth_state,
             depends_on_voltage,
+            is_freeze_eligible,
         }
     }
 
@@ -437,6 +450,15 @@ impl FormulaInstance {
     #[inline]
     pub fn depends_on_voltage(&self) -> bool {
         self.depends_on_voltage
+    }
+
+    /// True if this formula's only dynamic inputs are user parameters —
+    /// no voltage reads and no builtin reads. A component whose every
+    /// formula is freeze-eligible can be promoted to `LinearStatic` while
+    /// the simulation is frozen.
+    #[inline]
+    pub fn is_freeze_eligible(&self) -> bool {
+        self.is_freeze_eligible
     }
 
     pub fn reset_smoothing(&mut self) {

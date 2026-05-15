@@ -215,6 +215,9 @@ pub enum StateUpdate {
     SendHistory(SimBatchData, usize),
     UpdateRunning(bool),
     ClearHistory,
+    /// Emitted by the simulation thread after freeze or unfreeze completes.
+    /// `components_frozen` is how many components moved to the L-block (0 on unfreeze).
+    FreezeChanged { frozen: bool, components_frozen: usize },
 }
 
 #[derive(PartialEq)]
@@ -238,6 +241,8 @@ impl CircuitApp {
             lookup_map: HashMap::new(),
             metadata: None,
             param_system: None,
+            frozen: false,
+            frozen_component_count: 0,
         };
 
         // Spawn simulation thread

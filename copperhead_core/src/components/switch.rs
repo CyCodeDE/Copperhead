@@ -94,6 +94,10 @@ pub struct Switch<T: CircuitScalar> {
     cached_idx_a: Option<usize>,
     cached_idx_b: Option<usize>,
 
+    /// When true, the switch state is baked into the L-block and cannot
+    /// be changed until the simulation is unfrozen.
+    frozen: bool,
+
     phantom: PhantomData<T>,
 }
 
@@ -107,6 +111,7 @@ impl<T: CircuitScalar> Switch<T> {
             cached_closed,
             cached_idx_a: None,
             cached_idx_b: None,
+            frozen: false,
             phantom: PhantomData,
         }
     }
@@ -132,9 +137,20 @@ impl<T: CircuitScalar> Component<T> for Switch<T> {
     fn linearity(&self) -> ComponentLinearity {
         if self.closed.depends_on_voltage() {
             ComponentLinearity::NonLinear
+        } else if self.frozen {
+            // Frozen: switch state is baked into the L-block for this session.
+            ComponentLinearity::LinearStatic
         } else {
             ComponentLinearity::TimeVariant
         }
+    }
+
+    fn is_freeze_eligible(&self) -> bool {
+        self.closed.is_freeze_eligible()
+    }
+
+    fn set_frozen(&mut self, frozen: bool) {
+        self.frozen = frozen;
     }
 
     fn bake_indices(&mut self, _ctx: &SimulationContext<T>, node_map: &HashMap<NodeId, usize>) {
@@ -144,6 +160,12 @@ impl<T: CircuitScalar> Component<T> for Switch<T> {
 
     fn ports(&self) -> Vec<NodeId> {
         vec![self.node_a, self.node_b]
+    }
+
+    fn stamp_static(&self, matrix: &mut MatMut<T>, _ctx: &SimulationContext<T>) {
+        if self.frozen {
+            stamp_conductance(matrix, self.cached_idx_a, self.cached_idx_b, self.effective_conductance(), 0);
+        }
     }
 
     fn stamp_time_variant(
@@ -179,12 +201,18 @@ impl<T: CircuitScalar> Component<T> for Switch<T> {
     }
 
     fn refresh_per_step(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.frozen {
+            return;
+        }
         if self.closed.is_dynamic() && !self.closed.depends_on_voltage() {
             self.cached_closed = self.closed.eval(eval) != 0.0;
         }
     }
 
     fn refresh_per_iter(&mut self, eval: &ComponentEvalCtx, _sim: &SimulationContext<T>) {
+        if self.frozen {
+            return;
+        }
         if self.closed.depends_on_voltage() {
             self.cached_closed = self.closed.eval(eval) != 0.0;
         }

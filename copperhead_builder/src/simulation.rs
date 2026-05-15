@@ -63,6 +63,16 @@ pub fn run_simulation_loop(
             match cmd {
                 SimCommand::Pause => {
                     running = false;
+                    if let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        if ckt.frozen {
+                            ckt.unfreeze(dt);
+                            let _ = state.send(StateUpdate::FreezeChanged {
+                                frozen: false,
+                                components_frozen: 0,
+                            });
+                        }
+                    }
                     state.send(StateUpdate::UpdateRunning(false));
                 }
                 SimCommand::Resume => {
@@ -175,6 +185,30 @@ pub fn run_simulation_loop(
                 SimCommand::SetRealtime(realtime) => {
                     realtime_mode = realtime;
                 }
+                SimCommand::Freeze => {
+                    if let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        if !ckt.frozen {
+                            let count = ckt.freeze(dt);
+                            let _ = state.send(StateUpdate::FreezeChanged {
+                                frozen: true,
+                                components_frozen: count,
+                            });
+                        }
+                    }
+                }
+                SimCommand::Unfreeze => {
+                    if let Some(ref mut proc) = processor {
+                        let ckt = proc.get_circuit_mut();
+                        if ckt.frozen {
+                            ckt.unfreeze(dt);
+                            let _ = state.send(StateUpdate::FreezeChanged {
+                                frozen: false,
+                                components_frozen: 0,
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -254,6 +288,13 @@ pub fn run_simulation_loop(
 
                 if current_step >= max_steps {
                     running = false;
+                    if proc.get_circuit_mut().frozen {
+                        proc.get_circuit_mut().unfreeze(dt);
+                        let _ = state.send(StateUpdate::FreezeChanged {
+                            frozen: false,
+                            components_frozen: 0,
+                        });
+                    }
                     state.send(StateUpdate::UpdateRunning(false));
                     let elapsed = current_start.elapsed();
                     println!("Finished after: {:?}", elapsed);
