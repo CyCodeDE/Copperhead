@@ -56,7 +56,6 @@ impl CircuitApp {
                     self.sim_state.lookup_map = handle_circuit_loaded(&metadata);
                     self.sim_state.metadata = Some(metadata);
                     self.sim_state.param_system = Some(param_system);
-                    // A new circuit is never frozen.
                     self.sim_state.frozen = false;
                     self.sim_state.frozen_component_count = 0;
                 }
@@ -112,34 +111,32 @@ impl CircuitApp {
     pub fn handle_global_shortcuts(&mut self, ctx: &egui::Context) {
         if !self.sim_state.running {
             // Handle undo and redo only if not running
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) && !self.keybinds_locked
+            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z))
+                && !self.keybinds_locked
+                && let Some(prev) = self.undo_stack.undo(self.state.clone())
             {
-                if let Some(prev) = self.undo_stack.undo(self.state.clone()) {
-                    self.state = prev;
-                    // TODO: maybe show a notification that undo was performed
-                }
+                self.state = prev;
+                // TODO: maybe show a notification that undo was performed
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Y)) && !self.keybinds_locked
+            if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Y))
+                && !self.keybinds_locked
+                && let Some(next) = self.undo_stack.redo(self.state.clone())
             {
-                if let Some(next) = self.undo_stack.redo(self.state.clone()) {
-                    self.state = next;
-                }
+                self.state = next;
             }
         }
 
         // Handle Escape to cancel tool
-        if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            if !matches!(self.selected_tool, Tool::Move) {
-                // We handle the move tool in `[movement.rs](crate::ui::tools::movement)` separately
-                self.selected_tool = Tool::Select;
-            }
+        if ctx.input(|i| i.key_pressed(Key::Escape)) && !matches!(self.selected_tool, Tool::Move) {
+            // We handle the move tool in `[movement.rs](crate::ui::tools::movement)` separately
+            self.selected_tool = Tool::Select;
         }
 
         // Handle Rotate (CTRL + R)
-        if matches!(self.selected_tool, Tool::PlaceComponent(_)) {
-            if ctx.input(|i| i.modifiers.command && i.key_pressed(Key::R)) {
-                self.current_rotation = (self.current_rotation + 1) % 4;
-            }
+        if matches!(self.selected_tool, Tool::PlaceComponent(_))
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(Key::R))
+        {
+            self.current_rotation = (self.current_rotation + 1) % 4;
         }
     }
 

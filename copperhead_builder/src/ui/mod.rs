@@ -185,11 +185,7 @@ impl Schematic {
                 if c.name.starts_with(prefix) && c.name.len() > prefix.len() {
                     // Check for standard format "{prefix}{number}"
                     let suffix = &c.name[prefix.len()..];
-                    if let Ok(num) = suffix.parse::<usize>() {
-                        Some(num)
-                    } else {
-                        None
-                    }
+                    suffix.parse::<usize>().ok()
                 } else {
                     None
                 }
@@ -500,21 +496,6 @@ pub enum CircuitSelection {
     Voltage,
     Current,
     Observable,
-}
-
-impl Default for SimState {
-    fn default() -> Self {
-        Self {
-            history: Vec::new(),
-            running: false,
-            current_sample: 0,
-            metadata: None,
-            lookup_map: HashMap::new(),
-            param_system: None,
-            frozen: false,
-            frozen_component_count: 0,
-        }
-    }
 }
 
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {

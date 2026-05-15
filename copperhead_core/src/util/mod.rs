@@ -124,13 +124,13 @@ pub fn deserialize_bool_or_string<'de, D: Deserializer<'de>>(d: D) -> Result<Str
         fn visit_bool<E: de::Error>(self, v: bool) -> Result<String, E> {
             Ok(if v { "1".to_string() } else { "0".to_string() })
         }
-        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> {
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> {
             Ok(v.to_string())
         }
         fn visit_u64<E: de::Error>(self, v: u64) -> Result<String, E> {
             Ok(v.to_string())
         }
-        fn visit_i64<E: de::Error>(self, v: i64) -> Result<String, E> {
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<String, E> {
             Ok(v.to_string())
         }
         fn visit_str<E: de::Error>(self, v: &str) -> Result<String, E> {

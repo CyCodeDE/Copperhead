@@ -155,9 +155,7 @@ pub fn compile(src: &str, syms: &SymbolTable) -> Result<Program, CompileError> {
     })
 }
 
-// ---------------------------------------------------------------------------
 // Lexer
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {

@@ -178,9 +178,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         if ctx.is_dc_analysis {
             return;
         }
-        // Only invoked by the orchestrator when linearity != TimeVariant
-        // (i.e. constant cap → LinearDynamic). Formula-driven caps stamp
-        // their conductance via stamp_time_variant or stamp_nonlinear.
+
         if self.capacitance.is_dynamic() || self.esr.is_dynamic() {
             return;
         }
@@ -202,8 +200,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         if ctx.is_dc_analysis {
             return;
         }
-        // eq_current goes to the cached row, which the partition placed in
-        // either L or N depending on linearity — both work transparently.
+
         stamp_current_source(
             rhs,
             self.cached_idx_a,
@@ -242,8 +239,7 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         if ctx.is_dc_analysis {
             return;
         }
-        // Voltage-dependent capacitance: conductance was just refreshed by
-        // refresh_per_iter using the latest x_n. Stamp it like a time-variant.
+
         stamp_conductance(
             matrix,
             self.cached_idx_a,
@@ -272,13 +268,6 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
         let v_terminal =
             get_voltage_diff(current_node_voltages, self.cached_idx_a, self.cached_idx_b);
 
-        // We need the current ESR value to back out v_c from v_terminal.
-        // For constants we can read it directly; for formulas we use the
-        // most-recently-refreshed value cached in the ParamValue's eval
-        // path. To avoid threading ComponentEvalCtx through update_state,
-        // we just pull the constant case directly — formula-driven caps
-        // need a small follow-up to cache esr_t alongside conductance.
-        // For now, recompute esr only for the constant case.
         let esr_t = match &self.esr {
             ParamValue::Constant(v) => T::from(*v).unwrap(),
             ParamValue::Formula(_) => {
@@ -401,19 +390,9 @@ impl<T: CircuitScalar> Component<T> for Capacitor<T> {
             _ => unreachable!(),
         };
 
-        // If the new value is a constant, refresh conductance now so the
-        // matrix gets the right value on the next stamp without waiting
-        // for refresh_per_step (which is gated on is_dynamic).
         if !self.capacitance.is_dynamic() && !self.esr.is_dynamic() {
             let c = self.capacitance.as_constant().unwrap_or(1.0);
             let r = self.esr.as_constant().unwrap_or(0.0);
-            // dt isn't available here; we use a placeholder.
-            // The correct path is for the caller to invoke a Restamp which
-            // reruns prepare()-like logic with the right dt. This is a known
-            // limitation of the legacy `set_parameter` path; the new UI flow
-            // should send a RebuildCircuit instead.
-            // Until then, leave conductance as-is — it'll get fixed at the
-            // next prepare() call.
             let _ = (c, r);
         }
 

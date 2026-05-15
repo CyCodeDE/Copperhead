@@ -479,7 +479,7 @@ pub fn resolve_param_value(src: &str, param_system: &ParamSystem) -> ParamValue 
     if let Ok(v) = trimmed.parse::<f64>() {
         return ParamValue::Constant(v);
     }
-    // Handle SI prefix notation ("1k" → 1000, "10n" → 1e-8, "4u7" not supported — only "4.7u")
+    
     if let Some(v) = crate::util::parse_si(trimmed) {
         return ParamValue::Constant(v);
     }
@@ -492,9 +492,7 @@ pub fn resolve_param_value(src: &str, param_system: &ParamSystem) -> ParamValue 
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// TESTS
 
 #[cfg(test)]
 mod tests {

@@ -138,7 +138,6 @@ impl<T: CircuitScalar> Component<T> for Switch<T> {
         if self.closed.depends_on_voltage() {
             ComponentLinearity::NonLinear
         } else if self.frozen {
-            // Frozen: switch state is baked into the L-block for this session.
             ComponentLinearity::LinearStatic
         } else {
             ComponentLinearity::TimeVariant

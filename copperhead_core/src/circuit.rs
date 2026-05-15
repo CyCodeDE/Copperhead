@@ -181,6 +181,12 @@ pub struct SolverWorkspace<T: CircuitScalar> {
     pub lu_workspace_memory: MemBuffer,
 }
 
+impl<T: CircuitScalar> Default for Circuit<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: CircuitScalar> Circuit<T> {
     pub fn new() -> Self {
         Self {
@@ -323,7 +329,7 @@ impl<T: CircuitScalar> Circuit<T> {
             let gmin = T::from(GMIN).unwrap();
             // Only apply to actual VOLTAGE nodes, not auxiliary current rows
             for i in 0..partition.num_l_nodes {
-                matrix_a[(i, i)] = matrix_a[(i, i)] + gmin;
+                matrix_a[(i, i)] += gmin;
             }
         }
 
@@ -605,13 +611,6 @@ impl<T: CircuitScalar> Circuit<T> {
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
 
-                // Per-iteration parameter refresh: components whose
-                // formulas read a node voltage need fresh values reflecting
-                // the latest x_n guess. We splice x_n back into
-                // current_solution before refreshing the voltage view.
-                // `state` (which borrows self.solver_state) stays valid
-                // across the refresh call because refresh_all_per_iter
-                // touches only self.components — a disjoint field.
                 self.current_solution
                     .as_mut()
                     .subrows_mut(l_size, n_size)
@@ -682,7 +681,7 @@ impl<T: CircuitScalar> Circuit<T> {
                     state.workspace.diff[i] = d;
 
                     let damped = T::from(damping_factor).unwrap() * d;
-                    state.workspace.x_n[i] = state.workspace.x_n[i] + damped;
+                    state.workspace.x_n[i] += damped;
                 }
 
                 let error = state.workspace.diff.norm_max();
@@ -715,7 +714,6 @@ impl<T: CircuitScalar> Circuit<T> {
             ));
         }
 
-        // adjustment = t_mat * x_n
         faer::linalg::matmul::matmul(
             state.workspace.adjustment.as_mut(),
             Accum::Replace,
@@ -758,7 +756,7 @@ impl<T: CircuitScalar> Circuit<T> {
 
         // Initialize the solution guess for this time step.
         // A good guess is the solution from the previous time step or the one before that.
-        // If we don't do this, the diodes for example starts at 0V (off) every step,
+        // If we don't do this, the diodes for example starts at 0V (off) every step
         if self.previous_solution.nrows() == total_size {
             if self.step_count > 1 {
                 // First-order linear extrapolation
@@ -784,9 +782,6 @@ impl<T: CircuitScalar> Circuit<T> {
 
         state.workspace.b_full.fill(T::zero());
 
-        // Per-step parameter refresh: hoist non-voltage-dependent formula
-        // evaluations out of the NR loop. Use previous_solution for the
-        // voltage view since the solution for this step doesn't exist yet.
         Self::refresh_voltage_view_into(
             &mut self.voltage_view,
             &self.voltage_taps,
@@ -800,10 +795,6 @@ impl<T: CircuitScalar> Circuit<T> {
             self.components.refresh_all_per_step(&eval_ctx_step, &ctx);
         }
 
-        // Stamp Dynamic (Capacitor/Inductor history).
-        // `state` stays valid: refresh_all_per_step only touched
-        // self.components, not self.solver_state.
-        // dynamic history depends on t-1
         self.components.stamp_all_dynamic(
             &self.previous_solution.as_ref(),
             &mut state.workspace.b_full.as_mut(),
@@ -868,12 +859,6 @@ impl<T: CircuitScalar> Circuit<T> {
                     .iter_rhs
                     .copy_from(&state.workspace.b_reduced_base);
 
-                // Per-iteration parameter refresh: voltage-dependent
-                // formulas need to see the latest x_n. Splice x_n back
-                // into current_solution before refreshing the voltage view.
-                // `state` stays valid across the refresh call because
-                // refresh_all_per_iter touches only self.components — a
-                // disjoint field.
                 self.current_solution
                     .as_mut()
                     .subrows_mut(state.l_size, state.n_size)
@@ -1071,12 +1056,12 @@ impl<T: CircuitScalar> Circuit<T> {
             return T::zero();
         }
 
-        if let Some(partition) = &self.partition {
-            if let Some(&matrix_index) = partition.node_map.get(&node) {
-                // Ensure the index is valid within our current solution vector
-                if matrix_index < self.current_solution.nrows() {
-                    return self.current_solution[matrix_index];
-                }
+        if let Some(partition) = &self.partition
+            && let Some(&matrix_index) = partition.node_map.get(&node)
+        {
+            // Ensure the index is valid within our current solution vector
+            if matrix_index < self.current_solution.nrows() {
+                return self.current_solution[matrix_index];
             }
         }
 
@@ -1090,21 +1075,21 @@ impl<T: CircuitScalar> Circuit<T> {
 
     /// Read the terminal currents for a component at the current time step. The order of currents corresponds to the order of ports returned by `Component::ports()`.
     pub fn get_terminal_current(&self, component_idx: usize, dt: T, dst: &mut [T]) {
-        if let Some(graph_idx) = self.component_order.get(component_idx) {
-            if let CircuitElement::Device(comp_id) = self.graph[*graph_idx] {
-                return self.components.get_terminal_currents(
-                    comp_id,
-                    &self.current_solution.as_ref(),
-                    &SimulationContext {
-                        dt,
-                        time: self.time,
-                        step: self.step_count,
-                        is_dc_analysis: false,
-                        // TODO: we need to check if time step 0 and set to dc analysis or else the measurement won't be accurate for the first step
-                    },
-                    dst,
-                );
-            }
+        if let Some(graph_idx) = self.component_order.get(component_idx)
+            && let CircuitElement::Device(comp_id) = self.graph[*graph_idx]
+        {
+            self.components.get_terminal_currents(
+                comp_id,
+                &self.current_solution.as_ref(),
+                &SimulationContext {
+                    dt,
+                    time: self.time,
+                    step: self.step_count,
+                    is_dc_analysis: false,
+                    // TODO: we need to check if time step 0 and set to dc analysis or else the measurement won't be accurate for the first step
+                },
+                dst,
+            )
         }
     }
 

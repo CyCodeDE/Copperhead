@@ -123,11 +123,6 @@ impl<T: CircuitScalar> Component<T> for Resistor<T> {
     }
 
     fn stamp_static(&self, matrix: &mut faer::MatMut<T>, _ctx: &SimulationContext<T>) {
-        // Only called by the orchestrator when linearity != TimeVariant.
-        // For NonLinear (formula reads voltage) we still want to skip the
-        // static stamp since stamp_nonlinear (treated like time-variant
-        // here for the conductance contribution) will handle it. Guard
-        // against that here to keep the orchestrator simple.
         if self.resistance.is_dynamic() {
             return;
         }

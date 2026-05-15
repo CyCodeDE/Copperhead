@@ -90,15 +90,15 @@ pub fn run_simulation_loop(
                     running = false;
                     current_step = 0;
 
-                    // Pass 1: build the ParamSystem from declared global parameters.
+                    // build the ParamSystem from declared global parameters.
                     let mut psb = ParamSystemBuilder::new();
                     for decl in &netlist.parameters {
                         psb.declare_param(&decl.name, decl.default);
                     }
                     let param_system = Arc::new(psb.build());
 
-                    // Pass 2: instantiate components; inject param_system so
-                    // formula-bearing *Def structs can compile their strings.
+                    // instantiate components; inject param_system so
+                    // formula-bearing component definition structs can compile their strings.
                     let mut new_ckt = Circuit::<f64>::new();
                     new_ckt.param_system = Some(param_system.clone());
                     for instr in netlist.entries {
@@ -277,14 +277,15 @@ pub fn run_simulation_loop(
                     let _ = state.send(StateUpdate::SendHistory(data_to_send, current_step));
                 }
 
-                if realtime_mode && steps_performed > 0 {
-                    if let Some(start) = batch_start {
-                        let elapsed = start.elapsed();
-                        let target_duration =
-                            std::time::Duration::from_secs_f64(steps_performed as f64 * dt);
-                        if target_duration > elapsed {
-                            std::thread::sleep(target_duration - elapsed);
-                        }
+                if realtime_mode
+                    && steps_performed > 0
+                    && let Some(start) = batch_start
+                {
+                    let elapsed = start.elapsed();
+                    let target_duration =
+                        std::time::Duration::from_secs_f64(steps_performed as f64 * dt);
+                    if target_duration > elapsed {
+                        std::thread::sleep(target_duration - elapsed);
                     }
                 }
 

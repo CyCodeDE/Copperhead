@@ -245,15 +245,10 @@ where
 
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<T>, A::Error> {
             let mut vec = Vec::new();
-            // Each element is attempted as Option<T> via serde's
-            // built-in error recovery — but that doesn't work directly.
-            // Instead, deserialize each element as serde_json::Value first,
-            // then try converting.
             while let Some(raw) = seq.next_element::<serde_json::Value>()? {
                 if let Ok(item) = serde_json::from_value::<T>(raw) {
                     vec.push(item);
                 }
-                // else: silently skip
             }
             Ok(vec)
         }
