@@ -17,3 +17,9 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 mod common;
+
+// -------------------
+// NOTE: All tests in here are vibe-coded.
+// I tried my best to ensure that claude didn't do any majorly wrong calculations, but it seems fine
+// Proper tests and especially more edge cases will definitely need to be added in the future, but for now this is a good sanity check that the basic functionality is working.
+// -------------------
