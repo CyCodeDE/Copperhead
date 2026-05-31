@@ -18,10 +18,15 @@
  */
 
 use crate::ui::components::definitions::ComponentUIExt;
-use crate::ui::{GridPos, VisualComponent};
+use crate::ui::{GridPos, VisualComponent, VisualWire};
 use eframe::emath::{Pos2, Rect, Vec2};
 use eframe::epaint::Color32;
-use egui::{Align2, Painter};
+use egui::{Align2, Painter, Stroke};
+use std::collections::{HashMap, HashSet};
+
+// A lot of code in this file is vibe-coded. Be aware. The only requirement for the drawing functions
+// was that they look visually correct. Not to be the most efficient.
+// A QA pass in the future would be highly advisable.
 
 pub fn draw_grid(painter: &Painter, rect: Rect, zoom: f32, pan: Vec2, color: Color32) {
     let min_visible = (rect.min.to_vec2() - pan) / zoom;
@@ -367,4 +372,173 @@ impl<'a> LabelEngine<'a> {
             _ => v,
         }
     }
+}
+
+
+/// A mid-segment crossing between a horizontal and a vertical wire.
+/// The vertical wire gets the hop arc; the horizontal wire passes straight through.
+pub struct WireCrossing {
+    pub crossing: GridPos,
+    pub vertical_wire_idx: usize,
+    pub horizontal_wire_idx: usize,
+}
+
+/// Finds all points where two wires cross mid-segment without any electrical connection.
+/// A crossing is only reported when the intersection point is strictly interior to both wires
+/// (i.e. neither wire has an endpoint there).
+pub fn find_wire_crossings(wires: &[VisualWire]) -> Vec<WireCrossing> {
+    let mut crossings = Vec::new();
+
+    for i in 0..wires.len() {
+        for j in (i + 1)..wires.len() {
+            let a = &wires[i];
+            let b = &wires[j];
+
+            // Classify each wire as horizontal or vertical
+            let (h, h_idx, v, v_idx) = if a.start.y == a.end.y && b.start.x == b.end.x {
+                (a, i, b, j)
+            } else if a.start.x == a.end.x && b.start.y == b.end.y {
+                (b, j, a, i)
+            } else {
+                continue;
+            };
+
+            let cx = v.start.x;
+            let cy = h.start.y;
+
+            let hx_min = h.start.x.min(h.end.x);
+            let hx_max = h.start.x.max(h.end.x);
+            let vy_min = v.start.y.min(v.end.y);
+            let vy_max = v.start.y.max(v.end.y);
+
+            // Strictly interior to both — excludes T-junctions and shared endpoints
+            if cx > hx_min && cx < hx_max && cy > vy_min && cy < vy_max {
+                crossings.push(WireCrossing {
+                    crossing: GridPos { x: cx, y: cy },
+                    vertical_wire_idx: v_idx,
+                    horizontal_wire_idx: h_idx,
+                });
+            }
+        }
+    }
+
+    crossings
+}
+
+/// Finds all points that need a junction dot.
+/// A dot is needed when:
+///   - a wire endpoint lies strictly inside another wire (T-junction), or
+///   - three or more wire endpoints coincide (star / multi-tap junction).
+/// Simple two-wire corners (L-shapes) get no dot.
+pub fn find_wire_junctions(wires: &[VisualWire]) -> Vec<GridPos> {
+    let mut junctions: HashSet<GridPos> = HashSet::new();
+
+    // Count endpoint occurrences at each grid position
+    let mut endpoint_count: HashMap<GridPos, usize> = HashMap::new();
+    for wire in wires {
+        *endpoint_count.entry(wire.start).or_insert(0) += 1;
+        *endpoint_count.entry(wire.end).or_insert(0) += 1;
+    }
+
+    // Star junctions: 3+ endpoints at the same point
+    for (&pos, &count) in &endpoint_count {
+        if count >= 3 {
+            junctions.insert(pos);
+        }
+    }
+
+    // T-junctions: an endpoint lies strictly inside another wire's interior
+    for wire in wires {
+        for &pt in &[wire.start, wire.end] {
+            if junctions.contains(&pt) {
+                continue; // already marked
+            }
+            for other in wires {
+                if std::ptr::eq(wire, other) {
+                    continue;
+                }
+                if other.contains(pt) && pt != other.start && pt != other.end {
+                    junctions.insert(pt);
+                    break;
+                }
+            }
+        }
+    }
+
+    junctions.into_iter().collect()
+}
+
+// ─── Wire rendering helpers ───────────────────────────────────────────────────
+
+/// Draws a vertical wire with gaps at every crossing point and nothing else —
+/// the caller is responsible for drawing the hop arcs afterwards.
+pub fn draw_vertical_wire_with_hops<F>(
+    painter: &Painter,
+    wire: &VisualWire,
+    crossings: &[GridPos],
+    color: Color32,
+    stroke_width: f32,
+    zoom: f32,
+    to_screen: F,
+) where
+    F: Fn(GridPos) -> Pos2,
+{
+    let start_screen = to_screen(wire.start);
+    let end_screen = to_screen(wire.end);
+
+    let (top_y, bot_y) = if start_screen.y <= end_screen.y {
+        (start_screen.y, end_screen.y)
+    } else {
+        (end_screen.y, start_screen.y)
+    };
+    let cx = start_screen.x;
+
+    let hop_r = zoom * 0.35;
+
+    let mut crossing_ys: Vec<f32> = crossings.iter().map(|&g| to_screen(g).y).collect();
+    crossing_ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let mut current_y = top_y;
+
+    for cy in &crossing_ys {
+        let gap_start = cy - hop_r;
+        let gap_end = cy + hop_r;
+
+        if current_y < gap_start {
+            painter.line_segment(
+                [Pos2::new(cx, current_y), Pos2::new(cx, gap_start)],
+                Stroke::new(stroke_width, color),
+            );
+        }
+
+        current_y = gap_end;
+    }
+
+    if current_y < bot_y {
+        painter.line_segment(
+            [Pos2::new(cx, current_y), Pos2::new(cx, bot_y)],
+            Stroke::new(stroke_width, color),
+        );
+    }
+}
+
+/// Draws a semicircular hop arc at a crossing point.
+/// The arc bows to the right (+x), showing the vertical wire arching over the horizontal one.
+pub fn draw_hop_arc(painter: &Painter, crossing: Pos2, zoom: f32, color: Color32, stroke_width: f32) {
+    let r = zoom * 0.35;
+    const N: usize = 12;
+
+    let points: Vec<Pos2> = (0..=N)
+        .map(|i| {
+            let t = i as f32 / N as f32;
+            // θ runs from −π/2 to +π/2, tracing the right half of a unit circle
+            let theta = -std::f32::consts::FRAC_PI_2 + t * std::f32::consts::PI;
+            Pos2::new(crossing.x + r * theta.cos(), crossing.y + r * theta.sin())
+        })
+        .collect();
+
+    painter.add(egui::Shape::Path(egui::epaint::PathShape::line(
+        points,
+        Stroke::new(stroke_width, color),
+    )));
 }

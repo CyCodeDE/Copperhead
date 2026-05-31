@@ -17,6 +17,7 @@
  * along with Copperhead. If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::ui::app::{CircuitApp, Tool};
+use crate::ui::drawing::{draw_hop_arc, find_wire_crossings};
 use crate::ui::{GridPos, VisualWire};
 use egui::{Color32, Pos2, Stroke};
 
@@ -57,15 +58,49 @@ pub fn handle(
             });
         }
 
-        // Draw Ghost Wires
-        for wire in &ghost_segments {
+        // Draw Ghost Wires, with hop arcs where they would cross existing wires
+        let ghost_color = Color32::from_rgba_unmultiplied(0, 255, 0, 128);
+        let ghost_stroke = Stroke::new(2.0, ghost_color);
+
+        // Combine existing wires with ghost segments so crossing detection sees both
+        let n_existing = app.state.schematic.wires.len();
+        let mut combined: Vec<VisualWire> = app.state.schematic.wires.clone();
+        combined.extend_from_slice(&ghost_segments);
+
+        let all_crossings = find_wire_crossings(&combined);
+
+        // Collect crossing points that land on ghost segments (index >= n_existing)
+        // keyed by ghost-local index
+        let mut ghost_hop_map: std::collections::HashMap<usize, Vec<GridPos>> =
+            std::collections::HashMap::new();
+        for c in &all_crossings {
+            if c.vertical_wire_idx >= n_existing {
+                ghost_hop_map
+                    .entry(c.vertical_wire_idx - n_existing)
+                    .or_default()
+                    .push(c.crossing);
+            }
+        }
+
+        for (i, wire) in ghost_segments.iter().enumerate() {
             let w_start = app.to_screen(wire.start);
             let w_end = app.to_screen(wire.end);
-            // Draw dashed or semi-transparent line
-            painter.line_segment(
-                [w_start, w_end],
-                Stroke::new(2.0, Color32::from_rgba_unmultiplied(0, 255, 0, 128)),
-            );
+            painter.line_segment([w_start, w_end], ghost_stroke);
+
+            // Overlay hop arc if this ghost segment is a vertical wire crossing
+            // an existing horizontal wire
+            if let Some(hops) = ghost_hop_map.get(&i) {
+                for &hop in hops {
+                    draw_hop_arc(painter, app.to_screen(hop), app.zoom, ghost_color, 2.0);
+                }
+            }
+        }
+
+        // Also overlay hop arcs on existing vertical wires crossed by ghost horizontal wires
+        for c in &all_crossings {
+            if c.horizontal_wire_idx >= n_existing && c.vertical_wire_idx < n_existing {
+                draw_hop_arc(painter, app.to_screen(c.crossing), app.zoom, ghost_color, 2.0);
+            }
         }
 
         // Handle Second Click (Commit)

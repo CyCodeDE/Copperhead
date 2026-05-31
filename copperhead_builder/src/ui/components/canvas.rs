@@ -20,10 +20,14 @@
 use crate::ui::app::{CircuitApp, Tool};
 use crate::ui::components::definitions::ComponentUIExt;
 use crate::ui::components::modals::handle_properties;
-use crate::ui::drawing::draw_component;
+use crate::ui::drawing::{
+    draw_component, draw_hop_arc, draw_vertical_wire_with_hops, find_wire_crossings,
+    find_wire_junctions,
+};
 use crate::ui::lerp_color;
 use egui::Context;
 use egui::{Color32, CornerRadius, Frame, Margin, Sense, Stroke};
+use std::collections::HashMap;
 
 pub fn show(app: &mut CircuitApp, ctx: &Context) {
     let running = app.sim_state.running;
@@ -90,11 +94,9 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                     app.theme.dot_color,
                 );
 
-                // Draw Wires (really naive rn)
                 if running {
                     if let Some(netlist) = &app.active_netlist {
-                        for (_coord, &node_id) in &netlist.node_map {
-                            // calculate RMS
+                        for (_, &node_id) in &netlist.node_map {
                             let (sum_sq, count) = app
                                 .sim_state
                                 .history
@@ -102,14 +104,11 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                                 .rev()
                                 .take(8000)
                                 .filter_map(|step| step.voltages.get(node_id.0))
-                                .fold((0.0, 0), |(acc_sq, acc_cnt), &v| {
-                                    (acc_sq + (v * v), acc_cnt + 1)
-                                });
+                                .fold((0.0f64, 0usize), |(sq, cnt), &v| (sq + v * v, cnt + 1));
 
                             let color = if count > 0 {
                                 let rms = (sum_sq / count as f64).sqrt();
-                                let t = (rms / 5.0) as f32; // 5.0 is sensitivity
-                                lerp_color(app.theme.wire_off, app.theme.wire_on, t)
+                                lerp_color(app.theme.wire_off, app.theme.wire_on, (rms / 5.0) as f32)
                             } else {
                                 app.theme.wire_off
                             };
@@ -117,36 +116,79 @@ pub fn show(app: &mut CircuitApp, ctx: &Context) {
                             app.wire_color_cache.insert(node_id, color);
                         }
                     }
-                    // get latest sim state
-                    for wire in &app.state.schematic.wires {
-                        let start = app.to_screen(wire.start);
-                        let end = app.to_screen(wire.end);
+                }
 
-                        let mut color = app.theme.wire_off;
-                        let mut stroke_width = 2.0;
+                let wire_count = app.state.schematic.wires.len();
+                let mut wire_colors = vec![(app.theme.wire_off, 2.0f32); wire_count];
 
+                if running {
+                    for (i, wire) in app.state.schematic.wires.iter().enumerate() {
                         if let Some(netlist) = &app.active_netlist {
                             if let Some(&node_id) = netlist.node_map.get(&wire.start) {
-                                if let Some(cached_color) = app.wire_color_cache.get(&node_id) {
-                                    color = *cached_color;
-
-                                    if color != app.theme.wire_off {
-                                        if color.r() > app.theme.wire_off.r() + 10 {
-                                            stroke_width = 2.5;
-                                        }
-                                    }
+                                if let Some(&cached) = app.wire_color_cache.get(&node_id) {
+                                    let sw = if cached.r() > app.theme.wire_off.r() + 10 {
+                                        2.5
+                                    } else {
+                                        2.0
+                                    };
+                                    wire_colors[i] = (cached, sw);
                                 }
                             }
                         }
+                    }
+                }
 
-                        painter.line_segment([start, end], Stroke::new(stroke_width, color));
+                let crossings = find_wire_crossings(&app.state.schematic.wires);
+                let junctions = find_wire_junctions(&app.state.schematic.wires);
+
+                // Build a map: vertical-wire index → crossing points on that wire
+                let mut hop_map: HashMap<usize, Vec<_>> = HashMap::new();
+                for c in &crossings {
+                    hop_map
+                        .entry(c.vertical_wire_idx)
+                        .or_default()
+                        .push(c.crossing);
+                }
+
+                for (i, wire) in app.state.schematic.wires.iter().enumerate() {
+                    let (color, sw) = wire_colors[i];
+                    if let Some(hops) = hop_map.get(&i) {
+                        draw_vertical_wire_with_hops(
+                            &painter,
+                            wire,
+                            hops,
+                            color,
+                            sw,
+                            app.zoom,
+                            |p| app.to_screen(p),
+                        );
+                    } else {
+                        painter.line_segment(
+                            [app.to_screen(wire.start), app.to_screen(wire.end)],
+                            Stroke::new(sw, color),
+                        );
                     }
-                } else {
-                    for wire in &app.state.schematic.wires {
-                        let start = app.to_screen(wire.start);
-                        let end = app.to_screen(wire.end);
-                        painter.line_segment([start, end], Stroke::new(2.0, app.theme.wire_off));
-                    }
+                }
+
+                for c in &crossings {
+                    let (color, sw) = wire_colors[c.vertical_wire_idx];
+                    draw_hop_arc(&painter, app.to_screen(c.crossing), app.zoom, color, sw);
+                }
+
+                // Phase 6: overlay junction dots
+                let junction_radius = app.zoom * 0.15;
+                for &junction in &junctions {
+                    let color = if running {
+                        app.active_netlist
+                            .as_ref()
+                            .and_then(|nl| nl.node_map.get(&junction))
+                            .and_then(|&nid| app.wire_color_cache.get(&nid))
+                            .copied()
+                            .unwrap_or(app.theme.wire_off)
+                    } else {
+                        app.theme.wire_off
+                    };
+                    painter.circle_filled(app.to_screen(junction), junction_radius, color);
                 }
 
                 // Draw Existing Components
